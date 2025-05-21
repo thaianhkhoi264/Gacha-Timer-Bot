@@ -29,6 +29,10 @@ def init_db(): # Initialize the SQLite database
                     end_date TEXT,
                     image TEXT
                 )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS config (
+                    server_id TEXT PRIMARY KEY,
+                    timer_channel_id TEXT
+                )''')
     conn.commit()
     conn.close()
 
@@ -39,7 +43,7 @@ bot = commands.Bot(command_prefix='Kanami ', intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"Kanami is ready to go, {bot.user.name}!")
+    print(f"Kanami is ready to go!")
 
 # Function to convert date and time to Unix timestamp
 def convert_to_unix(date: str, time: str):
@@ -78,6 +82,43 @@ def convert_to_unix_tz(date: str, time: str, timezone_str: str = "UTC"):
     dt_local = dt_naive.replace(tzinfo=tz)
     return int(dt_local.timestamp())
 
+# Function to update the timer channel with the latest events
+async def update_timer_channel(guild, bot):
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT timer_channel_id FROM config WHERE server_id=?", (str(guild.id),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return  # No timer channel set
+    channel_id = int(row[0])
+    c.execute("SELECT title, start_date, end_date, image FROM user_data WHERE server_id=? ORDER BY id DESC", (str(guild.id),))
+    rows = c.fetchall()
+    conn.close()
+
+    channel = guild.get_channel(channel_id)
+    if not channel:
+        return
+
+    # Delete previous bot messages in the channel (optional: limit to last 50 for efficiency)
+    async for msg in channel.history(limit=50):
+        if msg.author == bot.user:
+            await msg.delete()
+
+    # Send new embeds
+    if rows:
+        for title, start_unix, end_unix, image in rows:
+            embed = discord.Embed(
+                title=title,
+                description=f"**Start:** <t:{start_unix}:F>\n**End:** <t:{end_unix}:F>",
+                color=discord.Color.blue()
+            )
+            if image and (image.startswith("http://") or image.startswith("https://")):
+                embed.set_image(url=image)
+            await channel.send(embed=embed)
+    else:
+        await channel.send("No timer data found for this server. Use `Kanami add` to add one.")
+
 @bot.event # Checks for "good girl" and "good boy" in messages
 async def on_message(message):
     if message.author == bot.user:
@@ -100,7 +141,7 @@ async def hello(ctx):
 @bot.command() # "version" command
 async def version(ctx):
     """ Returns the current version of the bot. """
-    await ctx.send("Current version is 0.1.5")
+    await ctx.send("Current version is 0.3.0")
 
 
 @bot.command() # "convert" command to convert date and time to Unix timestamp
@@ -144,27 +185,27 @@ async def converttz(ctx, time: str, date: str = None, timezone_str: str = "UTC")
 
 @bot.command() # "timer" command
 async def timer(ctx):
-    """ Sends an embed with the latest timer details for this server """
+    """ Sends each event as its own embed with its image for this server """
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    # Get the latest timer for this server
     c.execute(
-        "SELECT title, start_date, end_date, image FROM user_data WHERE server_id=? ORDER BY id DESC LIMIT 1",
+        "SELECT title, start_date, end_date, image FROM user_data WHERE server_id=? ORDER BY id DESC",
         (str(ctx.guild.id),)
     )
-    row = c.fetchone()
+    rows = c.fetchall()
     conn.close()
 
-    if row:
-        title, start_unix, end_unix, image = row
-        embed = discord.Embed(
-            title=title,
-            description=f"**Start:** <t:{start_unix}:F>\n**End:** <t:{end_unix}:F>",
-            color=discord.Color.blue()
-        )
-        if image:
-            embed.set_image(url=image)
-        await ctx.send(embed=embed)
+    if rows:
+        for title, start_unix, end_unix, image in rows:
+            embed = discord.Embed(
+                title=title,
+                description=f"**Start:** <t:{start_unix}:F>\n**End:** <t:{end_unix}:F>",
+                color=discord.Color.blue()
+            )
+            # Only set image if it's a valid URL
+            if image and (image.startswith("http://") or image.startswith("https://")):
+                embed.set_image(url=image)
+            await ctx.send(embed=embed)
     else:
         await ctx.send("No timer data found for this server. Use `Kanami add` to add one.")
 
@@ -177,6 +218,7 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, timezone
     - end: End date/time (YYYY-MM-DD HH:MM or unix timestamp).
     - image: (Optional) Image URL.
     - timezone_str: (Optional) Timezone for date/time (default: UTC).
+    If the title already exists, appends a number to make it unique (e.g., "Event", "Event 2", "Event 3", ...).
     """
     def parse_time(val, tz):
         # Try to parse as unix timestamp
@@ -199,15 +241,78 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, timezone
         await ctx.send(f"Error parsing date/time: {e}")
         return
 
+    # Check for duplicate titles and append a number if needed
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
+    base_title = title
+    suffix = 1
+    new_title = base_title
+    while True:
+        c.execute(
+            "SELECT COUNT(*) FROM user_data WHERE server_id=? AND title=?",
+            (str(ctx.guild.id), new_title)
+        )
+        count = c.fetchone()[0]
+        if count == 0:
+            break
+        suffix += 1
+        new_title = f"{base_title} {suffix}"
+
     c.execute(
         "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image) VALUES (?, ?, ?, ?, ?, ?)",
-        (str(ctx.author.id), str(ctx.guild.id), title, str(start_unix), str(end_unix), image)
+        (str(ctx.author.id), str(ctx.guild.id), new_title, str(start_unix), str(end_unix), image)
     )
     conn.commit()
     conn.close()
-    await ctx.send(f"Added `{title}` with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!")
+    await ctx.send(f"Added `{new_title}` with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!")
+    await update_timer_channel(ctx.guild, bot)
 
+
+@bot.command()  # "remove" command to remove an event from the database
+async def remove(ctx, title: str):
+    """
+    Removes an event by title for this server.
+    Usage: Kanami remove <title>
+    """
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    # Find the event with the exact title
+    c.execute(
+        "SELECT id, start_date, end_date FROM user_data WHERE server_id=? AND title=?",
+        (str(ctx.guild.id), title)
+    )
+    row = c.fetchone()
+
+    if not row:
+        await ctx.send(f"No event with the title `{title}` found for this server.")
+        conn.close()
+        return
+
+    event_id, start, end = row
+
+    # Remove the event
+    c.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Removed event `{title}` (Start: <t:{start}:F>, End: <t:{end}:F>) from the database.")
+    await update_timer_channel(ctx.guild, bot)
+
+@bot.command() # "update" command to manually update the timer channel
+async def update(ctx):
+    """Manually update the timer channel with the latest events."""
+    await update_timer_channel(ctx.guild, bot)
+    await ctx.send("Timer channel updated with the latest events.")
+
+@bot.command() # settimerchannel command to set the current channel as the timer display channel
+@commands.has_permissions(manage_channels=True)
+async def settimerchannel(ctx):
+    """Set the current channel as the timer display channel."""
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("REPLACE INTO config (server_id, timer_channel_id) VALUES (?, ?)",
+              (str(ctx.guild.id), str(ctx.channel.id)))
+    conn.commit()
+    conn.close()
+    await ctx.send("This channel is now set for timer updates.")
 
 bot.run(token,log_handler=handler, log_level=logging.DEBUG)
