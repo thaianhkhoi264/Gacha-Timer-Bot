@@ -14,7 +14,8 @@ import asyncio
 from playwright.async_api import async_playwright
 import dateparser
 
-bot_version = "0.5.4"
+bot_version = "0.5.7"
+assigned_channels = {}
 
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
@@ -24,7 +25,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-def init_db(): # Initialize the SQLite database
+def init_db():
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS user_data (
@@ -41,6 +42,11 @@ def init_db(): # Initialize the SQLite database
                     server_id TEXT PRIMARY KEY,
                     timer_channel_id TEXT
                 )''')
+    # Add a new table for announcement channels
+    c.execute('''CREATE TABLE IF NOT EXISTS announce_config (
+                    server_id TEXT PRIMARY KEY,
+                    announce_channel_id TEXT
+                )''')
     conn.commit()
     conn.close()
 
@@ -52,6 +58,21 @@ bot = commands.Bot(command_prefix='Kanami ', intents=intents)
 @bot.event
 async def on_ready():
     print(f"Kanami is ready to go!")
+    # Announce in all assigned announcement channels
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT server_id, announce_channel_id FROM announce_config")
+    rows = c.fetchall()
+    conn.close()
+    for server_id, channel_id in rows:
+        guild = bot.get_guild(int(server_id))
+        if guild:
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                try:
+                    await channel.send(f"Kanami is ready to go! (version {bot_version})")
+                except Exception:
+                    pass
 
 # Function to convert date and time to Unix timestamp
 def convert_to_unix(date: str, time: str):
@@ -230,6 +251,51 @@ async def version(ctx):
     """ Returns the current version of the bot. """
     await ctx.send(f"Current version is {bot_version}!")
 
+@bot.command() # "assign" command to assign the bot to announce its readiness in this channel
+@commands.has_permissions(manage_channels=True)
+async def assign(ctx):
+    """
+    Assigns the bot to announce its readiness in this channel on startup.
+    Usage: Kanami assign
+    """
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("REPLACE INTO announce_config (server_id, announce_channel_id) VALUES (?, ?)", (str(ctx.guild.id), str(ctx.channel.id)))
+    conn.commit()
+    conn.close()
+    await ctx.send("This channel has been assigned for bot announcements.")
+
+@bot.command()  # "checkchannels" command to show assigned announcement and timer channels
+async def checkchannels(ctx):
+    """
+    Shows which channels are set for announcements and timer updates in this server.
+    Usage: Kanami checkchannels
+    """
+    guild_id = str(ctx.guild.id)
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+
+    # Get announcement channel
+    c.execute("SELECT announce_channel_id FROM announce_config WHERE server_id=?", (guild_id,))
+    announce_row = c.fetchone()
+    announce_channel = None
+    if announce_row and announce_row[0]:
+        announce_channel = ctx.guild.get_channel(int(announce_row[0]))
+
+    # Get timer channel
+    c.execute("SELECT timer_channel_id FROM config WHERE server_id=?", (guild_id,))
+    timer_row = c.fetchone()
+    timer_channel = None
+    if timer_row and timer_row[0]:
+        timer_channel = ctx.guild.get_channel(int(timer_row[0]))
+
+    conn.close()
+
+    msg = "**Assigned Channels:**\n"
+    msg += f"**Announcement Channel:** {announce_channel.mention if announce_channel else 'Not set'}\n"
+    msg += f"**Timer Channel:** {timer_channel.mention if timer_channel else 'Not set'}"
+
+    await ctx.send(msg)
 
 @bot.command() # "convert" command to convert date and time to Unix timestamp
 async def convert(ctx, time: str, date: str = None):
