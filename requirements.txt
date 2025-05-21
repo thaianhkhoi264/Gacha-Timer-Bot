@@ -3,3 +3,4 @@ python-dotenv
 tzdata
 playwright
 dateparser
+pytz
