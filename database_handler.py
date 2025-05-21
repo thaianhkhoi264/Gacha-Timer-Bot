@@ -13,7 +13,14 @@ def init_db():
                     start_date TEXT,
                     end_date TEXT,
                     image TEXT,
-                    category TEXT
+                    category TEXT,
+                    is_hyv INTEGER DEFAULT 0,
+                    asia_start TEXT,
+                    asia_end TEXT,
+                    america_start TEXT,
+                    america_end TEXT,
+                    europe_start TEXT,
+                    europe_end TEXT
                 )''')
     c.execute('''CREATE TABLE IF NOT EXISTS config (
                     server_id TEXT PRIMARY KEY,
@@ -39,7 +46,7 @@ async def update_timer_channel(guild, bot):
         conn.close()
         return  # No timer channel set
     channel_id = int(row[0])
-    c.execute("SELECT title, start_date, end_date, image, category FROM user_data WHERE server_id=? ORDER BY id DESC", (str(guild.id),))
+    c.execute("SELECT title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end FROM user_data WHERE server_id=? ORDER BY id DESC", (str(guild.id),))
     rows = c.fetchall()
     conn.close()
 
@@ -54,7 +61,8 @@ async def update_timer_channel(guild, bot):
 
     # Send new embeds with color based on category
     if rows:
-        for title, start_unix, end_unix, image, category in rows:
+        for row in rows:
+            title, start_unix, end_unix, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end = row
             color = discord.Color.blue()  # Default to blue
             if category == "Banner":
                 color = discord.Color.blue()
@@ -66,9 +74,20 @@ async def update_timer_channel(guild, bot):
                 color = discord.Color.blurple()
             embed = discord.Embed(
                 title=title,
-                description=f"**Start:** <t:{start_unix}:F>\n**End:** <t:{end_unix}:F>",
                 color=color
             )
+            if int(is_hyv):
+                # Show all three regions
+                embed.description = (
+                    f"**Asia Server:**\n"
+                    f"Start: <t:{asia_start}:F>\nEnd: <t:{asia_end}:F>\n\n"
+                    f"**America Server:**\n"
+                    f"Start: <t:{america_start}:F>\nEnd: <t:{america_end}:F>\n\n"
+                    f"**Europe Server:**\n"
+                    f"Start: <t:{europe_start}:F>\nEnd: <t:{europe_end}:F>"
+                )
+            else:
+                embed.description = f"**Start:** <t:{start_unix}:F>\n**End:** <t:{end_unix}:F>"
             if image and (image.startswith("http://") or image.startswith("https://")):
                 embed.set_image(url=image)
             await channel.send(embed=embed)

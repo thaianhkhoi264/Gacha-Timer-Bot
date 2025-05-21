@@ -1,6 +1,6 @@
 from modules import *
 
-bot_version = "0.5.8"
+bot_version = "0.6.5"
 assigned_channels = {}
 
 load_dotenv()

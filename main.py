@@ -4,6 +4,26 @@ from database_handler import *
 from utilities import *
 from bot import *
 
+import signal
+import asyncio
+
+# Shutdown message
+async def shutdown_message():
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT server_id, announce_channel_id FROM announce_config")
+    rows = c.fetchall()
+    conn.close()
+    for server_id, channel_id in rows:
+        guild = bot.get_guild(int(server_id))
+        if guild:
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                try:
+                    await channel.send("Gweheh Shindago...")
+                except Exception:
+                    pass
+
 @bot.event # Bot announces when its ready
 async def on_ready():
     print(f"Kanami is ready to go!")
@@ -140,5 +160,12 @@ async def settimerchannel(ctx):
     conn.commit()
     conn.close()
     await ctx.send("This channel is now set for timer updates.")
+
+def handle_shutdown():
+    loop = asyncio.get_event_loop()
+    loop.create_task(shutdown_message())
+
+signal.signal(signal.SIGINT, lambda s, f: handle_shutdown())
+signal.signal(signal.SIGTERM, lambda s, f: handle_shutdown())
 
 bot.run(token,log_handler=handler, log_level=logging.DEBUG)
