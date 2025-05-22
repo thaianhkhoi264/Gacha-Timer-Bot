@@ -3,6 +3,7 @@ from twitter_handler import *
 from database_handler import *
 from utilities import *
 from bot import *
+from notification_handler import *
 
 import signal
 import asyncio
