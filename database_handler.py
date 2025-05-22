@@ -5,6 +5,7 @@ from bot import *
 def init_db():
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
+    # Event data
     c.execute('''CREATE TABLE IF NOT EXISTS user_data (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT,
@@ -23,16 +24,43 @@ def init_db():
                     europe_end TEXT,
                     profile TEXT
                 )''')
+    # Timer channel config
     c.execute('''CREATE TABLE IF NOT EXISTS config (
                     server_id TEXT,
                     profile TEXT,
                     timer_channel_id TEXT,
                     PRIMARY KEY (server_id, profile)
                 )''')
-    # Add a new table for announcement channels
+    # Announcement channel config
     c.execute('''CREATE TABLE IF NOT EXISTS announce_config (
                     server_id TEXT PRIMARY KEY,
                     announce_channel_id TEXT
+                )''')
+    # Notification timings per category
+    c.execute('''CREATE TABLE IF NOT EXISTS notification_timings (
+                    server_id TEXT,
+                    category TEXT,
+                    timing_minutes INTEGER,
+                    PRIMARY KEY (server_id, category)
+                )''')
+    # Notification timing status channel/message
+    c.execute('''CREATE TABLE IF NOT EXISTS notification_timing_channel (
+                    server_id TEXT PRIMARY KEY,
+                    channel_id TEXT,
+                    message_id TEXT
+                )''')
+    # Notification channel
+    c.execute('''CREATE TABLE IF NOT EXISTS notification_channel (
+                    server_id TEXT PRIMARY KEY,
+                    channel_id TEXT
+                )''')
+    # Role reaction emoji-role mapping
+    c.execute('''CREATE TABLE IF NOT EXISTS role_reactions (
+                    server_id TEXT,
+                    message_id TEXT,
+                    emoji TEXT,
+                    role_id TEXT,
+                    PRIMARY KEY (server_id, emoji)
                 )''')
     conn.commit()
     conn.close()
