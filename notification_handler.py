@@ -21,6 +21,15 @@ async def on_raw_reaction_add(payload):
             member = guild.get_member(payload.user_id)
             if member:
                 await member.add_roles(role, reason="Role reaction add")
+                # Send a confirmation message in the channel
+                channel = guild.get_channel(payload.channel_id)
+                if channel:
+                    try:
+                        confirm_msg = await channel.send(f"{member.mention}, Kanami will notify you about `{role.name}` news!")
+                        await asyncio.sleep(5)
+                        await confirm_msg.delete()
+                    except Exception:
+                        pass
 
 @bot.event
 async def on_raw_reaction_remove(payload):
@@ -37,6 +46,15 @@ async def on_raw_reaction_remove(payload):
             member = guild.get_member(payload.user_id)
             if member:
                 await member.remove_roles(role, reason="Role reaction remove")
+                # Send a confirmation message in the channel
+                channel = guild.get_channel(payload.channel_id)
+                if channel:
+                    try:
+                        confirm_msg = await channel.send(f"{member.mention}, Kanami won't notify you about `{role.name}` anymore...")
+                        await asyncio.sleep(5)
+                        await confirm_msg.delete()
+                    except Exception:
+                        pass
 
 
 #Crete and delete role commands
