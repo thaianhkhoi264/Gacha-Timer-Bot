@@ -88,18 +88,21 @@ async def checkchannels(ctx):
     if announce_row and announce_row[0]:
         announce_channel = ctx.guild.get_channel(int(announce_row[0]))
 
-    # Get timer channel
-    c.execute("SELECT timer_channel_id FROM config WHERE server_id=?", (guild_id,))
-    timer_row = c.fetchone()
-    timer_channel = None
-    if timer_row and timer_row[0]:
-        timer_channel = ctx.guild.get_channel(int(timer_row[0]))
-
+    # Get all timer channels for all profiles
+    c.execute("SELECT profile, timer_channel_id FROM config WHERE server_id=?", (guild_id,))
+    timer_rows = c.fetchall()
     conn.close()
 
     msg = "**Assigned Channels:**\n"
     msg += f"**Announcement Channel:** {announce_channel.mention if announce_channel else 'Not set'}\n"
-    msg += f"**Timer Channel:** {timer_channel.mention if timer_channel else 'Not set'}"
+
+    if timer_rows:
+        msg += "**Timer Channels:**\n"
+        for profile, channel_id in timer_rows:
+            channel = ctx.guild.get_channel(int(channel_id)) if channel_id else None
+            msg += f"  • **{profile}**: {channel.mention if channel else 'Not set'}\n"
+    else:
+        msg += "**Timer Channels:** Not set\n"
 
     await ctx.send(msg)
 
@@ -143,27 +146,52 @@ async def converttz(ctx, time: str, date: str = None, timezone_str: str = "UTC")
         )       
 
 
-@bot.command() # "update" command to manually update the timer channel
+@bot.command() # "update" command to manually update all timer channels for all profiles
 async def update(ctx):
-    """Manually update the timer channel with the latest events."""
-    await update_timer_channel(ctx.guild, bot)
-    await ctx.send("Timer channel updated with the latest events.")
-
-@bot.command() # settimerchannel command to set the current channel as the timer display channel
-@commands.has_permissions(manage_channels=True)
-async def settimerchannel(ctx):
-    """Set the current channel as the timer display channel."""
+    """Manually update all timer channels for all profiles in this server."""
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    c.execute("REPLACE INTO config (server_id, timer_channel_id) VALUES (?, ?)",
-              (str(ctx.guild.id), str(ctx.channel.id)))
+    # Get all profiles set for this server
+    c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
+    profiles = [row[0] for row in c.fetchall()]
+    conn.close()
+    if not profiles:
+        await ctx.send("No timer channels are set for this server.")
+        return
+    # Update each profile's timer channel
+    for profile in profiles:
+        await update_timer_channel(ctx.guild, bot, profile=profile)
+    await ctx.send(f"Timer channels updated for profiles: {', '.join(profiles)}.")
+
+@bot.command()
+@commands.has_permissions(manage_channels=True)
+async def settimerchannel(ctx, profile: str = None):
+    """
+    Set the current channel as the timer display channel.
+    Optionally specify a profile (e.g. Kanami settimerchannel HSR).
+    """
+    profile = profile.upper() if profile else "ALL"
+    valid_profiles = {"HSR": "honkaistarrail", "ZZZ": "zzz_en", "AK": "ArknightsEN", "ALL": "ALL"}  # Add more as needed
+
+    if profile not in valid_profiles:
+        await ctx.send(f"Unknown profile `{profile}`. Valid options: {', '.join(valid_profiles.keys())}")
+        return
+
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute(
+        "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
+        (str(ctx.guild.id), profile, str(ctx.channel.id))
+    )
+    await ctx.send(f"This channel is now set for timer updates for **{profile}**.")
     conn.commit()
     conn.close()
-    await ctx.send("This channel is now set for timer updates.")
 
-def handle_shutdown():
+def handle_shutdown(*args):
     loop = asyncio.get_event_loop()
     loop.create_task(shutdown_message())
+    # Optionally, stop the bot after sending the message:
+    # loop.create_task(bot.close())
 
 signal.signal(signal.SIGINT, lambda s, f: handle_shutdown())
 signal.signal(signal.SIGTERM, lambda s, f: handle_shutdown())

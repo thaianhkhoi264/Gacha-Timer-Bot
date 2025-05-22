@@ -38,11 +38,55 @@ def parse_dates_hsr(text):
 
     return None, None
 
+def parse_dates_ak(text):
+    """
+    Parses Arknights event/maintenance tweets for start and end times.
+    Handles:
+      - ...during May 6, 2025, 04:00 (UTC-7) - May 20, 2025, 03:59 (UTC-7)...
+      - ...on May 8, 2025, 10:00-10:10 (UTC-7)...
+      - ...between May 8, 2025, 10:00 - May 22, 2024, 03:59 (UTC-7)...
+    Returns (start, end) as strings if found, otherwise None for missing.
+    """
+    # 1. Range with dash or en-dash and optional UTC
+    match = re.search(
+        r'(?:during|between)?\s*([A-Za-z]+\s+\d{1,2},\s*\d{4},?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)\s*[-–]\s*([A-Za-z]+\s+\d{1,2},\s*\d{4},?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
+        text, re.IGNORECASE)
+    if match:
+        start = match.group(1).strip()
+        end = match.group(2).strip()
+        return start, end
+
+    # 2. Maintenance with single date and time range (e.g. May 8, 2025, 10:00-10:10 (UTC-7))
+    match = re.search(
+        r'on\s*([A-Za-z]+\s+\d{1,2},\s*\d{4}),?\s*(\d{2}:\d{2})\s*[-–]\s*(\d{2}:\d{2})\s*\((UTC[+-]\d+)\)',
+        text, re.IGNORECASE)
+    if match:
+        date = match.group(1).strip()
+        start_time = match.group(2).strip()
+        end_time = match.group(3).strip()
+        tz = match.group(4).strip()
+        start = f"{date}, {start_time} ({tz})"
+        end = f"{date}, {end_time} ({tz})"
+        return start, end
+
+    # 3. Fallback: single date/time with UTC
+    match = re.search(
+        r'([A-Za-z]+\s+\d{1,2},\s*\d{4},?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
+        text, re.IGNORECASE)
+    if match:
+        date = match.group(1).strip()
+        return date, None
+
+    return None, None
+
 POSTER_PROFILES = {
     "honkaistarrail": {
-        "parse_dates": parse_dates_hsr,
+        "parse_dates": parse_dates_hsr
         # Add more custom settings if needed
     },
+    "ArknightsEN": {
+        "parse_dates": parse_dates_ak
+    }
     # Add more profiles as needed
 }
 
@@ -142,6 +186,13 @@ async def prompt_for_missing_dates(ctx, start, end, is_hyv=False):
             return None, None
     elif (start and not end) or (end and not start):
         found_date = start if start else end
+        # Try to extract timezone from found_date
+        tz_match = re.search(r'(UTC[+-]\d+|GMT[+-]\d+|[A-Za-z]+/[A-Za-z_]+)', found_date)
+        tz_hint = ""
+        tz_str = None
+        if tz_match:
+            tz_str = tz_match.group(1)
+            tz_hint = f" Please use the same timezone as `{tz_str}`."
         await ctx.send(
             f"Found date: `{found_date}`\n"
             f"Discord format: <t:{to_unix_timestamp(found_date)}:F> / <t:{to_unix_timestamp(found_date)}:R>\n"
@@ -154,21 +205,29 @@ async def prompt_for_missing_dates(ctx, start, end, is_hyv=False):
             await ctx.send("No response. Cancelling.")
             return None, None
 
+        def ensure_timezone(user_input, tz_str):
+            # If user_input already contains a timezone, return as is
+            if not tz_str:
+                return user_input
+            if re.search(r'(UTC[+-]\d+|GMT[+-]\d+|[A-Za-z]+/[A-Za-z_]+)', user_input):
+                return user_input
+            return f"{user_input} {tz_str}"
+
         if found_type == "start":
             start = found_date
-            await ctx.send(f"Please enter the **end** date/time{time_hint}:")
+            await ctx.send(f"Please enter the **end** date/time{time_hint}.{tz_hint}")
             try:
                 end_msg = await bot.wait_for("message", timeout=60.0, check=check)
-                end = end_msg.content
+                end = ensure_timezone(end_msg.content, tz_str)
             except asyncio.TimeoutError:
                 await ctx.send("No end date provided. Cancelling.")
                 return None, None
         elif found_type == "end":
             end = found_date
-            await ctx.send(f"Please enter the **start** date/time{time_hint}:")
+            await ctx.send(f"Please enter the **start** date/time{time_hint}.{tz_hint}")
             try:
                 start_msg = await bot.wait_for("message", timeout=60.0, check=check)
-                start = start_msg.content
+                start = ensure_timezone(start_msg.content, tz_str)
             except asyncio.TimeoutError:
                 await ctx.send("No start date provided. Cancelling.")
                 return None, None
@@ -226,15 +285,21 @@ def parse_dates_from_text(text: str):
     """
     Tries to find start and end date/time in the tweet text using dateparser.
     Returns (start, end) as strings if found, otherwise None for missing.
+    Ignores Twitter upload timestamps like '1:00 PM · May 19, 2025'.
     """
+    # Remove all occurrences of Twitter upload timestamp lines from text
+    # Pattern: time (AM/PM) · Month Day, Year
+    cleaned_text = re.sub(
+        r'\d{1,2}:\d{2}\s*[AP]M\s*·\s*[A-Za-z]+\s+\d{1,2},\s*\d{4}', '', text)
+
     # Try to find a date range like "... between May 9, 2025, 04:00 - May 23, 2025, 03:59 (UTC-7)"
     range_match = re.search(
-        r'between\s+(.+?)\s*[-–]\s*(.+?)(?:[\.\)]|$)', text, re.IGNORECASE)
+        r'between\s+(.+?)\s*[-–]\s*(.+?)(?:[\.\)]|$)', cleaned_text, re.IGNORECASE)
     if range_match:
         start_str = range_match.group(1).strip()
         end_str = range_match.group(2).strip()
         # Try to append timezone if present at the end
-        tz_match = re.search(r'\((UTC[+-]\d+)\)', text)
+        tz_match = re.search(r'\((UTC[+-]\d+)\)', cleaned_text)
         if tz_match:
             tz = tz_match.group(1)
             if tz not in start_str:
@@ -243,13 +308,13 @@ def parse_dates_from_text(text: str):
                 end_str += f' {tz}'
         return start_str, end_str
 
-    # Fallback: find all date-like substrings (less robust)
+    # Fallback: find all date-like substrings (strictly from tweet text)
     date_candidates = re.findall(
-        r'(\w{3,9}\s+\d{1,2},\s*\d{4}(?:,?\s*\d{2}:\d{2})?(?:\s*\(UTC[+-]\d+\))?)', text)
+        r'(\w{3,9}\s+\d{1,2},\s*\d{4}(?:,?\s*\d{2}:\d{2})?(?:\s*\(UTC[+-]\d+\))?)', cleaned_text)
     parsed_dates = []
     for candidate in date_candidates:
         dt = dateparser.parse(candidate, settings={'RETURN_AS_TIMEZONE_AWARE': True})
-        if dt:
+        if dt and candidate in cleaned_text:
             parsed_dates.append(candidate)
     if len(parsed_dates) >= 2:
         return parsed_dates[0], parsed_dates[1]
@@ -278,20 +343,48 @@ async def read(ctx, link: str):
         await ctx.send("Could not read the tweet. Please check the link or try again later.")
         return
 
-    if username in HYV_ACCOUNTS:
-        await ctx.send("Oh this is a Hoyoverse game NOOOOOOOOOOOOO")
-        await ctx.send("<:KanamiScream:1374712543704256594>")
+    # --- ArknightsEN special logic ---       
+    if username and username.lower() == "arknightsen":
+        text_lower = tweet_text.lower()
+        if "operator" in text_lower or "operators" in text_lower:
+            category = "Banner"
+            title = await prompt_for_title(ctx, tweet_text)
+            image = tweet_image
+        elif "event" in text_lower:
+            category = "Event"
+            title = await prompt_for_title(ctx, tweet_text)
+            image = await prompt_for_image(ctx, tweet_image)
+        elif "maintenance" in text_lower:
+            category = "Maintenence"
+            from datetime import datetime
+            title = f"Maintenance {datetime.now().strftime('%Y-%m-%d')}"
+            image = tweet_image
+        else:
+            category = await prompt_for_category(ctx)
+            title = await prompt_for_title(ctx, tweet_text)
+            image = await prompt_for_image(ctx, tweet_image)
+        event_profile = "ArknightsEN"
+    else:
+        # fallback for other profiles
+        category = await prompt_for_category(ctx)
+        title = await prompt_for_title(ctx, tweet_text)
+        image = await prompt_for_image(ctx, tweet_image)
+        # Try to match username to your valid_profiles mapping
+        valid_profiles = {"honkaistarrail": "HSR", "zzz_en": "ZZZ", "arknightsen": "AK"}
+        event_profile = username if username else "ALL"
+        # Use the actual Twitter username as the profile for consistency with your config
 
     # Use profile-specific parsing if available
-    profile = POSTER_PROFILES.get(username)
-    if profile and "parse_dates" in profile:
-        start, end = profile["parse_dates"](tweet_text)
+    profile_parser = POSTER_PROFILES.get(username)
+    if profile_parser and "parse_dates" in profile_parser:
+        start, end = profile_parser["parse_dates"](tweet_text)
     else:
         start, end = parse_dates_from_text(tweet_text)
 
-    title = await prompt_for_title(ctx, tweet_text)
     if not title:
-        return
+        title = await prompt_for_title(ctx, tweet_text)
+        if not title:
+            return
 
     # --- Prompt for missing dates BEFORE HYV logic ---
     is_hyv = username in HYV_ACCOUNTS
@@ -304,20 +397,17 @@ async def read(ctx, link: str):
         start_times = convert_to_all_timezones(start)
         end_times = convert_to_all_timezones(end)
 
-    # --- HYV logic ---
-    if username in HYV_ACCOUNTS:
-        start_times = convert_to_all_timezones(start)
-        end_times = convert_to_all_timezones(end)
-
         if not (start_times and end_times):
             await ctx.send("Could not parse start or end time for all regions. Cancelling.")
             return
 
-        category = await prompt_for_category(ctx)
+        # Optionally prompt for category/image if not set
         if not category:
-            return
-
-        image = await prompt_for_image(ctx, tweet_image)
+            category = await prompt_for_category(ctx)
+            if not category:
+                return
+        if not image:
+            image = await prompt_for_image(ctx, tweet_image)
 
         asia_start = str(start_times["Asia"][1])
         asia_end = str(end_times["Asia"][1])
@@ -343,10 +433,10 @@ async def read(ctx, link: str):
             new_title = f"{base_title} {suffix}"
 
         c.execute(
-            "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 str(ctx.author.id), str(ctx.guild.id), new_title, "", "", image, category, 1,
-                asia_start, asia_end, america_start, america_end, europe_start, europe_end
+                asia_start, asia_end, america_start, america_end, europe_start, europe_end, username
             )
         )
         conn.commit()
@@ -354,7 +444,7 @@ async def read(ctx, link: str):
         await ctx.send(
             f"Added `{new_title}` as **{category}** for all HYV server regions to the database!"
         )
-        await update_timer_channel(ctx.guild, bot)
+        await update_timer_channel(ctx.guild, bot, profile=username)
         return
 
     # --- Non-HYV logic below ---
@@ -380,11 +470,13 @@ async def read(ctx, link: str):
         await ctx.send(f"Error parsing date/time: {e}")
         return
 
-    category = await prompt_for_category(ctx)
     if not category:
-        return
+        category = await prompt_for_category(ctx)
+        if not category:
+            return
 
-    image = await prompt_for_image(ctx, tweet_image)
+    if not image:
+        image = await prompt_for_image(ctx, tweet_image)
 
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
@@ -403,12 +495,21 @@ async def read(ctx, link: str):
         new_title = f"{base_title} {suffix}"
 
     c.execute(
-        "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (str(ctx.author.id), str(ctx.guild.id), new_title, str(start_unix), str(end_unix), image, category)
+        "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (str(ctx.author.id), str(ctx.guild.id), new_title, str(start_unix), str(end_unix), image, category, event_profile)
     )
     conn.commit()
     conn.close()
     await ctx.send(
         f"Added `{new_title}` as **{category}** with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!"
     )
-    await update_timer_channel(ctx.guild, bot)
+    await update_timer_channel(ctx.guild, bot, profile=event_profile)
+
+    # After adding the event, update all timer channels for all profiles in this server
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
+    profiles = [row[0] for row in c.fetchall()]
+    conn.close()
+    for profile in profiles:
+        await update_timer_channel(ctx.guild, bot, profile=profile)
