@@ -20,11 +20,14 @@ def init_db():
                     america_start TEXT,
                     america_end TEXT,
                     europe_start TEXT,
-                    europe_end TEXT
+                    europe_end TEXT,
+                    profile TEXT
                 )''')
     c.execute('''CREATE TABLE IF NOT EXISTS config (
-                    server_id TEXT PRIMARY KEY,
-                    timer_channel_id TEXT
+                    server_id TEXT,
+                    profile TEXT,
+                    timer_channel_id TEXT,
+                    PRIMARY KEY (server_id, profile)
                 )''')
     # Add a new table for announcement channels
     c.execute('''CREATE TABLE IF NOT EXISTS announce_config (
@@ -36,17 +39,44 @@ def init_db():
 
 init_db()
 
-# Function to update the timer channel with the latest events
-async def update_timer_channel(guild, bot):
+
+
+# Function to update the timer channel with the latest events for a given profile
+async def update_timer_channel(guild, bot, profile="ALL"):
+    # Map short profile keys to canonical names
+    profile_map = {
+        "HSR": "honkaistarrail",
+        "ZZZ": "zzz_en",
+        "AK": "ArknightsEN",
+        "ALL": "ALL"
+    }
+    canonical_profile = profile_map.get(profile, profile)
+
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    c.execute("SELECT timer_channel_id FROM config WHERE server_id=?", (str(guild.id),))
+    # Try to get the timer channel for the specific profile
+    c.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile=?", (str(guild.id), profile))
     row = c.fetchone()
+    # Fallback to ALL if not found
+    if not row:
+        c.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),))
+        row = c.fetchone()
     if not row:
         conn.close()
         return  # No timer channel set
     channel_id = int(row[0])
-    c.execute("SELECT title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end FROM user_data WHERE server_id=? ORDER BY id DESC", (str(guild.id),))
+
+    # Fetch events for this profile only, or all if profile is "ALL"
+    if canonical_profile == "ALL":
+        c.execute(
+            "SELECT title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end FROM user_data WHERE server_id=? ORDER BY id DESC",
+            (str(guild.id),)
+        )
+    else:
+        c.execute(
+            "SELECT title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end FROM user_data WHERE server_id=? AND profile=? ORDER BY id DESC",
+            (str(guild.id), canonical_profile)
+        )
     rows = c.fetchall()
     conn.close()
 
@@ -54,10 +84,9 @@ async def update_timer_channel(guild, bot):
     if not channel:
         return
 
-    # Delete previous bot messages in the channel (optional: limit to last 50 for efficiency)
+    # Delete previous messages in the channel (optional: limit to last 50 for efficiency)
     async for msg in channel.history(limit=50):
-        if msg.author == bot.user:
-            await msg.delete()
+        await msg.delete()
 
     # Send new embeds with color based on category
     if rows:
@@ -221,7 +250,14 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, timezone
     await ctx.send(
         f"Added `{new_title}` as **{category}** with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!"
     )
-    await update_timer_channel(ctx.guild, bot)
+    # Update all timer channels for all profiles in this server
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
+    profiles = [row[0] for row in c.fetchall()]
+    conn.close()
+    for profile in profiles:
+        await update_timer_channel(ctx.guild, bot, profile=profile)
 
 @bot.command()  # "remove" command to remove an event from the database
 async def remove(ctx, title: str):
@@ -250,7 +286,14 @@ async def remove(ctx, title: str):
     conn.commit()
     conn.close()
     await ctx.send(f"Removed event `{title}` (Start: <t:{start}:F>, End: <t:{end}:F>) from the database.")
-    await update_timer_channel(ctx.guild, bot)
+    # Update all timer channels for all profiles in this server
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
+    profiles = [row[0] for row in c.fetchall()]
+    conn.close()
+    for profile in profiles:
+        await update_timer_channel(ctx.guild, bot, profile=profile)
 
 @bot.command() # "timer" command
 async def timer(ctx):
