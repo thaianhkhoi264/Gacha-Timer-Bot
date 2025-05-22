@@ -1,0 +1,21 @@
+from modules import *
+from bot import *
+from database_handler import *
+from twitter_handler import *
+
+@bot.command
+@commands.has_permissions(manage_roles=True)
+async def create_role(ctx, *, role_name: str):
+    """Creates a new role with the given name."""
+    guild = ctx.guild
+    existing_role = discord.utils.get(guild.roles, name=role_name)
+    if existing_role:
+        await ctx.send(f"Role `{role_name}` already exists.")
+        return
+    try:
+        await guild.create_role(name=role_name)
+        await ctx.send(f"Role `{role_name}` created successfully!")
+    except discord.Forbidden:
+        await ctx.send("I don't have permission to create roles.")
+    except Exception as e:
+        await ctx.send(f"An error occurred: {e}")

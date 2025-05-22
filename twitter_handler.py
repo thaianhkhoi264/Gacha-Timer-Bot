@@ -350,9 +350,15 @@ async def read(ctx, link: str):
             category = "Banner"
             title = await prompt_for_title(ctx, tweet_text)
             image = tweet_image
+            if not title:
+                await ctx.send("No title provided. Cancelling.")
+                return
         elif "event" in text_lower:
             category = "Event"
             title = await prompt_for_title(ctx, tweet_text)
+            if not title:
+                await ctx.send("No title provided. Cancelling.")
+                return
             image = await prompt_for_image(ctx, tweet_image)
         elif "maintenance" in text_lower:
             category = "Maintenence"
@@ -361,7 +367,13 @@ async def read(ctx, link: str):
             image = tweet_image
         else:
             category = await prompt_for_category(ctx)
+            if not category:
+                await ctx.send("No category provided. Cancelling.")
+                return
             title = await prompt_for_title(ctx, tweet_text)
+            if not title:
+                await ctx.send("No title provided. Cancelling.")
+                return
             image = await prompt_for_image(ctx, tweet_image)
         event_profile = "ArknightsEN"
     else:
