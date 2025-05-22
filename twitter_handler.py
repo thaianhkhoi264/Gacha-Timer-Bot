@@ -457,6 +457,14 @@ async def read(ctx, link: str):
             f"Added `{new_title}` as **{category}** for all HYV server regions to the database!"
         )
         await update_timer_channel(ctx.guild, bot, profile=username)
+        # Update all timer channels for all profiles in this server (HYV logic)
+        conn = sqlite3.connect('kanami_data.db')
+        c = conn.cursor()
+        c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
+        profiles = [row[0] for row in c.fetchall()]
+        conn.close()
+        for profile in profiles:
+            await update_timer_channel(ctx.guild, bot, profile=profile)
         return
 
     # --- Non-HYV logic below ---
