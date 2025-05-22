@@ -8,6 +8,8 @@ from notification_handler import *
 import signal
 import asyncio
 
+init_db()
+
 # Shutdown message
 async def shutdown_message():
     conn = sqlite3.connect('kanami_data.db')
@@ -72,10 +74,10 @@ async def assign(ctx):
     conn.close()
     await ctx.send("This channel has been assigned for bot announcements.")
 
-@bot.command()  # "checkchannels" command to show assigned announcement and timer channels
-async def checkchannels(ctx):
+@bot.command()  # "checkchannels" command to show assigned announcement, timer, and notification channels
+async def check_channels(ctx):
     """
-    Shows which channels are set for announcements and timer updates in this server.
+    Shows which channels are set for announcements, timer updates, and notification timings in this server.
     Usage: Kanami checkchannels
     """
     guild_id = str(ctx.guild.id)
@@ -92,6 +94,14 @@ async def checkchannels(ctx):
     # Get all timer channels for all profiles
     c.execute("SELECT profile, timer_channel_id FROM config WHERE server_id=?", (guild_id,))
     timer_rows = c.fetchall()
+
+    # Get notification timing channel
+    c.execute("SELECT channel_id FROM notification_timing_channel WHERE server_id=?", (guild_id,))
+    notif_row = c.fetchone()
+    notif_channel = None
+    if notif_row and notif_row[0]:
+        notif_channel = ctx.guild.get_channel(int(notif_row[0]))
+
     conn.close()
 
     msg = "**Assigned Channels:**\n"
@@ -104,6 +114,8 @@ async def checkchannels(ctx):
             msg += f"  • **{profile}**: {channel.mention if channel else 'Not set'}\n"
     else:
         msg += "**Timer Channels:** Not set\n"
+
+    msg += f"**Notification Timing Channel:** {notif_channel.mention if notif_channel else 'Not set'}\n"
 
     await ctx.send(msg)
 
@@ -166,10 +178,10 @@ async def update(ctx):
 
 @bot.command()
 @commands.has_permissions(manage_channels=True)
-async def settimerchannel(ctx, profile: str = None):
+async def set_timer_channel(ctx, channel: discord.TextChannel, profile: str = None):
     """
-    Set the current channel as the timer display channel.
-    Optionally specify a profile (e.g. Kanami settimerchannel HSR).
+    Set the specified channel as the timer display channel.
+    Usage: Kanami set_timer_channel #channel [profile]
     """
     profile = profile.upper() if profile else "ALL"
     valid_profiles = {"HSR": "honkaistarrail", "ZZZ": "zzz_en", "AK": "ArknightsEN", "ALL": "ALL"}  # Add more as needed
@@ -182,9 +194,9 @@ async def settimerchannel(ctx, profile: str = None):
     c = conn.cursor()
     c.execute(
         "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
-        (str(ctx.guild.id), profile, str(ctx.channel.id))
+        (str(ctx.guild.id), profile, str(channel.id))
     )
-    await ctx.send(f"This channel is now set for timer updates for **{profile}**.")
+    await ctx.send(f"{channel.mention} is now set for timer updates for **{profile}**.")
     conn.commit()
     conn.close()
 

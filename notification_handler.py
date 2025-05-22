@@ -3,6 +3,65 @@ from bot import *
 from database_handler import *
 from twitter_handler import *
 
+# function to get the notification timing for a server
+def get_notification_timing(server_id, category):
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT timing_minutes FROM notification_timings WHERE server_id=? AND category=?", (str(server_id), category))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None  # None if not set
+
+# function to update the notification timing message
+async def update_notification_timing_message(guild):
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    # Get the channel
+    c.execute("SELECT channel_id FROM notification_timing_channel WHERE server_id=?", (str(guild.id),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return
+    channel_id = int(row[0])
+    channel = guild.get_channel(channel_id)
+    if not channel:
+        conn.close()
+        return
+
+    # Get or create the status message
+    c.execute("SELECT message_id FROM notification_timing_channel WHERE server_id=?", (str(guild.id),))
+    msg_row = c.fetchone()
+    # Get timings
+    c.execute("SELECT category, timing_minutes FROM notification_timings WHERE server_id=?", (str(guild.id),))
+    timings = c.fetchall()
+    conn.close()
+
+    if not timings:
+        content = "No notification timings set."
+    else:
+        content = "**Notification Timings:**\n" + "\n".join([f"**{cat}**: {mins} minutes before" for cat, mins in timings])
+
+    # Try to edit the existing message, or send a new one
+    message_id = None
+    try:
+        c = sqlite3.connect('kanami_data.db').cursor()
+        c.execute("SELECT message_id FROM notification_timing_channel WHERE server_id=?", (str(guild.id),))
+        msg_row = c.fetchone()
+        if msg_row and msg_row[0]:
+            message_id = int(msg_row[0])
+            try:
+                msg = await channel.fetch_message(message_id)
+                await msg.edit(content=content)
+                return
+            except Exception:
+                pass
+        # If no message or failed to fetch, send a new one
+        msg = await channel.send(content)
+        c.execute("UPDATE notification_timing_channel SET message_id=? WHERE server_id=?", (str(msg.id), str(guild.id)))
+        c.connection.commit()
+    except Exception:
+        pass
+
 # Listeners for reaction roles
 @bot.event
 async def on_raw_reaction_add(payload):
@@ -190,12 +249,40 @@ async def update_role_reaction(ctx):
     await ctx.send("Role reaction message updated!")
 
 @bot.command()
-async def setnotificationchannel(ctx, channel: discord.TextChannel):
+@commands.has_permissions(manage_channels=True)
+async def set_notification_channel(ctx, channel: discord.TextChannel):
     """Sets the notification channel for the server."""
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO announce_config (server_id, announce_channel_id) VALUES (?, ?)",
-              (ctx.guild.id, channel.id))
+    c.execute("INSERT OR REPLACE INTO notification_channel (server_id, channel_id) VALUES (?, ?)",
+              (str(ctx.guild.id), str(channel.id)))
     conn.commit()
     conn.close()
     await ctx.send(f"Notification channel set to {channel.mention}.")
+
+@bot.command()
+@commands.has_permissions(manage_guild=True)
+async def set_notification_timing(ctx, category: str, minutes: int):
+    """Set notification timing (in minutes before event) for a category."""
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO notification_timings (server_id, category, timing_minutes) VALUES (?, ?, ?)",
+              (str(ctx.guild.id), category, minutes))
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Notification timing for `{category}` set to {minutes} minutes before event.")
+    await update_notification_timing_message(ctx.guild)
+
+@bot.command()
+@commands.has_permissions(manage_channels=True)
+async def set_notification_timing_channel(ctx, channel: discord.TextChannel):
+    """Sets the channel where notification timings are displayed and updated."""
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO notification_timing_channel (server_id, channel_id) VALUES (?, ?)",
+              (str(ctx.guild.id), str(channel.id)))
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Notification timing status channel set to {channel.mention}.")
+    await update_notification_timing_message(ctx.guild)
+    
