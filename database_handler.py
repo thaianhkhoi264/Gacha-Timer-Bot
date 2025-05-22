@@ -36,12 +36,13 @@ def init_db():
                     server_id TEXT PRIMARY KEY,
                     announce_channel_id TEXT
                 )''')
-    # Notification timings per category
+    # Notification timings per category and type (start/end)
     c.execute('''CREATE TABLE IF NOT EXISTS notification_timings (
                     server_id TEXT,
                     category TEXT,
+                    timing_type TEXT,
                     timing_minutes INTEGER,
-                    PRIMARY KEY (server_id, category)
+                    PRIMARY KEY (server_id, category, timing_type)
                 )''')
     # Notification timing status channel/message
     c.execute('''CREATE TABLE IF NOT EXISTS notification_timing_channel (
