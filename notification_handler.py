@@ -4,19 +4,9 @@ from database_handler import *
 from twitter_handler import *
 
 # function to get the notification timing for a server
-def get_notification_timing(server_id, category):
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT timing_minutes FROM notification_timings WHERE server_id=? AND category=?", (str(server_id), category))
-    row = c.fetchone()
-    conn.close()
-    return row[0] if row else None  # None if not set
-
-# function to update the notification timing message
 async def update_notification_timing_message(guild):
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    # Get the channel
     c.execute("SELECT channel_id FROM notification_timing_channel WHERE server_id=?", (str(guild.id),))
     row = c.fetchone()
     if not row:
@@ -28,21 +18,35 @@ async def update_notification_timing_message(guild):
         conn.close()
         return
 
-    # Get or create the status message
-    c.execute("SELECT message_id FROM notification_timing_channel WHERE server_id=?", (str(guild.id),))
-    msg_row = c.fetchone()
-    # Get timings
-    c.execute("SELECT category, timing_minutes FROM notification_timings WHERE server_id=?", (str(guild.id),))
+    c.execute("SELECT category, timing_type, timing_minutes FROM notification_timings WHERE server_id=?", (str(guild.id),))
     timings = c.fetchall()
     conn.close()
 
+    embed = discord.Embed(
+        title="Notification Timings",
+        description="Current notification timings for each category.",
+        color=discord.Color.blue()
+    )
+
     if not timings:
-        content = "No notification timings set."
+        embed.description = "No notification timings set."
     else:
-        content = "**Notification Timings:**\n" + "\n".join([f"**{cat}**: {mins} minutes before" for cat, mins in timings])
+        # Group by category
+        timing_dict = {}
+        for cat, ttype, mins in timings:
+            if cat not in timing_dict:
+                timing_dict[cat] = {}
+            timing_dict[cat][ttype] = mins
+        for cat, types in timing_dict.items():
+            start = types.get("start", "Not set")
+            end = types.get("end", "Not set")
+            embed.add_field(
+                name=f"{cat}",
+                value=f"**Start:** {start} min\n**End:** {end} min",
+                inline=False
+            )
 
     # Try to edit the existing message, or send a new one
-    message_id = None
     try:
         c = sqlite3.connect('kanami_data.db').cursor()
         c.execute("SELECT message_id FROM notification_timing_channel WHERE server_id=?", (str(guild.id),))
@@ -51,12 +55,11 @@ async def update_notification_timing_message(guild):
             message_id = int(msg_row[0])
             try:
                 msg = await channel.fetch_message(message_id)
-                await msg.edit(content=content)
+                await msg.edit(content=None, embed=embed)
                 return
             except Exception:
                 pass
-        # If no message or failed to fetch, send a new one
-        msg = await channel.send(content)
+        msg = await channel.send(embed=embed)
         c.execute("UPDATE notification_timing_channel SET message_id=? WHERE server_id=?", (str(msg.id), str(guild.id)))
         c.connection.commit()
     except Exception:
@@ -262,15 +265,24 @@ async def set_notification_channel(ctx, channel: discord.TextChannel):
 
 @bot.command()
 @commands.has_permissions(manage_guild=True)
-async def set_notification_timing(ctx, category: str, minutes: int):
-    """Set notification timing (in minutes before event) for a category."""
+async def set_notification_timing(ctx, category: str, timing_type: str, minutes: int):
+    """
+    Set notification timing (in minutes before event) for a category and type (start/end).
+    Usage: Kanami set_notification_timing <category> <start|end> <minutes>
+    """
+    timing_type = timing_type.lower()
+    if timing_type not in ("start", "end"):
+        await ctx.send("timing_type must be 'start' or 'end'.")
+        return
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO notification_timings (server_id, category, timing_minutes) VALUES (?, ?, ?)",
-              (str(ctx.guild.id), category, minutes))
+    c.execute(
+        "INSERT OR REPLACE INTO notification_timings (server_id, category, timing_type, timing_minutes) VALUES (?, ?, ?, ?)",
+        (str(ctx.guild.id), category, timing_type, minutes)
+    )
     conn.commit()
     conn.close()
-    await ctx.send(f"Notification timing for `{category}` set to {minutes} minutes before event.")
+    await ctx.send(f"Notification timing for `{category}` `{timing_type}` set to {minutes} minutes before event.")
     await update_notification_timing_message(ctx.guild)
 
 @bot.command()
