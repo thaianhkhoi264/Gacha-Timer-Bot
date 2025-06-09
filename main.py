@@ -30,12 +30,19 @@ async def shutdown_message():
                     pass
 
 # Channel assignment view for slash command
+from discord.ui import View, Select, Button
+from discord import app_commands
+
 class ChannelAssignView(View):
     def __init__(self, profiles, channels):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)
+        self.profiles = profiles
+        self.channels = channels
         self.assignment_type = None
         self.selected_profile = None
         self.selected_channel = None
+        self.assignments = []
+        self.finished = False
 
         self.type_select = Select(
             placeholder="Select assignment type...",
@@ -64,71 +71,145 @@ class ChannelAssignView(View):
         self.channel_select.callback = self.channel_callback
         self.add_item(self.channel_select)
 
-    async def type_callback(self, interaction, select):
-        self.assignment_type = select.values[0]
-        # Enable profile select only for timer assignment
+        self.confirm_button = Button(label="Confirm", style=discord.ButtonStyle.green)
+        self.confirm_button.callback = self.confirm_callback
+        self.add_item(self.confirm_button)
+
+        self.finish_button = Button(label="Finish", style=discord.ButtonStyle.red)
+        self.finish_button.callback = self.finish_callback
+        self.add_item(self.finish_button)
+
+    async def type_callback(self, interaction: discord.Interaction):
+        self.assignment_type = self.type_select.values[0]
         self.profile_select.disabled = (self.assignment_type != "timer")
-        await interaction.response.edit_message(view=self)
+        await interaction.response.edit_message(
+            content=self.get_status_message(),
+            view=self
+        )
 
-    async def profile_callback(self, interaction, select):
-        self.selected_profile = select.values[0]
+    async def profile_callback(self, interaction: discord.Interaction):
+        self.selected_profile = self.profile_select.values[0]
+        await interaction.response.edit_message(
+            content=self.get_status_message(),
+            view=self
+        )
+
+    async def channel_callback(self, interaction: discord.Interaction):
+        self.selected_channel = int(self.channel_select.values[0])
+        await interaction.response.edit_message(
+            content=self.get_status_message(),
+            view=self
+        )
+
+    async def confirm_callback(self, interaction: discord.Interaction):
+        if not self.assignment_type or not self.selected_channel or (self.assignment_type == "timer" and not self.selected_profile):
+            await interaction.response.send_message("Please select all required fields before confirming.", ephemeral=True)
+            return
+        # Save assignment
+        self.assignments.append((
+            self.assignment_type,
+            self.selected_profile,
+            self.selected_channel
+        ))
+        # Reset selections for next assignment
+        self.assignment_type = None
+        self.selected_profile = None
+        self.selected_channel = None
+        self.type_select.placeholder = "Select assignment type..."
+        self.profile_select.placeholder = "Select a profile..."
+        self.channel_select.placeholder = "Select a channel..."
+        self.profile_select.disabled = True
+        await interaction.response.edit_message(
+            content=self.get_status_message(),
+            view=self
+        )
+
+    async def finish_callback(self, interaction: discord.Interaction):
+        self.finished = True
+        self.stop()
         await interaction.response.defer()
 
-    async def channel_callback(self, interaction, select):
-        self.selected_channel = int(select.values[0])
-        await interaction.response.defer()
+    def get_status_message(self):
+        msg = "**Assignment Setup:**\n"
+        if self.assignments:
+            msg += "**Assignments so far:**\n"
+            for i, (atype, prof, chan) in enumerate(self.assignments, 1):
+                if atype == "timer":
+                    msg += f"{i}. Timer Channel for **{prof}**: <#{chan}>\n"
+                elif atype == "announce":
+                    msg += f"{i}. Announcement Channel: <#{chan}>\n"
+                elif atype == "notification":
+                    msg += f"{i}. Notification Channel: <#{chan}>\n"
+                elif atype == "notif_timing":
+                    msg += f"{i}. Notification Timing Channel: <#{chan}>\n"
+        msg += "\n**Current Selection:**\n"
+        msg += f"• **Type:** {self.assignment_type or 'Not selected'}\n"
+        if self.assignment_type == "timer":
+            msg += f"• **Profile:** {self.selected_profile or 'Not selected'}\n"
+        msg += f"• **Channel:** <#{self.selected_channel}>" if self.selected_channel else "• **Channel:** Not selected"
+        msg += "\n\nClick **Confirm** to add, or **Finish** when done."
+        return msg
 
-    async def on_timeout(self):
-        pass
-
-# Slash command to set channels for various bot functionalitiesss
+# Slash command to set channels for various bot functionalities
 @bot.tree.command(name="set_channel", description="Assign any bot channel (timer, announce, notification, etc.)")
 @app_commands.checks.has_permissions(manage_channels=True)
 async def set_channel_slash(interaction: discord.Interaction):
     profiles = ["HSR", "ZZZ", "AK", "ALL"]
     channels = [c for c in interaction.guild.text_channels if c.permissions_for(interaction.guild.me).send_messages]
     view = ChannelAssignView(profiles, channels)
-    await interaction.response.send_message("Select what you want to assign and to which channel:", view=view, ephemeral=True)
+    await interaction.response.send_message(
+        "Select what you want to assign and to which channel, then click **Confirm** for each, and **Finish** when done:",
+        view=view,
+        ephemeral=True
+    )
     await view.wait()
-    if not view.assignment_type or not view.selected_channel or (view.assignment_type == "timer" and not view.selected_profile):
-        await interaction.followup.send("No selection made or timed out.", ephemeral=True)
+    if not view.finished or not view.assignments:
+        await interaction.followup.send("No assignments made or timed out.", ephemeral=True)
         return
 
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    if view.assignment_type == "timer":
-        c.execute(
-            "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
-            (str(interaction.guild.id), view.selected_profile, str(view.selected_channel))
-        )
-        msg = f"<#{view.selected_channel}> is now set for timer updates for **{view.selected_profile}**."
-    elif view.assignment_type == "announce":
-        c.execute(
-            "REPLACE INTO announce_config (server_id, announce_channel_id) VALUES (?, ?)",
-            (str(interaction.guild.id), str(view.selected_channel))
-        )
-        msg = f"<#{view.selected_channel}> is now set as the **announcement channel**."
-    elif view.assignment_type == "notification":
-        c.execute(
-            "REPLACE INTO notification_channel (server_id, channel_id) VALUES (?, ?)",
-            (str(interaction.guild.id), str(view.selected_channel))
-        )
-        msg = f"<#{view.selected_channel}> is now set as the **notification channel**."
-    elif view.assignment_type == "notif_timing":
-        c.execute(
-            "REPLACE INTO notification_timing_channel (server_id, channel_id) VALUES (?, ?)",
-            (str(interaction.guild.id), str(view.selected_channel))
-        )
-        msg = f"<#{view.selected_channel}> is now set as the **notification timing channel**."
-    else:
-        msg = "Unknown assignment type."
+    results = []
+    for assignment_type, selected_profile, selected_channel in view.assignments:
+        if assignment_type == "timer":
+            c.execute(
+                "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
+                (str(interaction.guild.id), selected_profile, str(selected_channel))
+            )
+            results.append(f"<#{selected_channel}> set for timer updates for **{selected_profile}**.")
+        elif assignment_type == "announce":
+            c.execute(
+                "REPLACE INTO announce_config (server_id, announce_channel_id) VALUES (?, ?)",
+                (str(interaction.guild.id), str(selected_channel))
+            )
+            results.append(f"<#{selected_channel}> set as the **announcement channel**.")
+        elif assignment_type == "notification":
+            c.execute(
+                "REPLACE INTO notification_channel (server_id, channel_id) VALUES (?, ?)",
+                (str(interaction.guild.id), str(selected_channel))
+            )
+            results.append(f"<#{selected_channel}> set as the **notification channel**.")
+        elif assignment_type == "notif_timing":
+            c.execute(
+                "REPLACE INTO notification_timing_channel (server_id, channel_id) VALUES (?, ?)",
+                (str(interaction.guild.id), str(selected_channel))
+            )
+            results.append(f"<#{selected_channel}> set as the **notification timing channel**.")
     conn.commit()
     conn.close()
-    await interaction.followup.send(msg, ephemeral=True)
+    await interaction.followup.send("\n".join(results), ephemeral=True)
 
 @bot.event
 async def on_ready():
     print(f"Kanami is ready to go!")
+
+    # Sync slash commands
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} slash commands.")
+    except Exception as e:
+        print(f"Failed to sync slash commands: {e}")
+
     # Announce in all assigned announcement channels
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
