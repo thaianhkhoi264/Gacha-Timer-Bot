@@ -387,7 +387,15 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
 
 @bot.command()  # "remove" command to remove an event from the database
 async def remove(ctx, title: str):
-    # ...existing code to find event_id...
+    # Fetch the event row by title and server_id
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT id, start_date, end_date FROM user_data WHERE server_id=? AND title=?", (str(ctx.guild.id), title))
+    row = c.fetchone()
+    if not row:
+        await ctx.send(f"No event found with the title `{title}`.")
+        conn.close()
+        return
     event_id, start, end = row
 
     # Remove the event
