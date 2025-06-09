@@ -3,6 +3,9 @@ from bot import *
 from database_handler import *
 from twitter_handler import *
 
+import asyncio
+import datetime
+
 # function to get the notification timing for a server
 async def update_notification_timing_message(guild):
     conn = sqlite3.connect('kanami_data.db')
@@ -64,6 +67,93 @@ async def update_notification_timing_message(guild):
         c.connection.commit()
     except Exception:
         pass
+
+async def schedule_notifications_for_event(event):
+    """
+    event: dict with keys: server_id, category, profile, title, start_date, end_date
+    """
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    # Get notification timings for this category
+    c.execute("SELECT timing_type, timing_minutes FROM notification_timings WHERE server_id=? AND category=?",
+              (event['server_id'], event['category']))
+    timings = c.fetchall()
+
+    for timing_type, timing_minutes in timings:
+        # Determine the event time (start or end)
+        event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
+        notify_unix = event_time_unix - timing_minutes * 60
+        # Only schedule if in the future
+        if notify_unix > int(datetime.datetime.utcnow().timestamp()):
+            c.execute(
+                "INSERT INTO pending_notifications (server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+                (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix)
+            )
+    conn.commit()
+    conn.close()
+
+async def send_notification_at(event, timing_type, delay):
+    await asyncio.sleep(delay)
+    await send_notification(event, timing_type)
+
+async def send_notification(event, timing_type):
+    # Get the notification channel
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT channel_id FROM notification_channel WHERE server_id=?", (event['server_id'],))
+    row = c.fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return  # No notification channel set
+
+    channel_id = int(row[0])
+    guild = bot.get_guild(int(event['server_id']))
+    channel = guild.get_channel(channel_id)
+    if not channel:
+        return
+
+    # Get the role for the profile
+    role = discord.utils.get(guild.roles, name=event['profile'])
+    if not role:
+        role_mention = ""
+    else:
+        role_mention = role.mention
+
+    # Compose the message
+    time_str = "starting" if timing_type == "start" else "ending"
+    await channel.send(
+        f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} in {event['timing_minutes']} minutes!"
+    )
+
+async def load_and_schedule_pending_notifications(bot):
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    now = int(datetime.datetime.utcnow().timestamp())
+    c.execute("SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix FROM pending_notifications WHERE sent=0 AND notify_unix > ?", (now,))
+    rows = c.fetchall()
+    conn.close()
+    for row in rows:
+        notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix = row
+        delay = notify_unix - now
+        event = {
+            'server_id': server_id,
+            'category': category,
+            'profile': profile,
+            'title': title,
+            'start_date': event_time_unix if timing_type == "start" else None,
+            'end_date': event_time_unix if timing_type == "end" else None,
+        }
+        asyncio.create_task(send_persistent_notification(bot, notif_id, event, timing_type, delay))
+
+async def send_persistent_notification(bot, notif_id, event, timing_type, delay):
+    await asyncio.sleep(delay)
+    await send_notification(event, timing_type)
+    # Mark as sent
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("UPDATE pending_notifications SET sent=1 WHERE id=?", (notif_id,))
+    conn.commit()
+    conn.close()
 
 # Listeners for reaction roles
 @bot.event
