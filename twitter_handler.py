@@ -1,6 +1,7 @@
 from modules import *
 from bot import *
 from database_handler import update_timer_channel
+from notification_handler import schedule_notifications_for_event
 import pytz
 
 def parse_dates_hsr(text):
@@ -520,6 +521,18 @@ async def read(ctx, link: str):
     )
     conn.commit()
     conn.close()
+
+    # SCHEDULE NOTIFICATION HERE
+    event = {
+        'server_id': str(ctx.guild.id),
+        'category': category,
+        'profile': event_profile,
+        'title': new_title,
+        'start_date': str(start_unix),
+        'end_date': str(end_unix)
+    }
+    await schedule_notifications_for_event(event)
+
     await ctx.send(
         f"Added `{new_title}` as **{category}** with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!"
     )

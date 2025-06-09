@@ -27,7 +27,7 @@ async def shutdown_message():
                 except Exception:
                     pass
 
-@bot.event # Bot announces when its ready
+@bot.event
 async def on_ready():
     print(f"Kanami is ready to go!")
     # Announce in all assigned announcement channels
@@ -45,6 +45,20 @@ async def on_ready():
                     await channel.send(f"Kanami is ready to go! (version {bot_version})")
                 except Exception:
                     pass
+
+    # Update all timer channels for all servers
+    for guild in bot.guilds:
+        conn = sqlite3.connect('kanami_data.db')
+        c = conn.cursor()
+        c.execute("SELECT profile FROM config WHERE server_id=?", (str(guild.id),))
+        profiles = [row[0] for row in c.fetchall()]
+        conn.close()
+        if not profiles:
+            continue  # No timer channels set for this server
+        for profile in profiles:
+            await update_timer_channel(guild, bot, profile=profile)
+    # load and schedule pending notifications
+    await load_and_schedule_pending_notifications(bot)
 
 @bot.event # Checks for "good girl" and "good boy" in messages
 async def on_message(message):
