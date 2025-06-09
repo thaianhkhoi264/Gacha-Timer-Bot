@@ -4,6 +4,8 @@ from database_handler import *
 from utilities import *
 from bot import *
 from notification_handler import *
+from discord.ui import View, Select
+from discord import app_commands
 
 import signal
 import asyncio
@@ -26,6 +28,103 @@ async def shutdown_message():
                     await channel.send("Gweheh Shindago...")
                 except Exception:
                     pass
+
+# Channel assignment view for slash command
+class ChannelAssignView(View):
+    def __init__(self, profiles, channels):
+        super().__init__(timeout=60)
+        self.assignment_type = None
+        self.selected_profile = None
+        self.selected_channel = None
+
+        self.type_select = Select(
+            placeholder="Select assignment type...",
+            options=[
+                discord.SelectOption(label="Timer Channel (per profile)", value="timer"),
+                discord.SelectOption(label="Announcement Channel", value="announce"),
+                discord.SelectOption(label="Notification Channel", value="notification"),
+                discord.SelectOption(label="Notification Timing Channel", value="notif_timing"),
+            ]
+        )
+        self.type_select.callback = self.type_callback
+        self.add_item(self.type_select)
+
+        self.profile_select = Select(
+            placeholder="Select a profile...",
+            options=[discord.SelectOption(label=p, value=p) for p in profiles],
+            disabled=True
+        )
+        self.profile_select.callback = self.profile_callback
+        self.add_item(self.profile_select)
+
+        self.channel_select = Select(
+            placeholder="Select a channel...",
+            options=[discord.SelectOption(label=f"#{c.name}", value=str(c.id)) for c in channels]
+        )
+        self.channel_select.callback = self.channel_callback
+        self.add_item(self.channel_select)
+
+    async def type_callback(self, interaction, select):
+        self.assignment_type = select.values[0]
+        # Enable profile select only for timer assignment
+        self.profile_select.disabled = (self.assignment_type != "timer")
+        await interaction.response.edit_message(view=self)
+
+    async def profile_callback(self, interaction, select):
+        self.selected_profile = select.values[0]
+        await interaction.response.defer()
+
+    async def channel_callback(self, interaction, select):
+        self.selected_channel = int(select.values[0])
+        await interaction.response.defer()
+
+    async def on_timeout(self):
+        pass
+
+# Slash command to set channels for various bot functionalitiesss
+@bot.tree.command(name="set_channel", description="Assign any bot channel (timer, announce, notification, etc.)")
+@app_commands.checks.has_permissions(manage_channels=True)
+async def set_channel_slash(interaction: discord.Interaction):
+    profiles = ["HSR", "ZZZ", "AK", "ALL"]
+    channels = [c for c in interaction.guild.text_channels if c.permissions_for(interaction.guild.me).send_messages]
+    view = ChannelAssignView(profiles, channels)
+    await interaction.response.send_message("Select what you want to assign and to which channel:", view=view, ephemeral=True)
+    await view.wait()
+    if not view.assignment_type or not view.selected_channel or (view.assignment_type == "timer" and not view.selected_profile):
+        await interaction.followup.send("No selection made or timed out.", ephemeral=True)
+        return
+
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    if view.assignment_type == "timer":
+        c.execute(
+            "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
+            (str(interaction.guild.id), view.selected_profile, str(view.selected_channel))
+        )
+        msg = f"<#{view.selected_channel}> is now set for timer updates for **{view.selected_profile}**."
+    elif view.assignment_type == "announce":
+        c.execute(
+            "REPLACE INTO announce_config (server_id, announce_channel_id) VALUES (?, ?)",
+            (str(interaction.guild.id), str(view.selected_channel))
+        )
+        msg = f"<#{view.selected_channel}> is now set as the **announcement channel**."
+    elif view.assignment_type == "notification":
+        c.execute(
+            "REPLACE INTO notification_channel (server_id, channel_id) VALUES (?, ?)",
+            (str(interaction.guild.id), str(view.selected_channel))
+        )
+        msg = f"<#{view.selected_channel}> is now set as the **notification channel**."
+    elif view.assignment_type == "notif_timing":
+        c.execute(
+            "REPLACE INTO notification_timing_channel (server_id, channel_id) VALUES (?, ?)",
+            (str(interaction.guild.id), str(view.selected_channel))
+        )
+        msg = f"<#{view.selected_channel}> is now set as the **notification timing channel**."
+    else:
+        msg = "Unknown assignment type."
+    conn.commit()
+    conn.close()
+    await interaction.followup.send(msg, ephemeral=True)
 
 @bot.event
 async def on_ready():
