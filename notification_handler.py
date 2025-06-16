@@ -427,21 +427,35 @@ async def add_notification_timing(ctx, category: str, timing_type: str, minutes:
     """
     Adds a notification timing (in minutes before event) for a category and type (start/end).
     Usage: Kanami add_notification_timing <category> <start|end> <minutes>
+    Now supports custom categories!
     """
-    allowed_categories = ["Banner", "Event", "Maintenence"]
+    server_id = str(ctx.guild.id)
+
+    # Get built-in and custom categories
+    built_in = {"Banner", "Event", "Maintenance"}
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS custom_categories (server_id TEXT, category TEXT, PRIMARY KEY (server_id, category))")
+    c.execute("SELECT category FROM custom_categories WHERE server_id=?", (server_id,))
+    custom = {row[0] for row in c.fetchall()}
+    conn.close()
+    allowed_categories = built_in | custom
+
     if category not in allowed_categories:
         await ctx.send(f"Category must be one of: {', '.join(allowed_categories)}.")
         return
+
     timing_type = timing_type.lower()
     if timing_type not in ("start", "end"):
         await ctx.send("timing_type must be 'start' or 'end'.")
         return
+
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     try:
         c.execute(
             "INSERT INTO notification_timings (server_id, category, timing_type, timing_minutes) VALUES (?, ?, ?, ?)",
-            (str(ctx.guild.id), category, timing_type, minutes)
+            (server_id, category, timing_type, minutes)
         )
         conn.commit()
         await ctx.send(f"Added notification timing for `{category}` `{timing_type}`: {minutes} minutes before event.")
