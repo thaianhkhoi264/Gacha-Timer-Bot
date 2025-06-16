@@ -227,6 +227,17 @@ async def update_timer_channel(guild, bot, profile="ALL"):
         event_row = row[1:]  # skip id
         await upsert_event_message(guild, channel, event_row, event_id)
 
+async def get_valid_categories(server_id):
+    # Built-in categories
+    categories = {"Banner", "Event", "Maintenance"}
+    # Add custom categories from DB
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT category FROM custom_categories WHERE server_id=?", (server_id,))
+    custom = {row[0] for row in c.fetchall()}
+    conn.close()
+    categories.update(custom)
+    return categories
 
 # Function to convert date and time to Unix timestamp
 def convert_to_unix(date: str, time: str):
@@ -318,32 +329,40 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
         suffix += 1
         new_title = f"{base_title} {suffix}"
 
-    # Prompt for category if not provided
+# Prompt for category if not provided
     if not category:
+        # Fetch custom categories for this server
+        conn2 = sqlite3.connect('kanami_data.db')
+        c2 = conn2.cursor()
+        c2.execute("SELECT category FROM custom_categories WHERE server_id=?", (str(ctx.guild.id),))
+        custom_categories = [row[0] for row in c2.fetchall()]
+        conn2.close()
+
+        built_in = [("🟦", "Banner"), ("🟨", "Event"), ("🟩", "Maintenance")]
+        custom_emojis = ["🔸", "🔹", "🔺", "🔻", "🔶", "🔷", "🔴", "🟠", "🟣", "🟤", "⚪", "⚫"]
+        emoji_map = {emoji: name for emoji, name in built_in}
+        # Map custom categories to custom emojis (limit to available emojis)
+        for i, cat in enumerate(custom_categories):
+            if i < len(custom_emojis):
+                emoji_map[custom_emojis[i]] = cat
+
         msg = await ctx.send(
-            "What category should this event be?\n"
-            ":blue_square: Banner\n"
-            ":yellow_square: Event\n"
-            ":green_square: Maintenance"
+            "What category should this event be?\n" +
+            "\n".join([f"{emoji} {name}" for emoji, name in emoji_map.items()])
         )
-        emojis = {
-            "🟦": "Banner",
-            "🟨": "Event",
-            "🟩": "Maintenance"
-        }
-        for emoji in emojis:
+        for emoji in emoji_map:
             await msg.add_reaction(emoji)
 
         def check(reaction, user):
             return (
                 user == ctx.author
                 and reaction.message.id == msg.id
-                and str(reaction.emoji) in emojis
+                and str(reaction.emoji) in emoji_map
             )
 
         try:
             reaction, user = await bot.wait_for("reaction_add", timeout=60.0, check=check)
-            category = emojis[str(reaction.emoji)]
+            category = emoji_map[str(reaction.emoji)]
         except Exception:
             await ctx.send("No category selected. Event not added.")
             conn.close()
@@ -457,6 +476,113 @@ async def remove(ctx, *, title: str):
     for profile in profiles:
         await update_timer_channel(ctx.guild, bot, profile=profile)
 
+@bot.command()
+@commands.has_permissions(manage_guild=True)
+async def edit(ctx, title: str, item: str, *, text: str):
+    """
+    Edits an existing event.
+    Usage: Kanami edit <title> <item> <text>
+    <item>: start, end, category, profile, image
+    <text>: new value (date/time, category, profile, or image URL)
+    """
+    server_id = str(ctx.guild.id)
+    item = item.lower()
+    allowed_items = {"start", "end", "category", "profile", "image"}
+
+    if item not in allowed_items:
+        await ctx.send(f"Item must be one of: {', '.join(allowed_items)}.")
+        return
+
+    # Find the event (case-insensitive)
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT id, title, start_date, end_date, category, profile FROM user_data WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, title))
+    row = c.fetchone()
+    if not row:
+        await ctx.send(f"No event found with the title `{title}`.")
+        conn.close()
+        return
+    event_id, found_title, start_unix, end_unix, category_val, profile_val = row
+
+    # Handle each item
+    if item in ("start", "end"):
+        # Try to parse the new time
+        try:
+            if text.isdigit():
+                new_unix = int(text)
+            else:
+                # Accept "YYYY-MM-DD HH:MM" or "YYYY-MM-DD"
+                parts = text.strip().split()
+                if len(parts) == 1:
+                    parts.append("00:00")
+                new_unix = convert_to_unix_tz(parts[0], parts[1], "UTC")
+        except Exception:
+            await ctx.send("Invalid date/time format. Use YYYY-MM-DD HH:MM or unix timestamp.")
+            conn.close()
+            return
+        col = "start_date" if item == "start" else "end_date"
+        c.execute(f"UPDATE user_data SET {col}=? WHERE id=?", (str(new_unix), event_id))
+        if item == "start":
+            start_unix = new_unix
+        else:
+            end_unix = new_unix
+        conn.commit()
+        await ctx.send(f"Updated `{item}` for `{title}` to `{text}`.")
+    elif item == "category":
+        # Validate category
+        valid_categories = await get_valid_categories(server_id)
+        if text not in valid_categories:
+            await ctx.send(f"Category `{text}` does not exist for this server. Valid: {', '.join(valid_categories)}")
+            conn.close()
+            return
+        c.execute("UPDATE user_data SET category=? WHERE id=?", (text, event_id))
+        category_val = text
+        conn.commit()
+        await ctx.send(f"Updated category for `{title}` to `{text}`.")
+    elif item == "profile":
+        # Validate profile
+        c.execute("SELECT DISTINCT profile FROM config WHERE server_id=?", (server_id,))
+        valid_profiles = {row[0] for row in c.fetchall()}
+        if text.upper() not in valid_profiles:
+            await ctx.send(f"Profile `{text}` does not exist for this server. Valid: {', '.join(valid_profiles)}")
+            conn.close()
+            return
+        c.execute("UPDATE user_data SET profile=? WHERE id=?", (text.upper(), event_id))
+        profile_val = text.upper()
+        conn.commit()
+        await ctx.send(f"Updated profile for `{title}` to `{text.upper()}`.")
+    elif item == "image":
+        # Basic URL validation
+        if not (text.startswith("http://") or text.startswith("https://")):
+            await ctx.send("Image must be a valid URL (http/https).")
+            conn.close()
+            return
+        c.execute("UPDATE user_data SET image=? WHERE id=?", (text, event_id))
+        conn.commit()
+        await ctx.send(f"Updated image for `{title}`.")
+    conn.close()
+
+    # Optionally, update timer channels after editing
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT profile FROM config WHERE server_id=?", (server_id,))
+    profiles = [row[0] for row in c.fetchall()]
+    conn.close()
+    for profile in profiles:
+        await update_timer_channel(ctx.guild, bot, profile=profile)
+
+    # Reschedule notifications for this event
+    event = {
+        'server_id': server_id,
+        'category': category_val,
+        'profile': profile_val,
+        'title': found_title,
+        'start_date': str(start_unix),
+        'end_date': str(end_unix)
+    }
+    asyncio.create_task(schedule_notifications_for_event(event))
+    await ctx.send(f"Notifications rescheduled for `{title}`.")
+    
 @bot.command() # "timer" command
 async def timer(ctx):
     """ Sends each event as its own embed with its image for this server """
@@ -482,3 +608,28 @@ async def timer(ctx):
             await ctx.send(embed=embed)
     else:
         await ctx.send("No timer data found for this server. Use `Kanami add` to add one.")
+
+@bot.command()
+@commands.has_permissions(manage_guild=True)
+async def add_custom_category(ctx, *, category: str):
+    """
+    Adds a custom event category for this server.
+    Usage: Kanami add_custom_category <category name>
+    """
+    server_id = str(ctx.guild.id)
+    category = category.strip()
+    if not category:
+        await ctx.send("Please provide a category name.")
+        return
+
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS custom_categories (
+        server_id TEXT,
+        category TEXT,
+        PRIMARY KEY (server_id, category)
+    )''')
+    c.execute("INSERT OR IGNORE INTO custom_categories (server_id, category) VALUES (?, ?)", (server_id, category))
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Custom category `{category}` added for this server!")
