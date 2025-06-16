@@ -4,6 +4,20 @@ from database_handler import update_timer_channel
 from notification_handler import schedule_notifications_for_event
 import pytz
 
+PROFILE_NORMALIZATION = {
+    "arknightsen": "AK",
+    "zzz_en": "ZZZ",
+    "honkaistarrail": "HSR",
+    "ak": "AK",
+    "zzz": "ZZZ",
+    "hsr": "HSR",
+    "all": "ALL"
+}
+def normalize_profile(profile):
+    if not profile:
+        return "ALL"
+    return PROFILE_NORMALIZATION.get(profile.lower(), profile.upper())
+
 def parse_dates_hsr(text):
     """
     Custom parsing logic for Honkai: Star Rail event tweets.
@@ -376,16 +390,13 @@ async def read(ctx, link: str):
                 await ctx.send("No title provided. Cancelling.")
                 return
             image = await prompt_for_image(ctx, tweet_image)
-        event_profile = "ArknightsEN"
+        event_profile = normalize_profile("arknightsen")
     else:
         # fallback for other profiles
         category = await prompt_for_category(ctx)
         title = await prompt_for_title(ctx, tweet_text)
         image = await prompt_for_image(ctx, tweet_image)
-        # Try to match username to your valid_profiles mapping
-        valid_profiles = {"honkaistarrail": "HSR", "zzz_en": "ZZZ", "arknightsen": "AK"}
-        event_profile = username if username else "ALL"
-        # Use the actual Twitter username as the profile for consistency with your config
+        event_profile = normalize_profile(username) if username else "ALL"
 
     # Use profile-specific parsing if available
     profile_parser = POSTER_PROFILES.get(username)
@@ -404,7 +415,8 @@ async def read(ctx, link: str):
     start, end = await prompt_for_missing_dates(ctx, start, end, is_hyv=is_hyv)
     if not (start and end):
         return
-
+    
+    # --- Hoyoverse logic below ---
     if is_hyv:
         # All further handling assumes start/end are in server time!
         start_times = convert_to_all_timezones(start)
@@ -446,18 +458,18 @@ async def read(ctx, link: str):
             new_title = f"{base_title} {suffix}"
 
         c.execute(
-            "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                str(ctx.author.id), str(ctx.guild.id), new_title, "", "", image, category, 1,
-                asia_start, asia_end, america_start, america_end, europe_start, europe_end, username
-            )
+             "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (
+                 str(ctx.author.id), str(ctx.guild.id), new_title, "", "", image, category, 1,
+                  asia_start, asia_end, america_start, america_end, europe_start, europe_end, event_profile
+              )
         )
         conn.commit()
         conn.close()
         await ctx.send(
             f"Added `{new_title}` as **{category}** for all HYV server regions to the database!"
         )
-        await update_timer_channel(ctx.guild, bot, profile=username)
+        await update_timer_channel(ctx.guild, bot, profile=event_profile)
         # Update all timer channels for all profiles in this server (HYV logic)
         conn = sqlite3.connect('kanami_data.db')
         c = conn.cursor()
@@ -545,4 +557,4 @@ async def read(ctx, link: str):
     profiles = [row[0] for row in c.fetchall()]
     conn.close()
     for profile in profiles:
-        await update_timer_channel(ctx.guild, bot, profile=profile)
+        await update_timer_channel(ctx.guild, bot, profile=event_profile)
