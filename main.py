@@ -154,7 +154,7 @@ class ChannelAssignView(View):
 @bot.tree.command(name="set_channel", description="Assign any bot channel (timer, announce, notification, etc.)")
 @app_commands.checks.has_permissions(manage_channels=True)
 async def set_channel_slash(interaction: discord.Interaction):
-    profiles = ["HSR", "ZZZ", "AK", "ALL"]
+    profiles = ["HSR", "ZZZ", "AK", "STRI", "WUWA", "ALL"]
     channels = [c for c in interaction.guild.text_channels if c.permissions_for(interaction.guild.me).send_messages]
     view = ChannelAssignView(profiles, channels)
     await interaction.response.send_message(
@@ -384,7 +384,14 @@ async def set_timer_channel(ctx, channel: discord.TextChannel, profile: str = No
     Usage: Kanami set_timer_channel #channel [profile]
     """
     profile = profile.upper() if profile else "ALL"
-    valid_profiles = {"HSR": "honkaistarrail", "ZZZ": "zzz_en", "AK": "ArknightsEN", "ALL": "ALL"}  # Add more as needed
+    valid_profiles = {
+        "HSR": "honkaistarrail",
+        "ZZZ": "zzz_en",
+        "AK": "ArknightsEN",
+        "STRI": "Strinova_EN",
+        "WUWA": "Wuthering_Waves",
+        "ALL": "ALL"
+    }
 
     if profile not in valid_profiles:
         await ctx.send(f"Unknown profile `{profile}`. Valid options: {', '.join(valid_profiles.keys())}")

@@ -10,15 +10,21 @@ PROFILE_NORMALIZATION = {
     "arknightsen": "AK",
     "zzz_en": "ZZZ",
     "honkaistarrail": "HSR",
+    "strinova_en": "STRI",
+    "wuthering_waves": "WUWA",
     "ak": "AK",
     "zzz": "ZZZ",
     "hsr": "HSR",
+    "stri": "STRI",
+    "wuwa": "WUWA",
     "all": "ALL"
 }
 def normalize_profile(profile):
     if not profile:
         return "ALL"
     return PROFILE_NORMALIZATION.get(profile.lower(), profile.upper())
+
+# def parse_category_hsr(text):
 
 def parse_dates_hsr(text):
     """
@@ -54,6 +60,8 @@ def parse_dates_hsr(text):
         return date, None
 
     return None, None
+
+# def parse_category_ak(text):
 
 def parse_dates_ak(text):
     """
@@ -114,15 +122,27 @@ def parse_dates_ak(text):
 
     return None, None
 
+# def parse_category_stri(text):
+
+# def parse_dates_stri(text):
+
+# def parse_category_wuwa(text):
+
+# def parse_dates_wuwa(text):
+
 POSTER_PROFILES = {
     "honkaistarrail": {
         "parse_dates": parse_dates_hsr
-        # Add more custom settings if needed
     },
-    "ArknightsEN": {
+    "arknightsen": {
         "parse_dates": parse_dates_ak
+    },
+    "strinova_en": {
+        # "parse_dates": parse_dates_stri  # Add if you have a custom parser
+    },
+    "wuthering_waves": {
+        # "parse_dates": parse_dates_wuwa  # Add if you have a custom parser
     }
-    # Add more profiles as needed
 }
 
 # Triple timezone mapping for Hoyoverse games

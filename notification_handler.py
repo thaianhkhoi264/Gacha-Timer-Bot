@@ -7,6 +7,20 @@ import asyncio
 import datetime
 import time
 
+PROFILE_EMOJIS = {
+    "HSR": "<:Game_HSR:1384176219385237588>",
+    "ZZZ": "<:Game_ZZZ:1384176233159589919>",
+    "AK": "<:Game_AK:1384176253342449816>",
+    "STRI": "<:Game_Strinova:1384176243708264468>",
+    "WUWA": "<:Game_WUWA:1384186019901083720>",
+}
+
+REGION_EMOJIS = {
+    "ASIA": "<:Region_AS:1384176206500593706>",
+    "AMERICA": "<:Region_NA:1384176179187159130>",
+    "EUROPE": "<:Region_EU:1384176193426690088>"
+}
+
 # Global variable to track the last log time
 _last_log_time = 0
 
@@ -90,18 +104,18 @@ async def update_notification_timing_message(guild):
         pass
 
 async def schedule_notifications_for_event(event):
-    await send_log(event['server_id'], f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
+    send_log(event['server_id'], f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     c.execute("SELECT timing_type, timing_minutes FROM notification_timings WHERE server_id=? AND category=?",
               (event['server_id'], event['category']))
     timings = c.fetchall()
-    await send_log(event['server_id'], f"Found timings for event: {timings}")
+    send_log(event['server_id'], f"Found timings for event: {timings}")
 
     for timing_type, timing_minutes in timings:
         event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
         notify_unix = event_time_unix - timing_minutes * 60
-        await send_log(
+        send_log(
             event['server_id'],
             f"Calculated notify_unix: <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type}, timing_minutes: {timing_minutes})"
         )
@@ -110,12 +124,12 @@ async def schedule_notifications_for_event(event):
                 "INSERT INTO pending_notifications (server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
                 (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix)
             )
-            await send_log(
+            send_log(
                 event['server_id'],
                 f"Scheduled notification for `{event['title']}` at <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type})"
             )
         else:
-            await send_log(
+            send_log(
                 event['server_id'],
                 f"Skipped scheduling notification for `{event['title']}` (notify_unix <t:{notify_unix}:F> / <t:{notify_unix}:R> is in the past)"
             )
@@ -123,7 +137,7 @@ async def schedule_notifications_for_event(event):
     conn.close()
 
 async def send_notification_at(event, timing_type, delay):
-    await send_log(
+    send_log(
         event['server_id'],
         f"send_notification_at called with delay: {delay} seconds for event: `{event['title']}` (will notify at <t:{int(time.time()+delay)}:F> / <t:{int(time.time()+delay)}:R>)"
     )
@@ -135,34 +149,46 @@ async def send_notification(event, timing_type):
     c = conn.cursor()
     c.execute("SELECT channel_id FROM notification_channel WHERE server_id=?", (event['server_id'],))
     row = c.fetchone()
-    conn.close()
     if not row or not row[0]:
-        await send_log(event['server_id'], f"No notification channel set for server {event['server_id']}")
+        send_log(event['server_id'], f"No notification channel set for server {event['server_id']}")
+        conn.close()
         return
 
     channel_id = int(row[0])
     guild = bot.get_guild(int(event['server_id']))
     channel = guild.get_channel(channel_id)
     if not channel:
-        await send_log(event['server_id'], f"Notification channel {channel_id} not found in guild {guild}")
+        send_log(event['server_id'], f"Notification channel {channel_id} not found in guild {guild}")
+        conn.close()
         return
 
-    role = discord.utils.get(guild.roles, name=event['profile'])
-    if not role:
-        role_mention = ""
-        await send_log(event['server_id'], f"No role found for profile {event['profile']}")
+    # --- Use role ID from DB for the profile ---
+    emoji = PROFILE_EMOJIS.get(event['profile'])
+    role_mention = ""
+    if emoji:
+        c.execute("SELECT role_id FROM role_reactions WHERE server_id=? AND emoji=?", (event['server_id'], emoji))
+        role_row = c.fetchone()
+        if role_row:
+            role = guild.get_role(int(role_row[0]))
+            if role:
+                role_mention = role.mention
+                send_log(event['server_id'], f"Found role for profile {event['profile']}: {role_mention}")
+            else:
+                send_log(event['server_id'], f"Role ID {role_row[0]} not found in guild for profile {event['profile']}")
+        else:
+            send_log(event['server_id'], f"No role_id found for emoji {emoji} (profile {event['profile']})")
     else:
-        role_mention = role.mention
-        await send_log(event['server_id'], f"Found role for profile {event['profile']}: {role_mention}")
+        send_log(event['server_id'], f"No emoji found for profile {event['profile']}")
+    conn.close()
 
     time_str = "starting" if timing_type == "start" else "ending"
     try:
         await channel.send(
             f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} in {event.get('timing_minutes', '?')} minutes!"
         )
-        await send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']}")
+        send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']}")
     except Exception as e:
-        await send_log(event['server_id'], f"Failed to send notification: {e}")
+        send_log(event['server_id'], f"Failed to send notification: {e}")
 
 async def load_and_schedule_pending_notifications(bot):
     global _last_log_time
@@ -177,7 +203,7 @@ async def load_and_schedule_pending_notifications(bot):
     if time.time() - _last_log_time > 900:
         for row in rows:
             notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix = row
-            await send_log(
+            send_log(
                 server_id,
                 f"Pending notification: `{title}` ({category}/{profile}) at <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type})"
             )
@@ -205,23 +231,10 @@ async def send_persistent_notification(bot, notif_id, event, timing_type, delay)
     c.execute("UPDATE pending_notifications SET sent=1 WHERE id=?", (notif_id,))
     conn.commit()
     conn.close()
-    await send_log(event['server_id'], f"Marked notification as sent for event: {event['title']}")
+    send_log(event['server_id'], f"Marked notification as sent for event: {event['title']}")
 
-async def send_log(guild_id, message):
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT channel_id FROM log_channel WHERE server_id=?", (str(guild_id),))
-    row = c.fetchone()
-    conn.close()
-    if not row or not row[0]:
-        return
-    channel_id = int(row[0])
-    guild = bot.get_guild(int(guild_id))
-    if not guild:
-        return
-    channel = guild.get_channel(channel_id)
-    if channel:
-        await channel.send(message)
+def send_log(guild_id, message):
+        print(f"[{guild_id}] {message}")
 
 # Listeners for reaction roles
 @bot.event
@@ -277,42 +290,60 @@ async def on_raw_reaction_remove(payload):
                         pass
 
 
-#Crete and delete role commands
+# Assign a role to a profile for reaction roles
 @bot.command()
 @commands.has_permissions(manage_roles=True)
-async def create_role(ctx, *, role_name: str):
-    """Creates a new role with the given name and assigns an emoji for reaction roles."""
+async def assign_profile_role(ctx, profile: str, *, role: discord.Role):
+    """
+    Assigns a Discord role to a profile for reaction roles.
+    Usage: Kanami assign_profile_role <profile> @Role
+    Example: Kanami assign_profile_role HSR @HonkaiStarRail
+    """
+    profile = profile.upper()
+    if profile not in PROFILE_EMOJIS:
+        await ctx.send(f"Profile must be one of: {', '.join(PROFILE_EMOJIS.keys())}")
+        return
+
+    emoji = PROFILE_EMOJIS[profile]
     guild = ctx.guild
-    existing_role = discord.utils.get(guild.roles, name=role_name)
-    if existing_role:
-        await ctx.send(f"Role `{role_name}` already exists.")
+
+    # Save to DB (role will be added to the reaction message later)
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR REPLACE INTO role_reactions (server_id, message_id, emoji, role_id) VALUES (?, ?, ?, ?)",
+        (str(guild.id), None, emoji, str(role.id))
+    )
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Assigned role {role.mention} to profile `{profile}` with emoji {emoji}.")
+
+@bot.command()
+@commands.has_permissions(manage_roles=True)
+async def assign_region_role(ctx, region: str, *, role: discord.Role):
+    """
+    Assigns a Discord role to a region for reaction roles.
+    Usage: Kanami assign_region_role <region> @Role
+    Example: Kanami assign_region_role ASIA @AsiaRole
+    """
+    region = region.upper()
+    if region not in REGION_EMOJIS:
+        await ctx.send(f"Region must be one of: {', '.join(REGION_EMOJIS.keys())}")
         return
 
-    await ctx.send("Please reply with the emoji you want to use for this role (within 30 seconds).")
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content
+    emoji = REGION_EMOJIS[region]
+    guild = ctx.guild
 
-    try:
-        msg = await bot.wait_for('message', check=check, timeout=30)
-        emoji = msg.content.strip()
-    except Exception:
-        await ctx.send("No emoji received, cancelling role creation.")
-        return
-
-    try:
-        role = await guild.create_role(name=role_name)
-        await ctx.send(f"Role `{role_name}` created with emoji {emoji}!")
-        # Save to DB (role will be added to the reaction message later)
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        c.execute("INSERT OR REPLACE INTO role_reactions (server_id, message_id, emoji, role_id) VALUES (?, ?, ?, ?)",
-                  (str(guild.id), None, emoji, str(role.id)))
-        conn.commit()
-        conn.close()
-    except discord.Forbidden:
-        await ctx.send("I don't have permission to create roles.")
-    except Exception as e:
-        await ctx.send(f"An error occurred: {e}")
+    # Save to DB (role will be added to the reaction message later)
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR REPLACE INTO role_reactions (server_id, message_id, emoji, role_id) VALUES (?, ?, ?, ?)",
+        (str(guild.id), None, emoji, str(role.id))
+    )
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Assigned role {role.mention} to region `{region}` with emoji {emoji}.")
 
 @bot.command()
 @commands.has_permissions(manage_roles=True)
@@ -341,28 +372,48 @@ async def delete_role(ctx, *, role_name: str):
 @bot.command()
 @commands.has_permissions(manage_roles=True)
 async def create_role_reaction(ctx):
-    """Creates a role reaction message."""
+    """Creates two role reaction messages: one for profiles, one for regions."""
     guild = ctx.guild
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    c.execute("SELECT emoji, role_id FROM role_reactions WHERE server_id=? AND role_id IS NOT NULL", (str(guild.id),))
+    c.execute(
+        "SELECT emoji, role_id FROM role_reactions WHERE server_id=? AND role_id IS NOT NULL",
+        (str(guild.id),)
+    )
     rows = c.fetchall()
     conn.close()
 
-    if not rows:
-        await ctx.send("No roles with emojis found. Use the create_role command first.")
-        return
+    # Split into profiles and regions
+    profile_rows = [row for row in rows if row[0] in PROFILE_EMOJIS.values()]
+    region_rows = [row for row in rows if row[0] in REGION_EMOJIS.values()]
 
-    msg = await ctx.send("React to this message to get notification for each game.")
-    # Save message_id for future reference
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    for emoji, role_id in rows:
-        await msg.add_reaction(emoji)
-        c.execute("UPDATE role_reactions SET message_id=? WHERE server_id=? AND emoji=?",
-                  (str(msg.id), str(guild.id), emoji))
-    conn.commit()
-    conn.close()
+    # Profile roles message
+    if profile_rows:
+        msg1 = await ctx.send("React to this message to get notification roles for each game.")
+        conn = sqlite3.connect('kanami_data.db')
+        c = conn.cursor()
+        for emoji, role_id in profile_rows:
+            await msg1.add_reaction(emoji)
+            c.execute("UPDATE role_reactions SET message_id=? WHERE server_id=? AND emoji=?",
+                      (str(msg1.id), str(guild.id), emoji))
+        conn.commit()
+        conn.close()
+    else:
+        await ctx.send("No profiles with assigned roles found. Use the assign_profile_role command first.")
+
+    # Region roles message
+    if region_rows:
+        msg2 = await ctx.send("React to this message to get your region role. (This only matterss for Hoyoverse Games)")
+        conn = sqlite3.connect('kanami_data.db')
+        c = conn.cursor()
+        for emoji, role_id in region_rows:
+            await msg2.add_reaction(emoji)
+            c.execute("UPDATE role_reactions SET message_id=? WHERE server_id=? AND emoji=?",
+                      (str(msg2.id), str(guild.id), emoji))
+        conn.commit()
+        conn.close()
+    else:
+        await ctx.send("No regions with assigned roles found. Use the assign_profile_role command for regions too.")
     
 
 @bot.command()
@@ -544,21 +595,3 @@ async def refresh_notifications(ctx):
         count += 1
 
     await ctx.send(f"Refreshed notifications for {count} ongoing events.")
-
-# Command to set the log channel
-@bot.command()
-@commands.has_permissions(manage_channels=True)
-async def set_log_channel(ctx, channel: discord.TextChannel):
-    """Sets the log channel for notification timing logs."""
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute(
-        "CREATE TABLE IF NOT EXISTS log_channel (server_id TEXT PRIMARY KEY, channel_id TEXT)"
-    )
-    c.execute(
-        "INSERT OR REPLACE INTO log_channel (server_id, channel_id) VALUES (?, ?)",
-        (str(ctx.guild.id), str(channel.id))
-    )
-    conn.commit()
-    conn.close()
-    await ctx.send(f"Log channel set to {channel.mention}.")
