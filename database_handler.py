@@ -2,6 +2,7 @@ import discord
 from modules import *
 from bot import *
 from notification_handler import schedule_notifications_for_event
+import asyncio
 
 # Initialize the database
 def init_db():
@@ -375,6 +376,19 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
     conn.commit()
     conn.close()
 
+    # Update all timer channels for all profiles in this server BEFORE scheduling notifications
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
+    profiles = [row[0] for row in c.fetchall()]
+    conn.close()
+    for prof in profiles:
+        await update_timer_channel(ctx.guild, bot, profile=prof)
+    
+    await ctx.send(
+        f"Added `{new_title}` as **{category}** for **{profile}** with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!"
+    )
+
     # SCHEDULE NOTIFICATION HERE
     event = {
         'server_id': str(ctx.guild.id),
@@ -384,35 +398,30 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
         'start_date': str(start_unix),
         'end_date': str(end_unix)
     }
-    await schedule_notifications_for_event(event)
-
-    await ctx.send(
-        f"Added `{new_title}` as **{category}** for **{profile}** with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!"
-    )
-    # Update all timer channels for all profiles in this server
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
-    profiles = [row[0] for row in c.fetchall()]
-    conn.close()
-    for prof in profiles:
-        await update_timer_channel(ctx.guild, bot, profile=prof)
+    asyncio.create_task(schedule_notifications_for_event(event))
 
 @bot.command()  # "remove" command to remove an event from the database
-async def remove(ctx, title: str):
-    # Fetch the event row by title and server_id
+async def remove(ctx, *, title: str):
+    """
+    Removes an event by title (case-insensitive) from the current server, along with its notifications and messages.
+    Usage: Kanami remove <event title>
+    """
+    server_id = str(ctx.guild.id)
+    # Case-insensitive search for the event title
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    c.execute("SELECT id, start_date, end_date FROM user_data WHERE server_id=? AND title=?", (str(ctx.guild.id), title))
+    c.execute("SELECT id, title, start_date, end_date FROM user_data WHERE server_id=? COLLATE NOCASE AND LOWER(title)=LOWER(?)", (server_id, title))
     row = c.fetchone()
     if not row:
         await ctx.send(f"No event found with the title `{title}`.")
         conn.close()
         return
-    event_id, start, end = row
+    event_id, found_title, start, end = row
 
     # Remove the event
     c.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+    # Remove all pending notifications for this event (case-insensitive)
+    c.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, found_title))
     conn.commit()
     conn.close()
 
@@ -437,11 +446,12 @@ async def remove(ctx, title: str):
     conn.commit()
     conn.close()
 
-    await ctx.send(f"Removed event `{title}` (Start: <t:{start}:F>, End: <t:{end}:F>) from the database.")
+    await ctx.send(f"Removed event `{found_title}` (Start: <t:{start}:F>, End: <t:{end}:F>) from the database and cleared its notifications.")
+
     # Update all timer channels for all profiles in this server
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
+    c.execute("SELECT profile FROM config WHERE server_id=?", (server_id,))
     profiles = [row[0] for row in c.fetchall()]
     conn.close()
     for profile in profiles:
