@@ -6,7 +6,22 @@ from twitter_handler import *
 import asyncio
 import datetime
 
-# function to get the notification timing for a server
+# Function to format minutes into hours or days
+def format_minutes(minutes):
+    parts = []
+    days = minutes // 1440
+    if days:
+        parts.append(f"{days}d")
+    minutes %= 1440
+    hours = minutes // 60
+    if hours:
+        parts.append(f"{hours}h")
+    minutes %= 60
+    if minutes:
+        parts.append(f"{minutes}m")
+    return " ".join(parts) if parts else "0m"
+
+# Function to update the notification timing message in the specified channel
 async def update_notification_timing_message(guild):
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
@@ -34,18 +49,20 @@ async def update_notification_timing_message(guild):
     if not timings:
         embed.description = "No notification timings set."
     else:
-        # Group by category
+        # Group by category and timing_type, collect all timings
         timing_dict = {}
         for cat, ttype, mins in timings:
             if cat not in timing_dict:
-                timing_dict[cat] = {}
-            timing_dict[cat][ttype] = mins
+                timing_dict[cat] = {"start": [], "end": []}
+            timing_dict[cat][ttype].append(mins)
         for cat, types in timing_dict.items():
-            start = types.get("start", "Not set")
-            end = types.get("end", "Not set")
+            start_list = sorted(types.get("start", []))
+            end_list = sorted(types.get("end", []))
+            start_str = ", ".join(format_minutes(m) for m in start_list) if start_list else "Not set"
+            end_str = ", ".join(format_minutes(m) for m in end_list) if end_list else "Not set"
             embed.add_field(
                 name=f"{cat}",
-                value=f"**Start:** {start} min\n**End:** {end} min",
+                value=f"**Start:** {start_str}\n**End:** {end_str}",
                 inline=False
             )
 
@@ -374,20 +391,27 @@ async def add_notification_timing(ctx, category: str, timing_type: str, minutes:
     Adds a notification timing (in minutes before event) for a category and type (start/end).
     Usage: Kanami add_notification_timing <category> <start|end> <minutes>
     """
+    allowed_categories = ["Banner", "Event", "Maintenence"]
+    if category not in allowed_categories:
+        await ctx.send(f"Category must be one of: {', '.join(allowed_categories)}.")
+        return
     timing_type = timing_type.lower()
     if timing_type not in ("start", "end"):
         await ctx.send("timing_type must be 'start' or 'end'.")
         return
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    # Allow multiple timings by not using REPLACE
-    c.execute(
-        "INSERT INTO notification_timings (server_id, category, timing_type, timing_minutes) VALUES (?, ?, ?, ?)",
-        (str(ctx.guild.id), category, timing_type, minutes)
-    )
-    conn.commit()
-    conn.close()
-    await ctx.send(f"Added notification timing for `{category}` `{timing_type}`: {minutes} minutes before event.")
+    try:
+        c.execute(
+            "INSERT INTO notification_timings (server_id, category, timing_type, timing_minutes) VALUES (?, ?, ?, ?)",
+            (str(ctx.guild.id), category, timing_type, minutes)
+        )
+        conn.commit()
+        await ctx.send(f"Added notification timing for `{category}` `{timing_type}`: {minutes} minutes before event.")
+    except sqlite3.IntegrityError:
+        await ctx.send(f"Notification timing `{category}` `{timing_type}` `{minutes}` min already exists.")
+    finally:
+        conn.close()
     await update_notification_timing_message(ctx.guild)
 
 @bot.command()
