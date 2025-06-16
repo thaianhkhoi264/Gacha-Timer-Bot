@@ -251,8 +251,11 @@ def convert_to_unix_tz(date: str, time: str, timezone_str: str = "UTC"):
             tz = ZoneInfo(timezone_str)
         except Exception:
             raise ValueError(f"Unknown timezone: {timezone_str}")
+
+    # Attach timezone and convert to UTC
     dt_local = dt_naive.replace(tzinfo=tz)
-    return int(dt_local.timestamp())
+    dt_utc = dt_local.astimezone(timezone.utc)
+    return int(dt_utc.timestamp())
 
 
 @bot.command()  # "add" command to add data into the database

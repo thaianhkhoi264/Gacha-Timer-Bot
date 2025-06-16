@@ -199,6 +199,12 @@ async def set_channel_slash(interaction: discord.Interaction):
     conn.close()
     await interaction.followup.send("\n".join(results), ephemeral=True)
 
+# Notification loop function to load and schedule pending notifications
+async def notification_loop():
+    while True:
+        await load_and_schedule_pending_notifications(bot)
+        await asyncio.sleep(30)  # Check every 30 seconds
+
 @bot.event
 async def on_ready():
     print(f"Kanami is ready to go!")
@@ -238,7 +244,7 @@ async def on_ready():
         for profile in profiles:
             await update_timer_channel(guild, bot, profile=profile)
     # load and schedule pending notifications
-    await load_and_schedule_pending_notifications(bot)
+    bot.loop.create_task(notification_loop())
 
 @bot.event # Checks for "good girl" and "good boy" in messages
 async def on_message(message):
