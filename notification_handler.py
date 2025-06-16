@@ -5,6 +5,10 @@ from twitter_handler import *
 
 import asyncio
 import datetime
+import time
+
+# Global variable to track the last log time
+_last_log_time = 0
 
 # Function to format minutes into hours or days
 def format_minutes(minutes):
@@ -86,80 +90,99 @@ async def update_notification_timing_message(guild):
         pass
 
 async def schedule_notifications_for_event(event):
-    print(f"[DEBUG] schedule_notifications_for_event called with event: {event}")
+    await send_log(event['server_id'], f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     c.execute("SELECT timing_type, timing_minutes FROM notification_timings WHERE server_id=? AND category=?",
               (event['server_id'], event['category']))
     timings = c.fetchall()
-    print(f"[DEBUG] Found timings for event: {timings}")
+    await send_log(event['server_id'], f"Found timings for event: {timings}")
 
     for timing_type, timing_minutes in timings:
         event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
         notify_unix = event_time_unix - timing_minutes * 60
-        print(f"[DEBUG] Calculated notify_unix: {notify_unix} (timing_type: {timing_type}, timing_minutes: {timing_minutes})")
+        await send_log(
+            event['server_id'],
+            f"Calculated notify_unix: <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type}, timing_minutes: {timing_minutes})"
+        )
         if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
             c.execute(
                 "INSERT INTO pending_notifications (server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
                 (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix)
             )
-            print(f"[DEBUG] Scheduled notification for {event['title']} at {notify_unix} (timing_type: {timing_type})")
+            await send_log(
+                event['server_id'],
+                f"Scheduled notification for `{event['title']}` at <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type})"
+            )
         else:
-            print(f"[DEBUG] Skipped scheduling notification for {event['title']} (notify_unix is in the past)")
+            await send_log(
+                event['server_id'],
+                f"Skipped scheduling notification for `{event['title']}` (notify_unix <t:{notify_unix}:F> / <t:{notify_unix}:R> is in the past)"
+            )
     conn.commit()
     conn.close()
 
 async def send_notification_at(event, timing_type, delay):
-    print(f"[DEBUG] send_notification_at called with delay: {delay} seconds for event: {event['title']}")
+    await send_log(
+        event['server_id'],
+        f"send_notification_at called with delay: {delay} seconds for event: `{event['title']}` (will notify at <t:{int(time.time()+delay)}:F> / <t:{int(time.time()+delay)}:R>)"
+    )
     await asyncio.sleep(delay)
     await send_notification(event, timing_type)
 
 async def send_notification(event, timing_type):
-    print(f"[DEBUG] send_notification called for event: {event['title']} (timing_type: {timing_type})")
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     c.execute("SELECT channel_id FROM notification_channel WHERE server_id=?", (event['server_id'],))
     row = c.fetchone()
     conn.close()
     if not row or not row[0]:
-        print(f"[DEBUG] No notification channel set for server {event['server_id']}")
+        await send_log(event['server_id'], f"No notification channel set for server {event['server_id']}")
         return
 
     channel_id = int(row[0])
     guild = bot.get_guild(int(event['server_id']))
     channel = guild.get_channel(channel_id)
     if not channel:
-        print(f"[DEBUG] Notification channel {channel_id} not found in guild {guild}")
+        await send_log(event['server_id'], f"Notification channel {channel_id} not found in guild {guild}")
         return
 
     role = discord.utils.get(guild.roles, name=event['profile'])
     if not role:
         role_mention = ""
-        print(f"[DEBUG] No role found for profile {event['profile']}")
+        await send_log(event['server_id'], f"No role found for profile {event['profile']}")
     else:
         role_mention = role.mention
-        print(f"[DEBUG] Found role for profile {event['profile']}: {role_mention}")
+        await send_log(event['server_id'], f"Found role for profile {event['profile']}: {role_mention}")
 
     time_str = "starting" if timing_type == "start" else "ending"
     try:
         await channel.send(
             f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} in {event.get('timing_minutes', '?')} minutes!"
         )
-        print(f"[DEBUG] Notification sent to channel {channel_id} for event {event['title']}")
+        await send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']}")
     except Exception as e:
-        print(f"[DEBUG] Failed to send notification: {e}")
+        await send_log(event['server_id'], f"Failed to send notification: {e}")
 
 async def load_and_schedule_pending_notifications(bot):
-    print("[DEBUG] load_and_schedule_pending_notifications called")
+    global _last_log_time
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-    # Debugging current UTC timestamp
-    print(f"[DEBUG] Current UTC timestamp: {now} ({datetime.datetime.fromtimestamp(now, datetime.timezone.utc)})")
     c.execute("SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix FROM pending_notifications WHERE sent=0 AND notify_unix > ?", (now,))
     rows = c.fetchall()
     conn.close()
-    print(f"[DEBUG] Found {len(rows)} pending notifications")
+
+    # Log only every 15 minutes
+    if time.time() - _last_log_time > 900:
+        for row in rows:
+            notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix = row
+            await send_log(
+                server_id,
+                f"Pending notification: `{title}` ({category}/{profile}) at <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type})"
+            )
+        _last_log_time = time.time()
+
     for row in rows:
         notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix = row
         delay = notify_unix - now
@@ -172,11 +195,9 @@ async def load_and_schedule_pending_notifications(bot):
             'end_date': event_time_unix if timing_type == "end" else None,
             'timing_minutes': abs((notify_unix - event_time_unix) // 60)
         }
-        print(f"[DEBUG] Scheduling persistent notification for event '{title}' in {delay} seconds")
         asyncio.create_task(send_persistent_notification(bot, notif_id, event, timing_type, delay))
 
 async def send_persistent_notification(bot, notif_id, event, timing_type, delay):
-    print(f"[DEBUG] send_persistent_notification sleeping for {delay} seconds for event: {event['title']}")
     await asyncio.sleep(delay)
     await send_notification(event, timing_type)
     conn = sqlite3.connect('kanami_data.db')
@@ -184,7 +205,23 @@ async def send_persistent_notification(bot, notif_id, event, timing_type, delay)
     c.execute("UPDATE pending_notifications SET sent=1 WHERE id=?", (notif_id,))
     conn.commit()
     conn.close()
-    print(f"[DEBUG] Marked notification as sent for event: {event['title']}")
+    await send_log(event['server_id'], f"Marked notification as sent for event: {event['title']}")
+
+async def send_log(guild_id, message):
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT channel_id FROM log_channel WHERE server_id=?", (str(guild_id),))
+    row = c.fetchone()
+    conn.close()
+    if not row or not row[0]:
+        return
+    channel_id = int(row[0])
+    guild = bot.get_guild(int(guild_id))
+    if not guild:
+        return
+    channel = guild.get_channel(channel_id)
+    if channel:
+        await channel.send(message)
 
 # Listeners for reaction roles
 @bot.event
@@ -493,3 +530,21 @@ async def refresh_notifications(ctx):
         count += 1
 
     await ctx.send(f"Refreshed notifications for {count} ongoing events.")
+
+# Command to set the log channel
+@bot.command()
+@commands.has_permissions(manage_channels=True)
+async def set_log_channel(ctx, channel: discord.TextChannel):
+    """Sets the log channel for notification timing logs."""
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute(
+        "CREATE TABLE IF NOT EXISTS log_channel (server_id TEXT PRIMARY KEY, channel_id TEXT)"
+    )
+    c.execute(
+        "INSERT OR REPLACE INTO log_channel (server_id, channel_id) VALUES (?, ?)",
+        (str(ctx.guild.id), str(channel.id))
+    )
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Log channel set to {channel.mention}.")
