@@ -2,6 +2,7 @@ from modules import *
 from bot import *
 from database_handler import update_timer_channel
 from notification_handler import schedule_notifications_for_event
+from datetime import datetime
 import pytz
 
 PROFILE_NORMALIZATION = {
@@ -60,23 +61,41 @@ def parse_dates_ak(text):
       - ...during May 6, 2025, 04:00 (UTC-7) - May 20, 2025, 03:59 (UTC-7)...
       - ...on May 8, 2025, 10:00-10:10 (UTC-7)...
       - ...between May 8, 2025, 10:00 - May 22, 2024, 03:59 (UTC-7)...
+      - ...on June 12, 10:00 (UTC-7)...  # <-- missing year, will use current year
     Returns (start, end) as strings if found, otherwise None for missing.
     """
+    current_year = datetime.now().year
+
+    # Helper to add year if missing
+    def ensure_year(date_str):
+        # If a year is present (4 digits), return as is
+        if re.search(r'\b\d{4}\b', date_str):
+            return date_str
+        # Insert current year after the month and day
+        # e.g. "June 12, 10:00 (UTC-7)" -> "June 12, 2025, 10:00 (UTC-7)"
+        match = re.match(r'([A-Za-z]+ \d{1,2}),?\s*(\d{2}:\d{2})(.*)', date_str)
+        if match:
+            month_day = match.group(1)
+            time_part = match.group(2)
+            rest = match.group(3)
+            return f"{month_day}, {current_year}, {time_part}{rest}"
+        return date_str
+
     # 1. Range with dash or en-dash and optional UTC
     match = re.search(
-        r'(?:during|between)?\s*([A-Za-z]+\s+\d{1,2},\s*\d{4},?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)\s*[-–]\s*([A-Za-z]+\s+\d{1,2},\s*\d{4},?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
+        r'(?:during|between)?\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
         text, re.IGNORECASE)
     if match:
-        start = match.group(1).strip()
-        end = match.group(2).strip()
+        start = ensure_year(match.group(1).strip())
+        end = ensure_year(match.group(2).strip())
         return start, end
 
     # 2. Maintenance with single date and time range (e.g. May 8, 2025, 10:00-10:10 (UTC-7))
     match = re.search(
-        r'on\s*([A-Za-z]+\s+\d{1,2},\s*\d{4}),?\s*(\d{2}:\d{2})\s*[-–]\s*(\d{2}:\d{2})\s*\((UTC[+-]\d+)\)',
+        r'on\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?),?\s*(\d{2}:\d{2})\s*[-–]\s*(\d{2}:\d{2})\s*\((UTC[+-]\d+)\)',
         text, re.IGNORECASE)
     if match:
-        date = match.group(1).strip()
+        date = ensure_year(match.group(1).strip())
         start_time = match.group(2).strip()
         end_time = match.group(3).strip()
         tz = match.group(4).strip()
@@ -84,12 +103,12 @@ def parse_dates_ak(text):
         end = f"{date}, {end_time} ({tz})"
         return start, end
 
-    # 3. Fallback: single date/time with UTC
+    # 3. Fallback: single date/time with UTC or missing year
     match = re.search(
-        r'([A-Za-z]+\s+\d{1,2},\s*\d{4},?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
+        r'([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
         text, re.IGNORECASE)
     if match:
-        date = match.group(1).strip()
+        date = ensure_year(match.group(1).strip())
         return date, None
 
     return None, None
@@ -132,9 +151,9 @@ async def prompt_for_category(ctx):
         "What category should this event be?\n"
         ":blue_square: Banner\n"
         ":yellow_square: Event\n"
-        ":red_square: Maintenance"
+        ":green_square: Maintenance"
     )
-    emojis = {"🟦": "Banner", "🟨": "Event", "🟥": "Maintenence"}
+    emojis = {"🟦": "Banner", "🟨": "Event", "🟩": "Maintenance"}
     for emoji in emojis: await msg.add_reaction(emoji)
     def check(reaction, user): return user == ctx.author and reaction.message.id == msg.id and str(reaction.emoji) in emojis
     try:
@@ -376,7 +395,7 @@ async def read(ctx, link: str):
                 return
             image = await prompt_for_image(ctx, tweet_image)
         elif "maintenance" in text_lower:
-            category = "Maintenence"
+            category = "Maintenance"
             from datetime import datetime
             title = f"Maintenance {datetime.now().strftime('%Y-%m-%d')}"
             image = tweet_image
@@ -556,5 +575,7 @@ async def read(ctx, link: str):
     c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
     profiles = [row[0] for row in c.fetchall()]
     conn.close()
-    for profile in profiles:
-        await update_timer_channel(ctx.guild, bot, profile=event_profile)
+    unique_profiles = set(profiles)
+    unique_profiles.add("ALL")
+    for profile in unique_profiles:
+        await update_timer_channel(ctx.guild, bot, profile=profile)

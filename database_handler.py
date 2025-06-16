@@ -104,7 +104,9 @@ async def upsert_event_message(guild, channel, event_row, event_id):
         color = discord.Color.blue()
     elif category == "Event":
         color = discord.Color.gold()
-    elif category == "Maintenence":
+    elif category == "Maintenance":
+        color = discord.Color.green()
+    elif category == "Ended":
         color = discord.Color.red()
     else:
         color = discord.Color.blurple()
@@ -120,7 +122,7 @@ async def upsert_event_message(guild, channel, event_row, event_id):
             f"Start: <t:{europe_start}:F>\nEnd: <t:{europe_end}:F>"
         )
     else:
-        embed.description = f"**Start:** <t:{start_unix}:F>\n**End:** <t:{end_unix}:F>"
+        embed.description = f"**Start:** <t:{start_unix}:F> or <t:{start_unix}:R>\n**End:** <t:{end_unix}:F> or <t:{end_unix}:R>"
     if image and (image.startswith("http://") or image.startswith("https://")):
         embed.set_image(url=image)
 
@@ -146,15 +148,23 @@ async def upsert_event_message(guild, channel, event_row, event_id):
     conn.commit()
     conn.close()
 
+# Function to mark ended events in the database
+async def mark_ended_events(guild):
+    now = int(datetime.now().timestamp())
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    # Only update events that are not already marked as Ended
+    c.execute(
+        "UPDATE user_data SET category='Ended' WHERE server_id=? AND category != 'Ended' AND end_date != '' AND CAST(end_date AS INTEGER) < ?",
+        (str(guild.id), now)
+    )
+    conn.commit()
+    conn.close()
+
 # Function to update the timer channel with the latest events for a given profile
 async def update_timer_channel(guild, bot, profile="ALL"):
-    profile_map = {
-        "HSR": "honkaistarrail",
-        "ZZZ": "zzz_en",
-        "AK": "ArknightsEN",
-        "ALL": "ALL"
-    }
-    canonical_profile = profile_map.get(profile, profile)
+    # Mark ended events before fetching
+    await mark_ended_events(guild)
 
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
@@ -169,7 +179,7 @@ async def update_timer_channel(guild, bot, profile="ALL"):
     channel_id = int(row[0])
 
     # Fetch events for this profile only, or all if profile is "ALL"
-    if canonical_profile == "ALL":
+    if profile == "ALL":
         c.execute(
             "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? ORDER BY id DESC",
             (str(guild.id),)
@@ -177,7 +187,7 @@ async def update_timer_channel(guild, bot, profile="ALL"):
     else:
         c.execute(
             "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? AND profile=? ORDER BY id DESC",
-            (str(guild.id), canonical_profile)
+            (str(guild.id), profile)
         )
     rows = c.fetchall()
     conn.close()
@@ -267,7 +277,7 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
     - end: End date/time (YYYY-MM-DD HH:MM or unix timestamp).
     - image: (Optional) Image URL.
     - profile: (Optional) Profile (e.g., HSR, ZZZ, AK, ALL).
-    - category: (Optional) Category (Banner, Event, Maintenence).
+    - category: (Optional) Category (Banner, Event, Maintenance).
     - timezone_str: (Optional) Timezone for date/time (default: UTC).
     If the title already exists, appends a number to make it unique (e.g., "Event", "Event 2", ...).
     """
@@ -313,12 +323,12 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
             "What category should this event be?\n"
             ":blue_square: Banner\n"
             ":yellow_square: Event\n"
-            ":red_square: Maintenance"
+            ":green_square: Maintenance"
         )
         emojis = {
             "🟦": "Banner",
             "🟨": "Event",
-            "🟥": "Maintenence"
+            "🟩": "Maintenance"
         }
         for emoji in emojis:
             await msg.add_reaction(emoji)
@@ -453,7 +463,7 @@ async def timer(ctx):
         for title, start_unix, end_unix, image in rows:
             embed = discord.Embed(
                 title=title,
-                description=f"**Start:** <t:{start_unix}:F>\n**End:** <t:{end_unix}:F>",
+                description=f"**Start:** <t:{start_unix}:F> or <t:{start_unix}:R>\n**End:** <t:{end_unix}:F> or <t:{end_unix}:R>",
                 color=discord.Color.blue()
             )
             # Only set image if it's a valid URL
