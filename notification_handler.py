@@ -526,7 +526,7 @@ async def refresh_notifications(ctx):
             'start_date': str(start_unix),
             'end_date': str(end_unix)
         }
-        await schedule_notifications_for_event(event)
+        asyncio.create_task(schedule_notifications_for_event(event))
         count += 1
 
     await ctx.send(f"Refreshed notifications for {count} ongoing events.")
