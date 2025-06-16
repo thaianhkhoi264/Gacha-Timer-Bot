@@ -369,7 +369,7 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
             return
 
     # Prompt for profile if not provided
-    valid_profiles = ["HSR", "ZZZ", "AK", "ALL"]
+    valid_profiles = ["HSR", "ZZZ", "AK", "STRI", "WUWA", "ALL"]
     if not profile:
         await ctx.send(f"Which profile is this event for? (Type one of: {', '.join(valid_profiles)})")
         def profile_check(m):
@@ -582,7 +582,7 @@ async def edit(ctx, title: str, item: str, *, text: str):
     }
     asyncio.create_task(schedule_notifications_for_event(event))
     await ctx.send(f"Notifications rescheduled for `{title}`.")
-    
+
 @bot.command() # "timer" command
 async def timer(ctx):
     """ Sends each event as its own embed with its image for this server """
