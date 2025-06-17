@@ -135,6 +135,7 @@ async def schedule_notifications_for_event(event):
             )
     conn.commit()
     conn.close()
+    await update_pending_notifications_embed(bot.get_guild(int(event['server_id'])))
 
 async def send_notification_at(event, timing_type, delay):
     send_log(
@@ -239,11 +240,13 @@ async def load_and_schedule_pending_notifications(bot):
 
     # Log only every 15 minutes
     if time.time() - _last_log_time > 900:
+        now = int(time.time())
         for row in rows:
             notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix = row
+            seconds_until = notify_unix - now
             send_log(
                 server_id,
-                f"Pending notification: `{title}` ({category}/{profile}) at <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type})"
+                f"Pending notification: `{title}` ({category}/{profile}) in {seconds_until} seconds (timing_type: {timing_type})"
             )
         _last_log_time = time.time()
 
@@ -270,6 +273,73 @@ async def send_persistent_notification(bot, notif_id, event, timing_type, delay)
     conn.commit()
     conn.close()
     send_log(event['server_id'], f"Marked notification as sent for event: {event['title']}")
+    await update_pending_notifications_embed(bot.get_guild(int(event['server_id'])))
+
+async def update_pending_notifications_embed(guild):
+    """
+    Posts or updates the embed listing all pending notifications for the server.
+    """
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT channel_id, message_id FROM pending_notifications_channel WHERE server_id=?", (str(guild.id),))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return
+    channel_id, message_id = row
+    channel = guild.get_channel(int(channel_id))
+    if not channel:
+        conn.close()
+        return
+
+    # Fetch all pending notifications for this server
+    now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    c.execute("""
+        SELECT title, category, profile, timing_type, notify_unix, event_time_unix
+        FROM pending_notifications
+        WHERE server_id=? AND notify_unix > ?
+        ORDER BY notify_unix ASC
+    """, (str(guild.id), now))
+    rows = c.fetchall()
+    conn.close()
+
+    embed = discord.Embed(
+        title="Pending Notifications",
+        description="All upcoming scheduled notifications for this server.",
+        color=discord.Color.orange()
+    )
+
+    if not rows:
+        embed.description = "No pending notifications."
+    else:
+        for title, category, profile, timing_type, notify_unix, event_time_unix in rows:
+            embed.add_field(
+                name=f"{title} ({category}/{profile})",
+                value=f"Type: `{timing_type}`\nNotify: <t:{notify_unix}:F> / <t:{notify_unix}:R>\nEvent Time: <t:{event_time_unix}:F>",
+                inline=False
+            )
+
+    # Post or edit the embed
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT message_id FROM pending_notifications_channel WHERE server_id=?", (str(guild.id),))
+    msg_row = c.fetchone()
+    message_id = msg_row[0] if msg_row else None
+    msg = None
+    try:
+        if message_id:
+            msg = await channel.fetch_message(int(message_id))
+            await msg.edit(embed=embed)
+        else:
+            msg = await channel.send(embed=embed)
+            c.execute("UPDATE pending_notifications_channel SET message_id=? WHERE server_id=?", (str(guild.id), str(msg.id)))
+            conn.commit()
+    except Exception:
+        # If message not found, send a new one
+        msg = await channel.send(embed=embed)
+        c.execute("UPDATE pending_notifications_channel SET message_id=? WHERE server_id=?", (str(guild.id), str(msg.id)))
+        conn.commit()
+    conn.close()
 
 def send_log(guild_id, message):
         print(f"[{guild_id}] {message}")
@@ -647,6 +717,7 @@ async def clear_pending_notifications(ctx):
     conn.commit()
     conn.close()
     await ctx.send("Cleared all pending notifications.")
+    await update_pending_notifications_embed(ctx.guild)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -682,3 +753,28 @@ async def refresh_notifications(ctx):
         count += 1
 
     await ctx.send(f"Refreshed notifications for {count} ongoing events.")
+    await update_pending_notifications_embed(ctx.guild)
+
+@bot.command()
+@commands.has_permissions(manage_channels=True)
+async def set_pending_notifications_channel(ctx, channel: discord.TextChannel):
+    """
+    Sets the channel where all pending notifications are displayed in a single embed.
+    """
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    # Store the channel in a new table
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS pending_notifications_channel (
+            server_id TEXT PRIMARY KEY,
+            channel_id TEXT,
+            message_id TEXT
+        )
+    """)
+    # Remove any old message_id (will be set after posting)
+    c.execute("INSERT OR REPLACE INTO pending_notifications_channel (server_id, channel_id, message_id) VALUES (?, ?, NULL)",
+              (str(ctx.guild.id), str(channel.id)))
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Pending notifications channel set to {channel.mention}.")
+    await update_pending_notifications_embed(ctx.guild)
