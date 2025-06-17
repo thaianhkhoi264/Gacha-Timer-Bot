@@ -74,6 +74,65 @@ def parse_dates_hsr(text):
 
     return None, None
 
+def parse_category_zzz(text):
+    """
+    Parses Zenless Zone Zero tweet text to determine the event category.
+    Returns one of: "Banner", "Event", "Maintenance", or None.
+    """
+    text_lower = text.lower()
+    if "channel" in text_lower or "channels" in text_lower:
+        return "Banner"
+    elif "event details" in text_lower:
+        return "Event"
+    elif "update" in text_lower or "compensation" in text_lower:
+        return "Maintenance"
+    return None
+
+def parse_dates_zzz(text):
+    """
+    Parses ZZZ event/update tweets for start and end times.
+    Handles:
+      - [Event Duration] 2025/06/18 04:00 (server time) – 2025/06/23 03:59 (server time)
+      - [Update Start Time] 2025/06/06 06:00 (UTC+8)
+      - After the Version X.X update – 2025/06/23 03:59 (server time)
+    Returns (start, end) as strings if found, otherwise None for missing.
+    """
+    # 1. [Event Duration] ... – ... (range)
+    match = re.search(
+        r'\[Event Duration\][^\d]*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})[^\d–-]*[–-][^\d]*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})',
+        text, re.IGNORECASE)
+    if match:
+        start = match.group(1).strip()
+        end = match.group(2).strip()
+        return start, end
+
+    # 2. [Update Start Time] ... (single date)
+    match = re.search(
+        r'\[Update Start Time\][^\d]*(\d{4}/\d{2}/\d{2} \d{2}:\d{2}(?:\s*\([^)]+\))?)',
+        text, re.IGNORECASE)
+    if match:
+        start = match.group(1).strip()
+        return start, None
+
+    # 3. After the Version X.X update – ... (prompt for start, parse end)
+    match = re.search(
+        r'After the Version [\d\.]+ Update\s*[–-]\s*(\d{4}/\d{2}/\d{2} \d{2}:\d{2}(?:\s*\([^)]+\))?)',
+        text, re.IGNORECASE)
+    if match:
+        end = match.group(1).strip()
+        # Signal to the caller that we need to prompt for start
+        return None, end
+
+    # 4. Fallback: find any date-like substrings
+    date_candidates = re.findall(
+        r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}(?:\s*\([^)]+\))?)', text)
+    if len(date_candidates) >= 2:
+        return date_candidates[0], date_candidates[1]
+    elif len(date_candidates) == 1:
+        return date_candidates[0], None
+    else:
+        return None, None
+
 def parse_category_ak(text):
     """
     Parses Arknights tweet text to determine the event category.
@@ -176,6 +235,10 @@ POSTER_PROFILES = {
     "honkaistarrail": {
         "parse_dates": parse_dates_hsr,
         "parse_category": parse_category_hsr
+    },
+    "zzz_en": {
+        "parse_dates": parse_dates_zzz,
+        "parse_category": parse_category_zzz
     },
     "arknightsen": {
         "parse_dates": parse_dates_ak,
