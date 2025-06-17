@@ -162,33 +162,71 @@ async def send_notification(event, timing_type):
         conn.close()
         return
 
-    # --- Use role ID from DB for the profile ---
-    emoji = PROFILE_EMOJIS.get(event['profile'])
-    role_mention = ""
-    if emoji:
-        c.execute("SELECT role_id FROM role_reactions WHERE server_id=? AND emoji=?", (event['server_id'], emoji))
-        role_row = c.fetchone()
-        if role_row:
-            role = guild.get_role(int(role_row[0]))
+    # --- Determine if this is a Hoyoverse game ---
+    HYV_PROFILES = {"HSR", "ZZZ"}
+    profile = event['profile'].upper()
+    if profile in HYV_PROFILES:
+        regions = ["NA", "EU", "ASIA"]
+        for region in regions:
+            combined_role_name = f"{profile} {region}"
+            role = discord.utils.get(guild.roles, name=combined_role_name)
             if role:
                 role_mention = role.mention
-                send_log(event['server_id'], f"Found role for profile {event['profile']}: {role_mention}")
+                send_log(event['server_id'], f"Found combined role for {profile} {region}: {role_mention}")
             else:
-                send_log(event['server_id'], f"Role ID {role_row[0]} not found in guild for profile {event['profile']}")
-        else:
-            send_log(event['server_id'], f"No role_id found for emoji {emoji} (profile {event['profile']})")
-    else:
-        send_log(event['server_id'], f"No emoji found for profile {event['profile']}")
-    conn.close()
+                send_log(event['server_id'], f"No combined role found for {profile} {region}")
+                continue
 
-    time_str = "starting" if timing_type == "start" else "ending"
-    try:
-        await channel.send(
-            f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} in {event.get('timing_minutes', '?')} minutes!"
-        )
-        send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']}")
-    except Exception as e:
-        send_log(event['server_id'], f"Failed to send notification: {e}")
+            # Pick the correct event time for this region
+            unix_time = None
+            if region == "NA":
+                unix_time = event.get('america_start') if timing_type == "start" else event.get('america_end')
+            elif region == "EU":
+                unix_time = event.get('europe_start') if timing_type == "start" else event.get('europe_end')
+            elif region == "ASIA":
+                unix_time = event.get('asia_start') if timing_type == "start" else event.get('asia_end')
+
+            # Fallback to event['start_date']/['end_date'] if region-specific not present
+            if not unix_time:
+                unix_time = event['start_date'] if timing_type == "start" else event['end_date']
+
+            time_str = "starting" if timing_type == "start" else "ending"
+            try:
+                await channel.send(
+                    f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
+                )
+                send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
+            except Exception as e:
+                send_log(event['server_id'], f"Failed to send notification for {profile} {region}: {e}")
+    else:
+        # --- Non-HYV games: mention the profile role as before ---
+        emoji = PROFILE_EMOJIS.get(profile)
+        role_mention = ""
+        if emoji:
+            c.execute("SELECT role_id FROM role_reactions WHERE server_id=? AND emoji=?", (event['server_id'], emoji))
+            role_row = c.fetchone()
+            if role_row:
+                role = guild.get_role(int(role_row[0]))
+                if role:
+                    role_mention = role.mention
+                    send_log(event['server_id'], f"Found role for profile {profile}: {role_mention}")
+                else:
+                    send_log(event['server_id'], f"Role ID {role_row[0]} not found in guild for profile {profile}")
+            else:
+                send_log(event['server_id'], f"No role_id found for emoji {emoji} (profile {profile})")
+        else:
+            send_log(event['server_id'], f"No emoji found for profile {profile}")
+
+        unix_time = event['start_date'] if timing_type == "start" else event['end_date']
+        time_str = "starting" if timing_type == "start" else "ending"
+        try:
+            await channel.send(
+                f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
+            )
+            send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']}")
+        except Exception as e:
+            send_log(event['server_id'], f"Failed to send notification: {e}")
+    conn.close()
 
 async def load_and_schedule_pending_notifications(bot):
     global _last_log_time
@@ -236,6 +274,26 @@ async def send_persistent_notification(bot, notif_id, event, timing_type, delay)
 def send_log(guild_id, message):
         print(f"[{guild_id}] {message}")
 
+async def update_combined_roles(member):
+    """Assigns/removes combined roles based on the user's game and region roles."""
+    games = ["HSR", "ZZZ"]
+    regions = ["NA", "EU", "ASIA"]
+    guild = member.guild
+    user_roles = [r.name for r in member.roles]
+
+    for game in games:
+        has_game = game in user_roles
+        for region in regions:
+            has_region = region in user_roles
+            combined_role = discord.utils.get(guild.roles, name=f"{game} {region}")
+            if combined_role:
+                if has_game and has_region:
+                    if combined_role not in member.roles:
+                        await member.add_roles(combined_role, reason="Auto combined role update")
+                else:
+                    if combined_role in member.roles:
+                        await member.remove_roles(combined_role, reason="Auto combined role update")
+
 # Listeners for reaction roles
 @bot.event
 async def on_raw_reaction_add(payload):
@@ -254,6 +312,7 @@ async def on_raw_reaction_add(payload):
             member = guild.get_member(payload.user_id)
             if member:
                 await member.add_roles(role, reason="Role reaction add")
+                await update_combined_roles(member) # Update combined roles after adding the role
                 # Send a confirmation message in the channel
                 channel = guild.get_channel(payload.channel_id)
                 if channel:
@@ -279,6 +338,7 @@ async def on_raw_reaction_remove(payload):
             member = guild.get_member(payload.user_id)
             if member:
                 await member.remove_roles(role, reason="Role reaction remove")
+                await update_combined_roles(member)
                 # Send a confirmation message in the channel
                 channel = guild.get_channel(payload.channel_id)
                 if channel:
@@ -459,6 +519,33 @@ async def update_role_reaction(ctx):
     conn.commit()
     conn.close()
     await ctx.send("Role reaction message updated!")
+
+@bot.command()
+@commands.has_permissions(manage_roles=True)
+async def create_combined_roles(ctx):
+    """Creates 6 combined roles for HSR and ZZZ with each region."""
+    guild = ctx.guild
+    games = ["HSR", "ZZZ"]
+    regions = ["NA", "EU", "ASIA"]
+    created = []
+    for game in games:
+        for region in regions:
+            role_name = f"{game} {region}"
+            if not discord.utils.get(guild.roles, name=role_name):
+                role = await guild.create_role(name=role_name)
+                created.append(role_name)
+    await ctx.send(f"Created roles: {', '.join(created) if created else 'All roles already exist.'}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def update_all_combined_roles(ctx):
+    """Checks all members and updates their combined roles."""
+    count = 0
+    for member in ctx.guild.members:
+        if not member.bot:
+            await update_combined_roles(member)
+            count += 1
+    await ctx.send(f"Updated combined roles for {count} members.")
 
 @bot.command()
 @commands.has_permissions(manage_channels=True)
