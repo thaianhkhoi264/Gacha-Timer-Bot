@@ -1,3 +1,4 @@
 discord.log
 .env
 kanami_data.db
+dump_db.py
