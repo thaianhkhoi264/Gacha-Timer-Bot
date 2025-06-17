@@ -3,7 +3,9 @@ from bot import *
 from database_handler import update_timer_channel
 from notification_handler import schedule_notifications_for_event
 from datetime import datetime, timedelta
+
 import asyncio
+import inspect
 import pytz
 import re
 
@@ -116,11 +118,10 @@ def parse_dates_zzz(text):
 
     # 3. After the Version X.X update – ... (prompt for start, parse end)
     match = re.search(
-        r'After the Version [\d\.]+ Update\s*[–-]\s*(\d{4}/\d{2}/\d{2} \d{2}:\d{2}(?:\s*\([^)]+\))?)',
+        r'After the Version [\d\.]+ Update\s*[-–—~]\s*(\d{4}/\d{2}/\d{2} \d{2}:\d{2}(?:\s*\([^)]+\))?)',
         text, re.IGNORECASE)
     if match:
         end = match.group(1).strip()
-        # Signal to the caller that we need to prompt for start
         return None, end
 
     # 4. Fallback: find any date-like substrings
@@ -576,9 +577,17 @@ async def read(ctx, link: str):
 
     if profile_parser:
         if "parse_category" in profile_parser:
-            category = await profile_parser["parse_category"](tweet_text)
+            parse_category_fn = profile_parser["parse_category"]
+            if inspect.iscoroutinefunction(parse_category_fn):
+                category = await parse_category_fn(tweet_text)
+            else:
+                category = parse_category_fn(tweet_text)
         if "parse_dates" in profile_parser:
-            start, end = profile_parser["parse_dates"](tweet_text)
+            parse_date_fn = profile_parser["parse_dates"]
+            if inspect.iscoroutinefunction(parse_date_fn):
+                start, end = await parse_date_fn(ctx, tweet_text)
+            else:
+                start, end = parse_date_fn(tweet_text)
         # If you add more special logic, check and use it here
         # e.g. if "parse_special" in profile_parser: ...
     else:

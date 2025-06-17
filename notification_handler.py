@@ -21,6 +21,16 @@ REGION_EMOJIS = {
     "EUROPE": "<:Region_EU:1384176193426690088>"
 }
 
+PROFILE_COLORS = {
+    "AK": discord.Color.teal(),        # Aqua
+    "HSR": discord.Color.fuchsia(),    # Fuchsia
+    "ZZZ": discord.Color.yellow(),     # Yellow
+    "STRI": discord.Color.orange(),    # Orange
+    "WUWA": discord.Color.green(),     # Green
+}
+
+MAX_FIELDS = 25
+
 # Global variable to track the last log time
 _last_log_time = 0
 
@@ -135,7 +145,8 @@ async def schedule_notifications_for_event(event):
             )
     conn.commit()
     conn.close()
-    await update_pending_notifications_embed(bot.get_guild(int(event['server_id'])))
+    guild = bot.get_guild(int(event['server_id']))
+    await update_pending_notifications_embed_for_profile(guild, event['profile'])
 
 async def send_notification_at(event, timing_type, delay):
     send_log(
@@ -273,72 +284,97 @@ async def send_persistent_notification(bot, notif_id, event, timing_type, delay)
     conn.commit()
     conn.close()
     send_log(event['server_id'], f"Marked notification as sent for event: {event['title']}")
-    await update_pending_notifications_embed(bot.get_guild(int(event['server_id'])))
+    guild = bot.get_guild(int(event['server_id']))
+    await update_pending_notifications_embed_for_profile(guild, event['profile'])
 
-async def update_pending_notifications_embed(guild):
-    """
-    Posts or updates the embed listing all pending notifications for the server.
-    """
+async def update_all_pending_notifications_embeds(guild):
+    """Update all game embeds in the pending notifications channel."""
+    # Always show all supported profiles, even if they have no notifications
+    profiles = ["AK", "HSR", "ZZZ", "STRI", "WUWA"]
+    for profile in profiles:
+        await update_pending_notifications_embed_for_profile(guild, profile)
+
+async def update_pending_notifications_embed_for_profile(guild, profile):
+    import math
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    c.execute("SELECT channel_id, message_id FROM pending_notifications_channel WHERE server_id=?", (str(guild.id),))
+    c.execute("SELECT channel_id FROM pending_notifications_channel WHERE server_id=? AND profile=?",
+              (str(guild.id), profile))
     row = c.fetchone()
     if not row:
         conn.close()
         return
-    channel_id, message_id = row
+    channel_id = row[0]
     channel = guild.get_channel(int(channel_id))
     if not channel:
         conn.close()
         return
 
-    # Fetch all pending notifications for this server
     now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     c.execute("""
-        SELECT title, category, profile, timing_type, notify_unix, event_time_unix
+        SELECT title, category, timing_type, notify_unix, event_time_unix
         FROM pending_notifications
-        WHERE server_id=? AND notify_unix > ?
+        WHERE server_id=? AND profile=? AND notify_unix > ?
         ORDER BY notify_unix ASC
-    """, (str(guild.id), now))
+    """, (str(guild.id), profile, now))
     rows = c.fetchall()
-    conn.close()
 
-    embed = discord.Embed(
-        title="Pending Notifications",
-        description="All upcoming scheduled notifications for this server.",
-        color=discord.Color.orange()
-    )
+    color = PROFILE_COLORS.get(profile, discord.Color.default())
 
-    if not rows:
-        embed.description = "No pending notifications."
-    else:
-        for title, category, profile, timing_type, notify_unix, event_time_unix in rows:
-            embed.add_field(
-                name=f"{title} ({category}/{profile})",
-                value=f"Type: `{timing_type}`\nNotify: <t:{notify_unix}:F> / <t:{notify_unix}:R>\nEvent Time: <t:{event_time_unix}:F>",
-                inline=False
-            )
+    # Split into chunks of 25
+    chunks = [rows[i:i+MAX_FIELDS] for i in range(0, max(1, len(rows)), MAX_FIELDS)]
 
-    # Post or edit the embed
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT message_id FROM pending_notifications_channel WHERE server_id=?", (str(guild.id),))
-    msg_row = c.fetchone()
-    message_id = msg_row[0] if msg_row else None
-    msg = None
-    try:
-        if message_id:
-            msg = await channel.fetch_message(int(message_id))
-            await msg.edit(embed=embed)
+    # Fetch all existing dashboard messages for this profile
+    c.execute("SELECT message_id FROM pending_notifications_messages WHERE server_id=? AND profile=? ORDER BY message_id ASC",
+              (str(guild.id), profile))
+    old_msgs = [msg_id for (msg_id,) in c.fetchall()]
+
+    new_msg_ids = []
+    for idx, chunk in enumerate(chunks):
+        embed = discord.Embed(
+            title=f"Pending Notifications: {profile}" + (f" (Page {idx+1})" if len(chunks) > 1 else ""),
+            description=f"All upcoming scheduled notifications for {profile} in this server." if chunk else "No pending notifications.",
+            color=color
+        )
+        if not chunk:
+            embed.description = "No pending notifications."
         else:
+            for title, category, timing_type, notify_unix, event_time_unix in chunk:
+                embed.add_field(
+                    name=f"{title} ({category})",
+                    value=f"Type: `{timing_type}`\nNotify: <t:{notify_unix}:F> / <t:{notify_unix}:R>\nEvent Time: <t:{event_time_unix}:F>",
+                    inline=False
+                )
+        # Edit existing message or send new one
+        msg_id = old_msgs[idx] if idx < len(old_msgs) else None
+        msg = None
+        try:
+            if msg_id:
+                msg = await channel.fetch_message(int(msg_id))
+                await msg.edit(embed=embed)
+            else:
+                msg = await channel.send(embed=embed)
+        except Exception:
+            # If fetch or edit fails, send a new message
             msg = await channel.send(embed=embed)
-            c.execute("UPDATE pending_notifications_channel SET message_id=? WHERE server_id=?", (str(guild.id), str(msg.id)))
-            conn.commit()
-    except Exception:
-        # If message not found, send a new one
-        msg = await channel.send(embed=embed)
-        c.execute("UPDATE pending_notifications_channel SET message_id=? WHERE server_id=?", (str(guild.id), str(msg.id)))
-        conn.commit()
+        new_msg_ids.append(str(msg.id))
+
+    # Remove any extra old messages if the number of embeds decreased
+    for msg_id in old_msgs[len(chunks):]:
+        try:
+            msg = await channel.fetch_message(int(msg_id))
+            await msg.delete()
+        except Exception:
+            pass
+
+    # Update the DB with the new set of message IDs
+    c.execute("DELETE FROM pending_notifications_messages WHERE server_id=? AND profile=?", (str(guild.id), profile))
+    for msg_id in new_msg_ids:
+        c.execute(
+            "INSERT INTO pending_notifications_messages (server_id, profile, message_id) VALUES (?, ?, ?)",
+            (str(guild.id), profile, msg_id)
+        )
+    conn.commit()
     conn.close()
 
 def send_log(guild_id, message):
@@ -717,7 +753,7 @@ async def clear_pending_notifications(ctx):
     conn.commit()
     conn.close()
     await ctx.send("Cleared all pending notifications.")
-    await update_pending_notifications_embed(ctx.guild)
+    await update_all_pending_notifications_embeds(ctx.guild)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -753,28 +789,34 @@ async def refresh_notifications(ctx):
         count += 1
 
     await ctx.send(f"Refreshed notifications for {count} ongoing events.")
-    await update_pending_notifications_embed(ctx.guild)
+    await update_all_pending_notifications_embeds(ctx.guild)
 
 @bot.command()
 @commands.has_permissions(manage_channels=True)
 async def set_pending_notifications_channel(ctx, channel: discord.TextChannel):
     """
-    Sets the channel where all pending notifications are displayed in a single embed.
+    Sets the channel where all pending notifications are displayed in per-game embeds.
     """
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    # Store the channel in a new table
     c.execute("""
         CREATE TABLE IF NOT EXISTS pending_notifications_channel (
-            server_id TEXT PRIMARY KEY,
+            server_id TEXT,
+            profile TEXT,
             channel_id TEXT,
-            message_id TEXT
+            message_id TEXT,
+            PRIMARY KEY (server_id, profile)
         )
     """)
-    # Remove any old message_id (will be set after posting)
-    c.execute("INSERT OR REPLACE INTO pending_notifications_channel (server_id, channel_id, message_id) VALUES (?, ?, NULL)",
-              (str(ctx.guild.id), str(channel.id)))
+    # Remove all old rows for this server
+    c.execute("DELETE FROM pending_notifications_channel WHERE server_id=?", (str(ctx.guild.id),))
+    # Insert a row for each profile you want to support
+    for profile in ["AK", "HSR", "ZZZ","STRI","WUWA"]:
+        c.execute(
+            "INSERT OR REPLACE INTO pending_notifications_channel (server_id, profile, channel_id, message_id) VALUES (?, ?, ?, NULL)",
+            (str(ctx.guild.id), profile, str(channel.id))
+        )
     conn.commit()
     conn.close()
     await ctx.send(f"Pending notifications channel set to {channel.mention}.")
-    await update_pending_notifications_embed(ctx.guild)
+    await update_all_pending_notifications_embeds(ctx.guild)

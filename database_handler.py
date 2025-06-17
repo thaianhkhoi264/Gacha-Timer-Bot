@@ -572,16 +572,17 @@ async def edit(ctx, title: str, item: str, *, text: str):
         await update_timer_channel(ctx.guild, bot, profile=profile)
 
     # Reschedule notifications for this event
-    event = {
-        'server_id': server_id,
-        'category': category_val,
-        'profile': profile_val,
-        'title': found_title,
-        'start_date': str(start_unix),
-        'end_date': str(end_unix)
-    }
-    asyncio.create_task(schedule_notifications_for_event(event))
-    await ctx.send(f"Notifications rescheduled for `{title}`.")
+    if item in ("start", "end"):
+        event = {
+            'server_id': server_id,
+            'category': category_val,
+            'profile': profile_val,
+            'title': found_title,
+            'start_date': str(start_unix),
+            'end_date': str(end_unix)
+        }
+        asyncio.create_task(schedule_notifications_for_event(event))
+        await ctx.send(f"Notifications rescheduled for `{title}`.")
 
 @bot.command() # "timer" command
 async def timer(ctx):
