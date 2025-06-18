@@ -3,6 +3,7 @@ from bot import *
 import logging
 
 from notification_handler import *
+from datetime import datetime, timezone
 
 @bot.command() # "hello" command
 async def hello(ctx):
@@ -209,8 +210,8 @@ async def test_notif(ctx):
 
     # Create 5 events: start 5 min before now, end 4 min after now (to ensure notification is in the future)
     now = int(datetime.now(timezone.utc).timestamp())
-    start_unix = now - 5 * 60
-    end_unix = now + 2 * 60
+    start_unix = now  # Start now
+    end_unix = now + 2 * 60  # End 2-3 minutes from now
     event_ids = []
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
