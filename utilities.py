@@ -176,15 +176,15 @@ def send_log(server_id, message):
 @commands.has_permissions(administrator=True)
 async def test_notif(ctx):
     """
-    Creates 5 test events in a new category, sets up notification timing, and cleans up after notifications are sent.
+    Creates 5 test events (one for each profile), sets up notification timing, and cleans up after notifications are sent.
     """
     import random
     import string
     import sqlite3
     import asyncio
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timezone
 
-    # Generate a unique category name
+    profiles = ["AK", "HSR", "ZZZ", "STRI", "WUWA"]
     rand_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     test_category = f"TEST_CATEGORY_{rand_suffix}"
 
@@ -205,42 +205,75 @@ async def test_notif(ctx):
     conn.commit()
     conn.close()
 
-    # Update notification timing channel
     await update_notification_timing_message(ctx.guild)
 
-    # Create 5 events: start 5 min before now, end 4 min after now (to ensure notification is in the future)
     now = int(datetime.now(timezone.utc).timestamp())
-    start_unix = now  # Start now
-    end_unix = now + 2 * 60  # End 2-3 minutes from now
-    event_ids = []
+    start_unix = now
+    end_unix = now + 2 * 60  # 2 minutes from now
+
+    event_titles = []
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    for i in range(5):
-        title = f"Test Event {i+1} ({rand_suffix})"
-        c.execute(
-            '''INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, profile)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)''',
-            (str(ctx.author.id), str(ctx.guild.id), title, str(start_unix), str(end_unix), None, test_category, "ALL")
-        )
-        event_ids.append(title)
+    for i, profile in enumerate(profiles):
+        title = f"Test Event {i+1} ({profile}) ({rand_suffix})"
+        # For HYV games, fill in region times
+        if profile in ("HSR", "ZZZ"):
+            c.execute(
+                '''INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv,
+                    asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)''',
+                (
+                    str(ctx.author.id), str(ctx.guild.id), title, str(start_unix), str(end_unix), None, test_category,
+                    str(start_unix), str(end_unix),  # Asia
+                    str(start_unix), str(end_unix),  # America
+                    str(start_unix), str(end_unix),  # Europe
+                    profile
+                )
+            )
+        else:
+            c.execute(
+                '''INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, profile)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)''',
+                (str(ctx.author.id), str(ctx.guild.id), title, str(start_unix), str(end_unix), None, test_category, profile)
+            )
+        event_titles.append((title, profile))
     conn.commit()
     conn.close()
 
-    await ctx.send(f"Created 5 test events in category `{test_category}`. Notification will be sent in ~3 minutes.")
+    await ctx.send(f"Created 5 test events (one per profile) in category `{test_category}`. Notification will be sent in ~1 minute.")
 
     # Schedule notifications for each event
-    for title in event_ids:
-        event = {
-            'server_id': str(ctx.guild.id),
-            'category': test_category,
-            'profile': "ALL",
-            'title': title,
-            'start_date': str(start_unix),
-            'end_date': str(end_unix)
-        }
-        await schedule_notifications_for_event(event)
+    for title, profile in event_titles:
+        if profile in ("HSR", "ZZZ"):
+            # Schedule for all 3 regions
+            for region in ["NA", "EU", "ASIA"]:
+                event = {
+                    'server_id': str(ctx.guild.id),
+                    'category': test_category,
+                    'profile': profile,
+                    'title': title,
+                    'start_date': str(start_unix),
+                    'end_date': str(end_unix),
+                    'asia_start': str(start_unix),
+                    'asia_end': str(end_unix),
+                    'america_start': str(start_unix),
+                    'america_end': str(end_unix),
+                    'europe_start': str(start_unix),
+                    'europe_end': str(end_unix),
+                    'region': region
+                }
+                await schedule_notifications_for_event(event)
+        else:
+            event = {
+                'server_id': str(ctx.guild.id),
+                'category': test_category,
+                'profile': profile,
+                'title': title,
+                'start_date': str(start_unix),
+                'end_date': str(end_unix)
+            }
+            await schedule_notifications_for_event(event)
 
-    # Update pending notifications embed
     await update_all_pending_notifications_embeds(ctx.guild)
 
     # Show how many pending notifications were created
@@ -251,19 +284,15 @@ async def test_notif(ctx):
     conn.close()
     await ctx.send(f"{count} pending notifications scheduled for `{test_category}`.")
 
-    # Wait for notifications to be sent (give a buffer, e.g., 240 seconds)
-    await asyncio.sleep(240)
+    # Wait for notifications to be sent (give a buffer, e.g., 150 seconds)
+    await asyncio.sleep(150)
 
     # Cleanup: delete events, category, and timing
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    # Delete events
     c.execute("DELETE FROM user_data WHERE server_id=? AND category=?", (str(ctx.guild.id), test_category))
-    # Delete pending notifications for these events
     c.execute("DELETE FROM pending_notifications WHERE server_id=? AND category=?", (str(ctx.guild.id), test_category))
-    # Delete notification timing
     c.execute("DELETE FROM notification_timings WHERE server_id=? AND category=?", (str(ctx.guild.id), test_category))
-    # Delete custom category
     c.execute("DELETE FROM custom_categories WHERE server_id=? AND category=?", (str(ctx.guild.id), test_category))
     conn.commit()
     conn.close()
