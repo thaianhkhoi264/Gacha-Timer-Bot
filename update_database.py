@@ -6,13 +6,13 @@ def fix_hyv_region_fields():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # Find all HSR/ZZZ events with missing region-specific fields
+    # Find all HSR/ZZZ events
     c.execute("""
         SELECT id, title, profile, start_date, end_date,
                asia_start, america_start, europe_start,
                asia_end, america_end, europe_end
         FROM user_data
-        WHERE (profile = 'HSR' OR profile = 'ZZZ')
+        WHERE profile IN ('HSR', 'ZZZ')
     """)
     rows = c.fetchall()
 
@@ -23,20 +23,25 @@ def fix_hyv_region_fields():
          asia_end, america_end, europe_end) = row
 
         updates = {}
-        # Fill missing starts
-        if not asia_start or asia_start == '':
+        # Fill missing region starts
+        if not asia_start or asia_start in ('', None):
             updates['asia_start'] = start_date
-        if not america_start or america_start == '':
+        if not america_start or america_start in ('', None):
             updates['america_start'] = start_date
-        if not europe_start or europe_start == '':
+        if not europe_start or europe_start in ('', None):
             updates['europe_start'] = start_date
-        # Fill missing ends
-        if not asia_end or asia_end == '':
+        # Fill missing region ends
+        if not asia_end or asia_end in ('', None):
             updates['asia_end'] = end_date
-        if not america_end or america_end == '':
+        if not america_end or america_end in ('', None):
             updates['america_end'] = end_date
-        if not europe_end or europe_end == '':
+        if not europe_end or europe_end in ('', None):
             updates['europe_end'] = end_date
+        # Fill missing global fields with Asia server time
+        if not start_date or start_date in ('', None):
+            updates['start_date'] = asia_start or america_start or europe_start
+        if not end_date or end_date in ('', None):
+            updates['end_date'] = asia_end or america_end or europe_end
 
         if updates:
             set_clause = ", ".join([f"{k}=?" for k in updates.keys()])

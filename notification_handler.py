@@ -925,7 +925,7 @@ async def set_pending_notifications_channel(ctx, channel: discord.TextChannel):
 @bot.command(name="refresh_pending_notifications")
 @commands.has_permissions(administrator=True)
 async def refresh_pending_notifications(ctx):
-    """Clears all pending notifications and recreates them from current events."""
+    """Clears all pending notifications and recreates them from current events, including region times for HSR/ZZZ."""
     import sqlite3
 
     server_id = str(ctx.guild.id)
@@ -937,21 +937,47 @@ async def refresh_pending_notifications(ctx):
     conn.commit()
 
     # Recreate pending notifications from current events
-    c.execute("SELECT title, start_date, end_date, category, profile FROM user_data WHERE server_id=?", (server_id,))
+    c.execute("""
+        SELECT title, start_date, end_date, category, profile,
+               asia_start, asia_end, america_start, america_end, europe_start, europe_end
+        FROM user_data WHERE server_id=?
+    """, (server_id,))
     events = c.fetchall()
     conn.close()
 
     recreated = 0
-    for title, start_unix, end_unix, category, profile in events:
-        event = {
-            'server_id': server_id,
-            'category': category,
-            'profile': profile,
-            'title': title,
-            'start_date': str(start_unix),
-            'end_date': str(end_unix)
-        }
-        await schedule_notifications_for_event(event)
-        recreated += 1
+    for title, start_unix, end_unix, category, profile, asia_start, asia_end, america_start, america_end, europe_start, europe_end in events:
+        profile_upper = profile.upper()
+        if profile_upper in ("HSR", "ZZZ"):
+            # Schedule for each region
+            region_data = [
+                ("NA", america_start, america_end),
+                ("EU", europe_start, europe_end),
+                ("ASIA", asia_start, asia_end)
+            ]
+            for region, region_start, region_end in region_data:
+                event = {
+                    'server_id': server_id,
+                    'category': category,
+                    'profile': profile,
+                    'title': title,
+                    'start_date': str(region_start),
+                    'end_date': str(region_end),
+                    'region': region
+                }
+                await schedule_notifications_for_event(event)
+                recreated += 1
+        else:
+            # Non-HYV games
+            event = {
+                'server_id': server_id,
+                'category': category,
+                'profile': profile,
+                'title': title,
+                'start_date': str(start_unix),
+                'end_date': str(end_unix)
+            }
+            await schedule_notifications_for_event(event)
+            recreated += 1
 
     await ctx.send(f"Cleared all pending notifications and recreated {recreated} from current events.")
