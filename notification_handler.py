@@ -1,7 +1,8 @@
-from modules import send_log
+from modules import *
 from bot import *
 from database_handler import *
 from twitter_handler import *
+from utilities import send_log
 
 import asyncio
 import datetime
