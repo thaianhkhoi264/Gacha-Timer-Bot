@@ -122,39 +122,60 @@ async def schedule_notifications_for_event(event):
     timings = c.fetchall()
     send_log(event['server_id'], f"Found timings for event: {timings}")
 
-    for timing_type, timing_minutes in timings:
-        event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
-        notify_unix = event_time_unix - timing_minutes * 60
-        send_log(
-            event['server_id'],
-            f"Calculated notify_unix: <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type}, timing_minutes: {timing_minutes})"
-        )
-        if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-            c.execute(
-                "INSERT INTO pending_notifications (server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
-                (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix)
-            )
-            send_log(
-                event['server_id'],
-                f"Scheduled notification for `{event['title']}` at <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type})"
-            )
-        else:
-            send_log(
-                event['server_id'],
-                f"Skipped scheduling notification for `{event['title']}` (notify_unix <t:{notify_unix}:F> / <t:{notify_unix}:R> is in the past)"
-            )
+    HYV_PROFILES = {"HSR", "ZZZ"}
+    if event['profile'].upper() in HYV_PROFILES:
+        regions = ["NA", "EU", "ASIA"]
+        for region in regions:
+            for timing_type, timing_minutes in timings:
+                # Use region-specific times if available
+                if region == "NA":
+                    event_time_unix = int(event.get('america_start') or event.get('start_date')) if timing_type == "start" else int(event.get('america_end') or event.get('end_date'))
+                elif region == "EU":
+                    event_time_unix = int(event.get('europe_start') or event.get('start_date')) if timing_type == "start" else int(event.get('europe_end') or event.get('end_date'))
+                elif region == "ASIA":
+                    event_time_unix = int(event.get('asia_start') or event.get('start_date')) if timing_type == "start" else int(event.get('asia_end') or event.get('end_date'))
+                else:
+                    event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
+                notify_unix = event_time_unix - timing_minutes * 60
+                if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+                    # Prevent duplicate scheduling
+                    c.execute(
+                        "SELECT 1 FROM pending_notifications WHERE server_id=? AND category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=? AND region=?",
+                        (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, region)
+                    )
+                    if not c.fetchone():
+                        c.execute(
+                            "INSERT INTO pending_notifications (server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+                            (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix, region)
+                        )
+    else:
+        # Non-HYV games, as before
+        for timing_type, timing_minutes in timings:
+            event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
+            notify_unix = event_time_unix - timing_minutes * 60
+            if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+                c.execute(
+                    "SELECT 1 FROM pending_notifications WHERE server_id=? AND category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                    (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix)
+                )
+                if not c.fetchone():
+                    c.execute(
+                        "INSERT INTO pending_notifications (server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+                        (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix)
+                    )
+                    send_log(
+                        event['server_id'],
+                        f"Scheduled notification for `{event['title']}` at <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type})"
+                    )
+            else:
+                send_log(
+                    event['server_id'],
+                    f"Skipped scheduling notification for `{event['title']}` (notify_unix <t:{notify_unix}:F> / <t:{notify_unix}:R> is in the past)"
+                )
     conn.commit()
     conn.close()
     guild = bot.get_guild(int(event['server_id']))
     await update_pending_notifications_embed_for_profile(guild, event['profile'])
-
-async def send_notification_at(event, timing_type, delay):
-    send_log(
-        event['server_id'],
-        f"send_notification_at called with delay: {delay} seconds for event: `{event['title']}` (will notify at <t:{int(time.time()+delay)}:F> / <t:{int(time.time()+delay)}:R>)"
-    )
-    await asyncio.sleep(delay)
-    await send_notification(event, timing_type)
 
 async def send_notification(event, timing_type):
     conn = sqlite3.connect('kanami_data.db')
@@ -178,38 +199,49 @@ async def send_notification(event, timing_type):
     HYV_PROFILES = {"HSR", "ZZZ"}
     profile = event['profile'].upper()
     if profile in HYV_PROFILES:
-        regions = ["NA", "EU", "ASIA"]
-        for region in regions:
-            combined_role_name = f"{profile} {region}"
-            role = discord.utils.get(guild.roles, name=combined_role_name)
-            if role:
-                role_mention = role.mention
-                send_log(event['server_id'], f"Found combined role for {profile} {region}: {role_mention}")
-            else:
-                send_log(event['server_id'], f"No combined role found for {profile} {region}")
-                continue
+        # Fetch the region for this notification
+        c.execute(
+            "SELECT region FROM pending_notifications WHERE server_id=? AND category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+            (event['server_id'], event['category'], event['profile'], event['title'], timing_type, event['start_date'] if timing_type == "start" else event['end_date'])
+        )
+        region_row = c.fetchone()
+        region = region_row[0] if region_row and region_row[0] else None
+        if not region:
+            send_log(event['server_id'], f"No region found for notification: {event['title']}")
+            conn.close()
+            return
 
-            # Pick the correct event time for this region
-            unix_time = None
-            if region == "NA":
-                unix_time = event.get('america_start') if timing_type == "start" else event.get('america_end')
-            elif region == "EU":
-                unix_time = event.get('europe_start') if timing_type == "start" else event.get('europe_end')
-            elif region == "ASIA":
-                unix_time = event.get('asia_start') if timing_type == "start" else event.get('asia_end')
+        combined_role_name = f"{profile} {region}"
+        role = discord.utils.get(guild.roles, name=combined_role_name)
+        if role:
+            role_mention = role.mention
+            send_log(event['server_id'], f"Found combined role for {profile} {region}: {role_mention}")
+        else:
+            send_log(event['server_id'], f"No combined role found for {profile} {region}")
+            conn.close()
+            return
 
-            # Fallback to event['start_date']/['end_date'] if region-specific not present
-            if not unix_time:
-                unix_time = event['start_date'] if timing_type == "start" else event['end_date']
+        # Pick the correct event time for this region
+        unix_time = None
+        if region == "NA":
+            unix_time = event.get('america_start') if timing_type == "start" else event.get('america_end')
+        elif region == "EU":
+            unix_time = event.get('europe_start') if timing_type == "start" else event.get('europe_end')
+        elif region == "ASIA":
+            unix_time = event.get('asia_start') if timing_type == "start" else event.get('asia_end')
 
-            time_str = "starting" if timing_type == "start" else "ending"
-            try:
-                await channel.send(
-                    f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
-                )
-                send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
-            except Exception as e:
-                send_log(event['server_id'], f"Failed to send notification for {profile} {region}: {e}")
+        # Fallback to event['start_date']/['end_date'] if region-specific not present
+        if not unix_time:
+            unix_time = event['start_date'] if timing_type == "start" else event['end_date']
+
+        time_str = "starting" if timing_type == "start" else "ending"
+        try:
+            await channel.send(
+                f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
+            )
+            send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
+        except Exception as e:
+            send_log(event['server_id'], f"Failed to send notification for {profile} {region}: {e}")
     else:
         # --- Non-HYV games: mention the profile role as before ---
         emoji = PROFILE_EMOJIS.get(profile)
@@ -315,14 +347,39 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
         SELECT title, category, timing_type, notify_unix, event_time_unix
         FROM pending_notifications
         WHERE server_id=? AND profile=? AND notify_unix > ?
-        ORDER BY notify_unix ASC
+        ORDER BY event_time_unix ASC, notify_unix ASC
     """, (str(guild.id), profile, now))
     rows = c.fetchall()
 
     color = PROFILE_COLORS.get(profile, discord.Color.default())
 
-    # Split into chunks of 25
-    chunks = [rows[i:i+MAX_FIELDS] for i in range(0, max(1, len(rows)), MAX_FIELDS)]
+    # Group notifications by (title, category)
+    grouped = {}
+    for title, category, timing_type, notify_unix, event_time_unix in rows:
+        key = (title, category, event_time_unix)
+        if key not in grouped:
+            grouped[key] = {"start": [], "end": [], "event_time_unix": event_time_unix}
+        grouped[key][timing_type].append(notify_unix)
+
+    # Prepare fields for the embed
+    fields = []
+    for (title, category, event_time_unix), types in grouped.items():
+        value_lines = []
+        for timing_type in ("start", "end"):
+            notify_times = types.get(timing_type, [])
+            if notify_times:
+                # Format all notify times as relative
+                notify_strs = [f"<t:{n}:R>" for n in sorted(notify_times)]
+                value_lines.append(f"**Type:** `{timing_type}`\n**Notify:** {', '.join(notify_strs)}")
+        # Add event time at the end
+        value_lines.append(f"**Event Time:** <t:{event_time_unix}:F>")
+        fields.append({
+            "name": f"{title} ({category})",
+            "value": "\n".join(value_lines)
+        })
+
+    # Split fields into chunks of 25 for Discord embed limit
+    chunks = [fields[i:i+MAX_FIELDS] for i in range(0, max(1, len(fields)), MAX_FIELDS)]
 
     # Fetch all existing dashboard messages for this profile
     c.execute("SELECT message_id FROM pending_notifications_messages WHERE server_id=? AND profile=? ORDER BY message_id ASC",
@@ -333,18 +390,14 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
     for idx, chunk in enumerate(chunks):
         embed = discord.Embed(
             title=f"Pending Notifications: {profile}" + (f" (Page {idx+1})" if len(chunks) > 1 else ""),
-            description=f"All upcoming scheduled notifications for {profile} in this server." if chunk else "No pending notifications.",
+            description="All upcoming scheduled notifications for {} in this server.".format(profile) if chunk else "No pending notifications.",
             color=color
         )
         if not chunk:
             embed.description = "No pending notifications."
         else:
-            for title, category, timing_type, notify_unix, event_time_unix in chunk:
-                embed.add_field(
-                    name=f"{title} ({category})",
-                    value=f"Type: `{timing_type}`\nNotify: <t:{notify_unix}:F> / <t:{notify_unix}:R>\nEvent Time: <t:{event_time_unix}:F>",
-                    inline=False
-                )
+            for field in chunk:
+                embed.add_field(name=field["name"], value=field["value"], inline=False)
         # Edit existing message or send new one
         msg_id = old_msgs[idx] if idx < len(old_msgs) else None
         msg = None
@@ -355,7 +408,6 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
             else:
                 msg = await channel.send(embed=embed)
         except Exception:
-            # If fetch or edit fails, send a new message
             msg = await channel.send(embed=embed)
         new_msg_ids.append(str(msg.id))
 
@@ -376,9 +428,6 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
         )
     conn.commit()
     conn.close()
-
-def send_log(guild_id, message):
-        print(f"[{guild_id}] {message}")
 
 async def update_combined_roles(member):
     """Assigns/removes combined roles based on the user's game and region roles."""
