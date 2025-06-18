@@ -2,6 +2,8 @@ from modules import *
 from bot import *
 import logging
 
+from notification_handler import *
+
 @bot.command() # "hello" command
 async def hello(ctx):
     """ Responds with a hello along with a truth. """
@@ -200,12 +202,18 @@ async def test_notif(ctx):
     c.execute('''INSERT OR IGNORE INTO notification_timings (server_id, category, timing_type, timing_minutes)
                  VALUES (?, ?, ?, ?)''', (str(ctx.guild.id), test_category, "end", 1))
     conn.commit()
+    conn.close()
 
-    # Create 5 events: start 5 min before now, end 2 min after now
+    # Update notification timing channel
+    await update_notification_timing_message(ctx.guild)
+
+    # Create 5 events: start 5 min before now, end 4 min after now (to ensure notification is in the future)
     now = int(datetime.now(timezone.utc).timestamp())
     start_unix = now - 5 * 60
     end_unix = now + 2 * 60
     event_ids = []
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
     for i in range(5):
         title = f"Test Event {i+1} ({rand_suffix})"
         c.execute(
@@ -217,7 +225,7 @@ async def test_notif(ctx):
     conn.commit()
     conn.close()
 
-    await ctx.send(f"Created 5 test events in category `{test_category}`. Notification will be sent in ~1 minute.")
+    await ctx.send(f"Created 5 test events in category `{test_category}`. Notification will be sent in ~3 minutes.")
 
     # Schedule notifications for each event
     for title in event_ids:
@@ -229,10 +237,21 @@ async def test_notif(ctx):
             'start_date': str(start_unix),
             'end_date': str(end_unix)
         }
-        asyncio.create_task(schedule_notifications_for_event(event))
+        await schedule_notifications_for_event(event)
 
-    # Wait for notifications to be sent (give a buffer, e.g., 90 seconds)
-    await asyncio.sleep(90)
+    # Update pending notifications embed
+    await update_all_pending_notifications_embeds(ctx.guild)
+
+    # Show how many pending notifications were created
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM pending_notifications WHERE server_id=? AND category=?", (str(ctx.guild.id), test_category))
+    count = c.fetchone()[0]
+    conn.close()
+    await ctx.send(f"{count} pending notifications scheduled for `{test_category}`.")
+
+    # Wait for notifications to be sent (give a buffer, e.g., 240 seconds)
+    await asyncio.sleep(240)
 
     # Cleanup: delete events, category, and timing
     conn = sqlite3.connect('kanami_data.db')
@@ -248,4 +267,6 @@ async def test_notif(ctx):
     conn.commit()
     conn.close()
 
+    await update_all_pending_notifications_embeds(ctx.guild)
+    await update_notification_timing_message(ctx.guild)
     await ctx.send(f"Cleaned up test events, category, and notification timing for `{test_category}`.")
