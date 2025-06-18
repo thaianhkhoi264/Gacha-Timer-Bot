@@ -895,42 +895,6 @@ async def clear_pending_notifications(ctx):
     await update_all_pending_notifications_embeds(ctx.guild)
 
 @bot.command()
-@commands.has_permissions(administrator=True)
-async def refresh_notifications(ctx):
-    """
-    Clears all pending notifications and recreates them for ongoing events.
-    Usage: Kanami refresh_notifications
-    """
-    server_id = str(ctx.guild.id)
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    # Delete all pending notifications for this server
-    c.execute("DELETE FROM pending_notifications WHERE server_id=?", (server_id,))
-    conn.commit()
-
-    # Get all ongoing events (end_date in the future)
-    now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
-    c.execute("SELECT title, start_date, end_date, category, profile FROM user_data WHERE server_id=? AND end_date > ?", (server_id, now))
-    events = c.fetchall()
-    conn.close()
-
-    count = 0
-    for title, start_unix, end_unix, category, profile in events:
-        event = {
-            'server_id': server_id,
-            'category': category,
-            'profile': profile,
-            'title': title,
-            'start_date': str(start_unix),
-            'end_date': str(end_unix)
-        }
-        asyncio.create_task(schedule_notifications_for_event(event))
-        count += 1
-
-    await ctx.send(f"Refreshed notifications for {count} ongoing events.")
-    await update_all_pending_notifications_embeds(ctx.guild)
-
-@bot.command()
 @commands.has_permissions(manage_channels=True)
 async def set_pending_notifications_channel(ctx, channel: discord.TextChannel):
     """
@@ -983,6 +947,28 @@ async def refresh_pending_notifications(ctx):
     """, (server_id,))
     events = c.fetchall()
     conn.close()
+    # --- Clear all event messages in timer channels for this server ---
+    c.execute("SELECT channel_id FROM config WHERE server_id=?", (server_id,))
+    timer_channels = {row[0] for row in c.fetchall()}
+    c.execute("SELECT event_id, channel_id, message_id FROM event_messages WHERE server_id=?", (server_id,))
+    event_msgs = c.fetchall()
+    for event_id, channel_id, message_id in event_msgs:
+        if channel_id in timer_channels:
+            guild = ctx.guild
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                try:
+                    msg = await channel.fetch_message(int(message_id))
+                    await msg.delete()
+                except Exception:
+                    pass
+            # Remove from DB
+            c2 = sqlite3.connect('kanami_data.db')
+            c2c = c2.cursor()
+            c2c.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, channel_id))
+            c2.commit()
+            c2.close()
+    conn.commit()
 
     recreated = 0
     for title, start_unix, end_unix, category, profile, asia_start, asia_end, america_start, america_end, europe_start, europe_end in events:
