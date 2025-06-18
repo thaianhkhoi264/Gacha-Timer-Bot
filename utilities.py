@@ -1,5 +1,6 @@
 from modules import *
 from bot import *
+import logging
 
 @bot.command() # "hello" command
 async def hello(ctx):
@@ -67,3 +68,13 @@ async def purge(ctx, amount: int = 50):
             await ctx.message.delete()
         except Exception:
             pass
+
+def send_log(server_id, message):
+    """Logs a message to both the console and the discord.log file, including the server ID."""
+    log_entry = f"[Server {server_id}] {message}"
+    print(log_entry)
+    try:
+        with open("discord.log", "a", encoding="utf-8") as f:
+            f.write(log_entry + "\n")
+    except Exception as e:
+        print(f"Failed to write to log file: {e}")
