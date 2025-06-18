@@ -3,7 +3,9 @@ from bot import *
 from database_handler import *
 from twitter_handler import *
 from utilities import send_log
+from collections import deque
 
+import sqlite3
 import asyncio
 import datetime
 import time
@@ -40,6 +42,10 @@ def safe_int(val, fallback):
 
 # Global variable to track the last log time
 _last_log_time = 0
+
+# Global anti-notification spam failsafe variables
+recent_notification_times = deque(maxlen=10)  # Track last 10 notifications
+recently_sent_notifications = set()  # Track sent notifications to prevent duplicates
 
 # Function to format minutes into hours or days
 def format_minutes(minutes):
@@ -207,9 +213,11 @@ async def send_notification(event, timing_type):
     profile = event['profile'].upper()
     if profile in HYV_PROFILES:
         # Fetch the region for this notification
+        # Defensive: Try to get the correct notify_unix for this notification
+        notify_unix = event['start_date'] if timing_type == "start" else event['end_date']
         c.execute(
-            "SELECT region FROM pending_notifications WHERE server_id=? AND category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
-            (event['server_id'], event['category'], event['profile'], event['title'], timing_type, event['start_date'] if timing_type == "start" else event['end_date'])
+            "SELECT region FROM pending_notifications WHERE server_id=? AND category=? AND profile=? AND title=? AND timing_type=? AND event_time_unix=?",
+            (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix)
         )
         region_row = c.fetchone()
         region = region_row[0] if region_row and region_row[0] else None
@@ -284,6 +292,7 @@ async def load_and_schedule_pending_notifications(bot):
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    # Only schedule notifications that are not sent and are in the future
     c.execute("SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix FROM pending_notifications WHERE sent=0 AND notify_unix > ?", (now,))
     rows = c.fetchall()
     conn.close()
@@ -303,6 +312,9 @@ async def load_and_schedule_pending_notifications(bot):
     for row in rows:
         notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix = row
         delay = notify_unix - now
+        # Defensive: Don't schedule if delay is negative (shouldn't happen, but just in case)
+        if delay < 0:
+            continue
         event = {
             'server_id': server_id,
             'category': category,
@@ -315,13 +327,40 @@ async def load_and_schedule_pending_notifications(bot):
         asyncio.create_task(send_persistent_notification(bot, notif_id, event, timing_type, delay))
 
 async def send_persistent_notification(bot, notif_id, event, timing_type, delay):
-    await asyncio.sleep(delay)
-    await send_notification(event, timing_type)
+    # Defensive: Don't sleep negative time
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+    # --- Failsafe: Global rate limit ---
+    now = time.time()
+    # Remove timestamps older than 10 seconds
+    while recent_notification_times and now - recent_notification_times[0] > 10:
+        recent_notification_times.popleft()
+    if len(recent_notification_times) >= 5:
+        # Too many notifications in last 10 seconds, wait a bit
+        await asyncio.sleep(5)
+    recent_notification_times.append(now)
+
+    # --- Failsafe 2: skip if this notif_id was just sent (in case of weird race) ---
+    if notif_id in recently_sent_notifications:
+        return
+    recently_sent_notifications.add(notif_id)
+    # Optionally, clean up old IDs after some time
+    if len(recently_sent_notifications) > 1000:
+        recently_sent_notifications.clear()
+
+    # Double-check before sending and atomically mark as sent
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    c.execute("UPDATE pending_notifications SET sent=1 WHERE id=?", (notif_id,))
+    # Use a single UPDATE statement to mark as sent only if not already sent
+    c.execute("UPDATE pending_notifications SET sent=1 WHERE id=? AND sent=0", (notif_id,))
     conn.commit()
+    # Check if the row was actually updated (i.e., not already sent)
+    if c.rowcount == 0:
+        conn.close()
+        return  # Already sent or deleted
     conn.close()
+    await send_notification(event, timing_type)
     send_log(event['server_id'], f"Marked notification as sent for event: {event['title']}")
     guild = bot.get_guild(int(event['server_id']))
     await update_pending_notifications_embed_for_profile(guild, event['profile'])

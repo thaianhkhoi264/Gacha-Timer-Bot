@@ -168,3 +168,84 @@ def send_log(server_id, message):
             f.write(log_entry + "\n")
     except Exception as e:
         print(f"Failed to write to log file: {e}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def test_notif(ctx):
+    """
+    Creates 5 test events in a new category, sets up notification timing, and cleans up after notifications are sent.
+    """
+    import random
+    import string
+    import sqlite3
+    import asyncio
+    from datetime import datetime, timezone, timedelta
+
+    # Generate a unique category name
+    rand_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    test_category = f"TEST_CATEGORY_{rand_suffix}"
+
+    # Add custom category
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS custom_categories (
+        server_id TEXT,
+        category TEXT,
+        PRIMARY KEY (server_id, category)
+    )''')
+    c.execute("INSERT OR IGNORE INTO custom_categories (server_id, category) VALUES (?, ?)", (str(ctx.guild.id), test_category))
+    conn.commit()
+
+    # Add notification timing: 1 minute before end
+    c.execute('''INSERT OR IGNORE INTO notification_timings (server_id, category, timing_type, timing_minutes)
+                 VALUES (?, ?, ?, ?)''', (str(ctx.guild.id), test_category, "end", 1))
+    conn.commit()
+
+    # Create 5 events: start 5 min before now, end 2 min after now
+    now = int(datetime.now(timezone.utc).timestamp())
+    start_unix = now - 5 * 60
+    end_unix = now + 2 * 60
+    event_ids = []
+    for i in range(5):
+        title = f"Test Event {i+1} ({rand_suffix})"
+        c.execute(
+            '''INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, profile)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)''',
+            (str(ctx.author.id), str(ctx.guild.id), title, str(start_unix), str(end_unix), None, test_category, "ALL")
+        )
+        event_ids.append(title)
+    conn.commit()
+    conn.close()
+
+    await ctx.send(f"Created 5 test events in category `{test_category}`. Notification will be sent in ~1 minute.")
+
+    # Schedule notifications for each event
+    for title in event_ids:
+        event = {
+            'server_id': str(ctx.guild.id),
+            'category': test_category,
+            'profile': "ALL",
+            'title': title,
+            'start_date': str(start_unix),
+            'end_date': str(end_unix)
+        }
+        asyncio.create_task(schedule_notifications_for_event(event))
+
+    # Wait for notifications to be sent (give a buffer, e.g., 90 seconds)
+    await asyncio.sleep(90)
+
+    # Cleanup: delete events, category, and timing
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    # Delete events
+    c.execute("DELETE FROM user_data WHERE server_id=? AND category=?", (str(ctx.guild.id), test_category))
+    # Delete pending notifications for these events
+    c.execute("DELETE FROM pending_notifications WHERE server_id=? AND category=?", (str(ctx.guild.id), test_category))
+    # Delete notification timing
+    c.execute("DELETE FROM notification_timings WHERE server_id=? AND category=?", (str(ctx.guild.id), test_category))
+    # Delete custom category
+    c.execute("DELETE FROM custom_categories WHERE server_id=? AND category=?", (str(ctx.guild.id), test_category))
+    conn.commit()
+    conn.close()
+
+    await ctx.send(f"Cleaned up test events, category, and notification timing for `{test_category}`.")
