@@ -68,7 +68,6 @@ async def help_command(ctx):
             "`Kanami set_notification_timing_channel #channel` — Set the notification timing channel\n"
             "`Kanami add_notification_timing <category> <start|end> <minutes>` — Add notification timing\n"
             "`Kanami clear_notification_timing <category> <start|end>` — Clear notification timing\n"
-            "`Kanami refresh_notifications` — Refresh all notifications for ongoing events\n"
             "`Kanami refresh_pending_notifications` — Clear and recreate all pending notifications\n"
             "`Kanami clear_pending_notifications` — Clear all pending notifications\n"
         ),
