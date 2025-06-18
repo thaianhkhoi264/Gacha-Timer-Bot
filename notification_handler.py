@@ -947,10 +947,9 @@ async def refresh_pending_notifications(ctx):
     conn.close()
 
     # --- Clear all event messages in timer channels for this server ---
-    # Open a new connection for this block
     conn2 = sqlite3.connect('kanami_data.db')
     c2 = conn2.cursor()
-    c2.execute("SELECT channel_id FROM config WHERE server_id=?", (server_id,))
+    c2.execute("SELECT timer_channel_id FROM config WHERE server_id=?", (server_id,))
     timer_channels = {row[0] for row in c2.fetchall()}
     c2.execute("SELECT event_id, channel_id, message_id FROM event_messages WHERE server_id=?", (server_id,))
     event_msgs = c2.fetchall()
