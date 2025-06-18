@@ -345,7 +345,7 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
 
     now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     c.execute("""
-        SELECT title, category, timing_type, notify_unix, event_time_unix
+        SELECT title, category, timing_type, notify_unix, event_time_unix, region
         FROM pending_notifications
         WHERE server_id=? AND profile=? AND notify_unix > ?
         ORDER BY event_time_unix ASC, notify_unix ASC
@@ -353,31 +353,79 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
     rows = c.fetchall()
 
     color = PROFILE_COLORS.get(profile, discord.Color.default())
+    HYV_PROFILES = {"HSR", "ZZZ"}
 
-    # Group notifications by (title, category)
-    grouped = {}
-    for title, category, timing_type, notify_unix, event_time_unix in rows:
-        key = (title, category, event_time_unix)
-        if key not in grouped:
-            grouped[key] = {"start": [], "end": [], "event_time_unix": event_time_unix}
-        grouped[key][timing_type].append(notify_unix)
-
-    # Prepare fields for the embed
     fields = []
-    for (title, category, event_time_unix), types in grouped.items():
-        value_lines = []
-        for timing_type in ("start", "end"):
-            notify_times = types.get(timing_type, [])
-            if notify_times:
-                # Format all notify times as relative
-                notify_strs = [f"<t:{n}:R>" for n in sorted(notify_times)]
-                value_lines.append(f"**Type:** `{timing_type}`\n**Notify:** {', '.join(notify_strs)}")
-        # Add event time at the end
-        value_lines.append(f"**Event Time:** <t:{event_time_unix}:F>")
-        fields.append({
-            "name": f"{title} ({category})",
-            "value": "\n".join(value_lines)
-        })
+    if profile in HYV_PROFILES:
+        # Group by (title, category)
+        grouped = {}
+        for title, category, timing_type, notify_unix, event_time_unix, region in rows:
+            key = (title, category)
+            if key not in grouped:
+                grouped[key] = {}
+            # Group by region, then by timing_type, then by event_time_unix
+            if region not in grouped[key]:
+                grouped[key][region] = {}
+            if timing_type not in grouped[key][region]:
+                grouped[key][region][timing_type] = {}
+            if event_time_unix not in grouped[key][region][timing_type]:
+                grouped[key][region][timing_type][event_time_unix] = []
+            grouped[key][region][timing_type][event_time_unix].append(notify_unix)
+
+        for (title, category), region_dict in grouped.items():
+            value_lines = []
+            for region in sorted(region_dict.keys()):
+                region_label = f"**Region:** `{region}`" if region else "**Region:** `Unknown`"
+                region_lines = []
+                for timing_type in ("start", "end"):
+                    if timing_type in region_dict[region]:
+                        for event_time_unix in sorted(region_dict[region][timing_type].keys()):
+                            notify_times = region_dict[region][timing_type][event_time_unix]
+                            notify_strs = [f"<t:{n}:R>" for n in sorted(notify_times)]
+                            event_time_str = f"<t:{event_time_unix}:F>"
+                            region_lines.append(
+                                f"**Type:** `{timing_type}`\n"
+                                f"Event Time: {event_time_str}\n"
+                                f"Notify: {', '.join(notify_strs)}"
+                            )
+                if region_lines:
+                    value_lines.append(f"{region_label}\n" + "\n".join(region_lines))
+            if value_lines:
+                fields.append({
+                    "name": f"{title} ({category})",
+                    "value": "\n\n".join(value_lines)
+                })
+    else:
+        # Group by (title, category)
+        grouped = {}
+        for title, category, timing_type, notify_unix, event_time_unix, _ in rows:
+            key = (title, category)
+            if key not in grouped:
+                grouped[key] = {}
+            if timing_type not in grouped[key]:
+                grouped[key][timing_type] = {}
+            if event_time_unix not in grouped[key][timing_type]:
+                grouped[key][timing_type][event_time_unix] = []
+            grouped[key][timing_type][event_time_unix].append(notify_unix)
+
+        for (title, category), types in grouped.items():
+            value_lines = []
+            for timing_type in ("start", "end"):
+                if timing_type in types:
+                    for event_time_unix in sorted(types[timing_type].keys()):
+                        notify_times = types[timing_type][event_time_unix]
+                        notify_strs = [f"<t:{n}:R>" for n in sorted(notify_times)]
+                        event_time_str = f"<t:{event_time_unix}:F>"
+                        value_lines.append(
+                            f"**Type:** `{timing_type}`\n"
+                            f"Event Time: {event_time_str}\n"
+                            f"Notify: {', '.join(notify_strs)}"
+                        )
+            if value_lines:
+                fields.append({
+                    "name": f"{title} ({category})",
+                    "value": "\n\n".join(value_lines)
+                })
 
     # Split fields into chunks of 25 for Discord embed limit
     chunks = [fields[i:i+MAX_FIELDS] for i in range(0, max(1, len(fields)), MAX_FIELDS)]
@@ -870,3 +918,38 @@ async def set_pending_notifications_channel(ctx, channel: discord.TextChannel):
     conn.close()
     await ctx.send(f"Pending notifications channel set to {channel.mention}.")
     await update_all_pending_notifications_embeds(ctx.guild)
+
+# Refresh pending notifications from current events
+@bot.command(name="refresh_pending_notifications")
+@commands.has_permissions(administrator=True)
+async def refresh_pending_notifications(ctx):
+    """Clears all pending notifications and recreates them from current events."""
+    import sqlite3
+
+    server_id = str(ctx.guild.id)
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+
+    # Delete all pending notifications for this server
+    c.execute("DELETE FROM pending_notifications WHERE server_id=?", (server_id,))
+    conn.commit()
+
+    # Recreate pending notifications from current events
+    c.execute("SELECT title, start_date, end_date, category, profile FROM user_data WHERE server_id=?", (server_id,))
+    events = c.fetchall()
+    conn.close()
+
+    recreated = 0
+    for title, start_unix, end_unix, category, profile in events:
+        event = {
+            'server_id': server_id,
+            'category': category,
+            'profile': profile,
+            'title': title,
+            'start_date': str(start_unix),
+            'end_date': str(end_unix)
+        }
+        await schedule_notifications_for_event(event)
+        recreated += 1
+
+    await ctx.send(f"Cleared all pending notifications and recreated {recreated} from current events.")
