@@ -1,6 +1,6 @@
 from modules import *
 from bot import *
-from database_handler import *
+from database_handler import update_timer_channel
 from twitter_handler import *
 from utilities import send_log
 from collections import deque
