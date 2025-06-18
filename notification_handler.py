@@ -1,6 +1,5 @@
 from modules import *
 from bot import *
-from database_handler import update_timer_channel
 from twitter_handler import *
 from utilities import send_log
 from collections import deque
@@ -929,8 +928,9 @@ async def set_pending_notifications_channel(ctx, channel: discord.TextChannel):
 @commands.has_permissions(administrator=True)
 async def refresh_pending_notifications(ctx):
     """Clears all pending notifications and recreates them from current events, including region times for HSR/ZZZ."""
+    from database_handler import update_timer_channel
     server_id = str(ctx.guild.id)
-
+    
     # Delete all pending notifications for this server
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
