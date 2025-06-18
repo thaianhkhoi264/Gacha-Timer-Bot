@@ -13,4 +13,4 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix='Kanami ', intents=intents)
+bot = commands.Bot(command_prefix='Kanami ', intents=intents, help_command=None)
