@@ -1,4 +1,4 @@
-from modules import *
+from modules import send_log
 from bot import *
 from database_handler import *
 from twitter_handler import *
