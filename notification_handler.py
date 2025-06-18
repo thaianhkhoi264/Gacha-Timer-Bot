@@ -32,6 +32,12 @@ PROFILE_COLORS = {
 
 MAX_FIELDS = 25
 
+def safe_int(val, fallback):
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return int(fallback)
+
 # Global variable to track the last log time
 _last_log_time = 0
 
@@ -130,11 +136,11 @@ async def schedule_notifications_for_event(event):
             for timing_type, timing_minutes in timings:
                 # Use region-specific times if available
                 if region == "NA":
-                    event_time_unix = int(event.get('america_start') or event.get('start_date')) if timing_type == "start" else int(event.get('america_end') or event.get('end_date'))
+                    event_time_unix = safe_int(event.get('america_start'), event.get('start_date')) if timing_type == "start" else safe_int(event.get('america_end'), event.get('end_date'))
                 elif region == "EU":
-                    event_time_unix = int(event.get('europe_start') or event.get('start_date')) if timing_type == "start" else int(event.get('europe_end') or event.get('end_date'))
+                    event_time_unix = safe_int(event.get('europe_start'), event.get('start_date')) if timing_type == "start" else safe_int(event.get('europe_end'), event.get('end_date'))
                 elif region == "ASIA":
-                    event_time_unix = int(event.get('asia_start') or event.get('start_date')) if timing_type == "start" else int(event.get('asia_end') or event.get('end_date'))
+                    event_time_unix = safe_int(event.get('asia_start'), event.get('start_date')) if timing_type == "start" else safe_int(event.get('asia_end'), event.get('end_date'))
                 else:
                     event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
                 notify_unix = event_time_unix - timing_minutes * 60
@@ -363,33 +369,29 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
             key = (title, category)
             if key not in grouped:
                 grouped[key] = {}
-            # Group by region, then by timing_type, then by event_time_unix
-            if region not in grouped[key]:
-                grouped[key][region] = {}
-            if timing_type not in grouped[key][region]:
-                grouped[key][region][timing_type] = {}
-            if event_time_unix not in grouped[key][region][timing_type]:
-                grouped[key][region][timing_type][event_time_unix] = []
-            grouped[key][region][timing_type][event_time_unix].append(notify_unix)
+            if timing_type not in grouped[key]:
+                grouped[key][timing_type] = {}
+            # Group by (event_time_unix, region)
+            event_region_key = (event_time_unix, region)
+            if event_region_key not in grouped[key][timing_type]:
+                grouped[key][timing_type][event_region_key] = []
+            grouped[key][timing_type][event_region_key].append(notify_unix)
 
-        for (title, category), region_dict in grouped.items():
+        for (title, category), types in grouped.items():
             value_lines = []
-            for region in sorted(region_dict.keys()):
-                region_label = f"**Region:** `{region}`" if region else "**Region:** `Unknown`"
-                region_lines = []
-                for timing_type in ("start", "end"):
-                    if timing_type in region_dict[region]:
-                        for event_time_unix in sorted(region_dict[region][timing_type].keys()):
-                            notify_times = region_dict[region][timing_type][event_time_unix]
-                            notify_strs = [f"<t:{n}:R>" for n in sorted(notify_times)]
-                            event_time_str = f"<t:{event_time_unix}:F>"
-                            region_lines.append(
-                                f"**Type:** `{timing_type}`\n"
-                                f"Event Time: {event_time_str}\n"
-                                f"Notify: {', '.join(notify_strs)}"
-                            )
-                if region_lines:
-                    value_lines.append(f"{region_label}\n" + "\n".join(region_lines))
+            for timing_type in ("start", "end"):
+                if timing_type in types:
+                    for (event_time_unix, region) in sorted(types[timing_type].keys()):
+                        notify_times = types[timing_type][(event_time_unix, region)]
+                        notify_strs = [f"<t:{n}:R>" for n in sorted(notify_times)]
+                        event_time_str = f"<t:{event_time_unix}:F>"
+                        region_str = f"**Region:** `{region}`" if region else "**Region:** `Unknown`"
+                        value_lines.append(
+                            f"{region_str}\n"
+                            f"**Type:** `{timing_type}`\n"
+                            f"Event Time: {event_time_str}\n"
+                            f"Notify: {', '.join(notify_strs)}"
+                        )
             if value_lines:
                 fields.append({
                     "name": f"{title} ({category})",
