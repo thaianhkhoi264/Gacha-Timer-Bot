@@ -98,13 +98,20 @@ async def tweet_listener_on_message(message):
         await message.add_reaction("❌")
         return True
 
+    # DEBUG PRINTS
+    print("=== DEBUG: TWEET TEXT ===")
+    print(repr(tweet_text))
+    print("=== DEBUG: REQUIRED KEYWORDS ===")
+    print(required_keywords)
+
     # Ignore if any ignored keyword is present
     if any(kw.lower() in tweet_text.lower() for kw in ignored_keywords):
         await message.add_reaction("❌")
         return True
 
-    # Only proceed if at least one required keyword is present (if any are set)
-    if required_keywords and not any(kw.lower() in tweet_text.lower() for kw in required_keywords):
+    # Flatten text for keyword check
+    flat_text = tweet_text.replace("\n", " ").replace("\r", " ").lower()
+    if required_keywords and not any(kw.lower() in flat_text for kw in required_keywords):
         await message.add_reaction("❌")
         return True
 
