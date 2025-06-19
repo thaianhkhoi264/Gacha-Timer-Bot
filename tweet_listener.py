@@ -52,10 +52,18 @@ async def get_announce_channel(guild):
     return None
 
 async def tweet_listener_on_message(message):
+    print(f"[DEBUG] Called tweet_listener_on_message")
+    print(f"[DEBUG] message.author: {message.author} (bot: {message.author.bot})")
+    print(f"[DEBUG] message.guild: {getattr(message.guild, 'id', None)}")
+    print(f"[DEBUG] message.channel: {getattr(message.channel, 'id', None)}")
+    print(f"[DEBUG] message.content: {message.content}")
+
     if message.author.bot:
+        print("[DEBUG] Message is from a bot, ignoring.")
         return False
 
     if not message.guild or not hasattr(message.channel, "id"):
+        print("[DEBUG] Message has no guild or channel id, ignoring.")
         return False
 
     # Query the database for this channel in this server
@@ -67,21 +75,28 @@ async def tweet_listener_on_message(message):
     )
     row = c.fetchone()
     conn.close()
+    print(f"[DEBUG] listener_channels DB row: {row}")
     if not row:
+        print("[DEBUG] Channel is not a listener channel, ignoring.")
         return False  # Not a listener channel
 
     profile, required_keywords, ignored_keywords = row
+    print(f"[DEBUG] profile: {profile}, required_keywords: {required_keywords}, ignored_keywords: {ignored_keywords}")
     profile = profile.upper()
 
     # Use DB keywords if set, otherwise fallback to PROFILE_KEYWORDS
     if required_keywords:
         required_keywords = [kw.strip() for kw in required_keywords.split(",") if kw.strip()]
+        print(f"[DEBUG] Using DB required_keywords: {required_keywords}")
     else:
         required_keywords = PROFILE_KEYWORDS.get(profile, {}).get("required", [])
+        print(f"[DEBUG] Using default required_keywords: {required_keywords}")
     if ignored_keywords:
         ignored_keywords = [kw.strip() for kw in ignored_keywords.split(",") if kw.strip()]
+        print(f"[DEBUG] Using DB ignored_keywords: {ignored_keywords}")
     else:
         ignored_keywords = PROFILE_KEYWORDS.get(profile, {}).get("ignored", [])
+        print(f"[DEBUG] Using default ignored_keywords: {ignored_keywords}")
 
     # Look for a Twitter/X link in the message
     twitter_link = None
@@ -89,40 +104,56 @@ async def tweet_listener_on_message(message):
         if "twitter.com" in word or "x.com" in word:
             twitter_link = word
             break
+    print(f"[DEBUG] twitter_link: {twitter_link}")
     if not twitter_link:
+        print("[DEBUG] No Twitter/X link found in message.")
         await message.add_reaction("❌")
         return True
 
     tweet_text, tweet_image, username = await fetch_tweet_content(twitter_link)
+    print(f"[DEBUG] tweet_text: {repr(tweet_text)}")
+    print(f"[DEBUG] tweet_image: {tweet_image}")
+    print(f"[DEBUG] username: {username}")
     if not tweet_text:
+        print("[DEBUG] No tweet text found.")
         await message.add_reaction("❌")
         return True
-
-    # DEBUG PRINTS
-    print("=== DEBUG: TWEET TEXT ===")
-    print(repr(tweet_text))
-    print("=== DEBUG: REQUIRED KEYWORDS ===")
-    print(required_keywords)
 
     # Ignore if any ignored keyword is present
-    if any(kw.lower() in tweet_text.lower() for kw in ignored_keywords):
-        await message.add_reaction("❌")
-        return True
+    for kw in ignored_keywords:
+        if kw.lower() in tweet_text.lower():
+            print(f"[DEBUG] Ignored keyword matched: {kw}")
+            await message.add_reaction("❌")
+            return True
 
     # Flatten text for keyword check
     flat_text = tweet_text.replace("\n", " ").replace("\r", " ").lower()
-    if required_keywords and not any(kw.lower() in flat_text for kw in required_keywords):
-        await message.add_reaction("❌")
-        return True
+    print(f"[DEBUG] flat_text: {flat_text}")
+    if required_keywords:
+        found = False
+        for kw in required_keywords:
+            if kw.lower() in flat_text:
+                print(f"[DEBUG] Required keyword matched: {kw}")
+                found = True
+                break
+        if not found:
+            print("[DEBUG] No required keyword matched.")
+            await message.add_reaction("❌")
+            return True
+    else:
+        print("[DEBUG] No required keywords set, skipping required keyword check.")
 
     # If passed, process like the read command (call the function directly)
     await message.add_reaction("✅")
+    print("[DEBUG] Passed all checks, calling read()")
 
     # Use the announcement channel for all follow-up prompts
     announce_channel = await get_announce_channel(message.guild)
+    print(f"[DEBUG] announce_channel: {getattr(announce_channel, 'id', None)}")
     if not announce_channel:
         # Fallback: use the listener channel if no announce channel is set
         announce_channel = message.channel
+        print("[DEBUG] No announce channel set, using listener channel.")
 
     # Create a fake context with the announcement channel for the read function
     ctx = await bot.get_context(message)
@@ -130,6 +161,7 @@ async def tweet_listener_on_message(message):
 
     await announce_channel.send("Detected a valid tweet, parsing...")
     await read(ctx, twitter_link)
+    print("[DEBUG] Finished processing tweet.")
     return True
 
 
