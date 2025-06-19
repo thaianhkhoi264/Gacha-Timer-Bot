@@ -372,37 +372,16 @@ def parse_title_ak(text):
     Handles banner logic as described in the prompt.
     """
     import re
-    # Patterns to skip
-    skip_patterns = [
-        r"^Arknights$",
-        r"^@ArknightsEN$",
-        r"^#Arknights$"
-    ]
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    # Remove lines that match skip patterns
-    event_lines = []
-    for line in lines:
-        if any(re.match(pat, line, re.IGNORECASE) for pat in skip_patterns):
-            continue
-        event_lines.append(line)
-    if not event_lines:
-        return lines[0] if lines else "Unknown Title"
     # 1. Maintenance
     maint_match = re.search(r"maintenance on (\w+ \d{1,2}, \d{4})", text, re.IGNORECASE)
     if maint_match:
         date = maint_match.group(1)
         return f"{date} Maintenance"
 
-    # 2. Event line after "Dear Doctor," (for events like "Rerun Side Story Event: The Rides to Lake Silberneherze will soon be live ...")
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    for i, line in enumerate(lines):
-        if "dear doctor" in line.lower() and i + 1 < len(lines):
-            next_line = lines[i + 1]
-            # Look for a colon and extract the part after it, before "will soon be live" or before the next period
-            match = re.search(r":\s*([^\.\n]+?)(?: will soon be live|\.|$)", next_line, re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-            return next_line
+    # 2. Title line (fallback for events)
+    title_match = re.search(r"Title\s*:?\s*(.+)", text, re.IGNORECASE)
+    if title_match:
+        return title_match.group(1).strip()
 
     # 3. Banner logic
     # Find ★★★★★★ line
@@ -442,16 +421,10 @@ def parse_title_ak(text):
         else:
             return "Special Banner"
 
-    # Fallback: Look for "Dear Doctor," followed by a line ending with "will be available soon"
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    for i, line in enumerate(lines):
-        if "dear doctor" in line.lower() and i + 1 < len(lines):
-            next_line = lines[i + 1]
-            match = re.match(r"(.+?) will be available soon\.?", next_line, re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-            else:
-                return next_line
+    # Fallback: Poly Vision Museum or other event
+    museum_match = re.search(r"Poly Vision Museum", text, re.IGNORECASE)
+    if museum_match:
+        return "Poly Vision Museum"
 
     # Fallback: first non-empty line after "Dear Doctor,"
     lines = [line.strip() for line in text.splitlines() if line.strip()]
