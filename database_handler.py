@@ -1,4 +1,6 @@
 import discord
+from discord import app_commands
+from discord.ext import commands
 from modules import *
 from bot import *
 from notification_handler import schedule_notifications_for_event
