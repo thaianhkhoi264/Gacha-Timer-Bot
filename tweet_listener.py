@@ -22,7 +22,7 @@ PROFILE_KEYWORDS = {
     },
     "AK": {
         "required": [
-            "event", "maintenance", "update", "operators will appear at a higher rate",
+            "event", "maintenance", "update", "operators", "operator", "rate",
             "will be available soon", "will be live", "rerun"
         ],
         "ignored": [
