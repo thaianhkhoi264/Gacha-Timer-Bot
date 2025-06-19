@@ -51,14 +51,12 @@ async def get_announce_channel(guild):
         return guild.get_channel(int(row[0]))
     return None
 
-@bot.event
-async def on_message(message):
+async def tweet_listener_on_message(message):
     if message.author.bot:
-        return
+        return False
 
     if not message.guild or not hasattr(message.channel, "id"):
-        await bot.process_commands(message)
-        return
+        return False
 
     # Query the database for this channel in this server
     conn = sqlite3.connect('kanami_data.db')
@@ -70,13 +68,12 @@ async def on_message(message):
     row = c.fetchone()
     conn.close()
     if not row:
-        await bot.process_commands(message)
-        return  # Not a listener channel
+        return False  # Not a listener channel
 
     profile, required_keywords, ignored_keywords = row
     profile = profile.upper()
 
-    # Use DB keywords if set, otherwise fallback to profile_keywords.py
+    # Use DB keywords if set, otherwise fallback to PROFILE_KEYWORDS
     if required_keywords:
         required_keywords = [kw.strip() for kw in required_keywords.split(",") if kw.strip()]
     else:
@@ -94,26 +91,22 @@ async def on_message(message):
             break
     if not twitter_link:
         await message.add_reaction("❌")
-        await bot.process_commands(message)
-        return
+        return True
 
     tweet_text, tweet_image, username = await fetch_tweet_content(twitter_link)
     if not tweet_text:
         await message.add_reaction("❌")
-        await bot.process_commands(message)
-        return
+        return True
 
     # Ignore if any ignored keyword is present
     if any(kw.lower() in tweet_text.lower() for kw in ignored_keywords):
         await message.add_reaction("❌")
-        await bot.process_commands(message)
-        return
+        return True
 
     # Only proceed if at least one required keyword is present (if any are set)
     if required_keywords and not any(kw.lower() in tweet_text.lower() for kw in required_keywords):
         await message.add_reaction("❌")
-        await bot.process_commands(message)
-        return
+        return True
 
     # If passed, process like the read command (call the function directly)
     await message.add_reaction("✅")
@@ -130,7 +123,7 @@ async def on_message(message):
 
     await announce_channel.send("Detected a valid tweet, parsing...")
     await read(ctx, twitter_link)
-    await bot.process_commands(message)
+    return True
 
 
 @bot.event
