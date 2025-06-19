@@ -690,7 +690,7 @@ async def prompt_for_category(ctx):
         await ctx.send("No category selected. Event not added.")
         return None
 
-async def prompt_for_image(ctx, tweet_image):
+
     def check(m): return m.author == ctx.author and m.channel == ctx.channel
     image = tweet_image
     if image:
@@ -942,7 +942,9 @@ async def read(ctx, link: str):
         title = "Unknown Title"
     if not category:
         category = "Unknown Category"
-    image = await prompt_for_image(ctx, tweet_image) if tweet_image else None
+
+    # Automatically use the first image if present
+    image = tweet_image if tweet_image else None
 
     # --- Parse dates if not already parsed ---
     if not (start and end):
@@ -965,13 +967,13 @@ async def read(ctx, link: str):
             await ctx.send("Could not parse start or end time for all regions. Cancelling.")
             return
 
-        # Optionally prompt for category/image if not set
+        # Optionally prompt for category if not set
         if not category:
             category = await prompt_for_category(ctx)
             if not category:
                 return
-        if not image:
-            image = await prompt_for_image(ctx, tweet_image)
+
+        # image is already set above
 
         # Use the new function to insert and prepare notification events
         event_entries, new_title = prepare_hyv_event_entries(
