@@ -6,6 +6,7 @@ from bot import *
 from notification_handler import *
 from discord.ui import View, Select
 from discord import app_commands
+from tweet_listener import tweet_listener_on_message
 
 import signal
 import asyncio
@@ -301,6 +302,10 @@ async def on_ready():
 async def on_message(message):
     if message.author == bot.user:
         return  # Ignore messages from the bot itself
+
+    # Call the tweet listener function to handle Twitter/X messages
+    if await tweet_listener_on_message(message):
+        return
 
     if "good girl" in message.content.lower():
         emoji = "<:KanamiHeart:1374409597628186624>"  # Custom emoji with the given ID
