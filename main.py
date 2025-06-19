@@ -109,31 +109,10 @@ class ChannelAssignView(View):
             await interaction.response.send_message("Please select all required fields before confirming.", ephemeral=True)
             return
 
-        # If listener, prompt for keywords
+        # If listener, do NOT prompt for keywords anymore
         if self.assignment_type == "listener":
-            await interaction.response.send_message(
-                "Enter **required keywords** (comma-separated, e.g. `event,banner`), or `none` for no required keywords:",
-                ephemeral=True
-            )
-            def check(m): return m.author == interaction.user and m.channel == interaction.channel
-            try:
-                req_msg = await bot.wait_for("message", timeout=120.0, check=check)
-                required_keywords = req_msg.content.strip()
-                if required_keywords.lower() == "none":
-                    required_keywords = ""
-                await interaction.followup.send(
-                    "Enter **ignored keywords** (comma-separated, e.g. `retweet,maintenance`), or `none` for no ignored keywords:",
-                    ephemeral=True
-                )
-                ign_msg = await bot.wait_for("message", timeout=120.0, check=check)
-                ignored_keywords = ign_msg.content.strip()
-                if ignored_keywords.lower() == "none":
-                    ignored_keywords = ""
-            except Exception:
-                await interaction.followup.send("Timed out waiting for keywords. Assignment cancelled.", ephemeral=True)
-                return
-            self.required_keywords = required_keywords
-            self.ignored_keywords = ignored_keywords
+            self.required_keywords = ""
+            self.ignored_keywords = ""
             self.assignments.append((
                 self.assignment_type,
                 self.selected_profile,
