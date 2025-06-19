@@ -41,6 +41,8 @@ class ChannelAssignView(View):
         self.assignment_type = None
         self.selected_profile = None
         self.selected_channel = None
+        self.required_keywords = None  # NEW
+        self.ignored_keywords = None   # NEW
         self.assignments = []
         self.finished = False
 
@@ -51,6 +53,7 @@ class ChannelAssignView(View):
                 discord.SelectOption(label="Announcement Channel", value="announce"),
                 discord.SelectOption(label="Notification Channel", value="notification"),
                 discord.SelectOption(label="Notification Timing Channel", value="notif_timing"),
+                discord.SelectOption(label="Listener Channel (per profile)", value="listener"),  # NEW
             ]
         )
         self.type_select.callback = self.type_callback
@@ -81,7 +84,7 @@ class ChannelAssignView(View):
 
     async def type_callback(self, interaction: discord.Interaction):
         self.assignment_type = self.type_select.values[0]
-        self.profile_select.disabled = (self.assignment_type != "timer")
+        self.profile_select.disabled = (self.assignment_type not in ["timer", "listener"])
         await interaction.response.edit_message(
             content=self.get_status_message(),
             view=self
@@ -102,19 +105,55 @@ class ChannelAssignView(View):
         )
 
     async def confirm_callback(self, interaction: discord.Interaction):
-        if not self.assignment_type or not self.selected_channel or (self.assignment_type == "timer" and not self.selected_profile):
+        if not self.assignment_type or not self.selected_channel or (self.assignment_type in ["timer", "listener"] and not self.selected_profile):
             await interaction.response.send_message("Please select all required fields before confirming.", ephemeral=True)
             return
-        # Save assignment
-        self.assignments.append((
-            self.assignment_type,
-            self.selected_profile,
-            self.selected_channel
-        ))
+
+        # If listener, prompt for keywords
+        if self.assignment_type == "listener":
+            await interaction.response.send_message(
+                "Enter **required keywords** (comma-separated, e.g. `event,banner`), or `none` for no required keywords:",
+                ephemeral=True
+            )
+            def check(m): return m.author == interaction.user and m.channel == interaction.channel
+            try:
+                req_msg = await bot.wait_for("message", timeout=120.0, check=check)
+                required_keywords = req_msg.content.strip()
+                if required_keywords.lower() == "none":
+                    required_keywords = ""
+                await interaction.followup.send(
+                    "Enter **ignored keywords** (comma-separated, e.g. `retweet,maintenance`), or `none` for no ignored keywords:",
+                    ephemeral=True
+                )
+                ign_msg = await bot.wait_for("message", timeout=120.0, check=check)
+                ignored_keywords = ign_msg.content.strip()
+                if ignored_keywords.lower() == "none":
+                    ignored_keywords = ""
+            except Exception:
+                await interaction.followup.send("Timed out waiting for keywords. Assignment cancelled.", ephemeral=True)
+                return
+            self.required_keywords = required_keywords
+            self.ignored_keywords = ignored_keywords
+            self.assignments.append((
+                self.assignment_type,
+                self.selected_profile,
+                self.selected_channel,
+                self.required_keywords,
+                self.ignored_keywords
+            ))
+        else:
+            self.assignments.append((
+                self.assignment_type,
+                self.selected_profile,
+                self.selected_channel
+            ))
+
         # Reset selections for next assignment
         self.assignment_type = None
         self.selected_profile = None
         self.selected_channel = None
+        self.required_keywords = None
+        self.ignored_keywords = None
         self.type_select.placeholder = "Select assignment type..."
         self.profile_select.placeholder = "Select a profile..."
         self.channel_select.placeholder = "Select a channel..."
@@ -133,7 +172,10 @@ class ChannelAssignView(View):
         msg = "**Assignment Setup:**\n"
         if self.assignments:
             msg += "**Assignments so far:**\n"
-            for i, (atype, prof, chan) in enumerate(self.assignments, 1):
+            for i, assignment in enumerate(self.assignments, 1):
+                atype = assignment[0]
+                prof = assignment[1]
+                chan = assignment[2]
                 if atype == "timer":
                     msg += f"{i}. Timer Channel for **{prof}**: <#{chan}>\n"
                 elif atype == "announce":
@@ -142,9 +184,13 @@ class ChannelAssignView(View):
                     msg += f"{i}. Notification Channel: <#{chan}>\n"
                 elif atype == "notif_timing":
                     msg += f"{i}. Notification Timing Channel: <#{chan}>\n"
+                elif atype == "listener":
+                    req = assignment[3] or "None"
+                    ign = assignment[4] or "None"
+                    msg += f"{i}. Listener Channel for **{prof}**: <#{chan}> (Required: `{req}` | Ignored: `{ign}`)\n"
         msg += "\n**Current Selection:**\n"
         msg += f"• **Type:** {self.assignment_type or 'Not selected'}\n"
-        if self.assignment_type == "timer":
+        if self.assignment_type in ["timer", "listener"]:
             msg += f"• **Profile:** {self.selected_profile or 'Not selected'}\n"
         msg += f"• **Channel:** <#{self.selected_channel}>" if self.selected_channel else "• **Channel:** Not selected"
         msg += "\n\nClick **Confirm** to add, or **Finish** when done."
@@ -170,7 +216,10 @@ async def set_channel_slash(interaction: discord.Interaction):
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     results = []
-    for assignment_type, selected_profile, selected_channel in view.assignments:
+    for assignment in view.assignments:
+        assignment_type = assignment[0]
+        selected_profile = assignment[1]
+        selected_channel = assignment[2]
         if assignment_type == "timer":
             c.execute(
                 "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
@@ -195,9 +244,32 @@ async def set_channel_slash(interaction: discord.Interaction):
                 (str(interaction.guild.id), str(selected_channel))
             )
             results.append(f"<#{selected_channel}> set as the **notification timing channel**.")
+        elif assignment_type == "listener":
+            required_keywords = assignment[3]
+            ignored_keywords = assignment[4]
+            # Create table if not exists
+            c.execute('''CREATE TABLE IF NOT EXISTS listener_channels (
+                server_id TEXT,
+                profile TEXT,
+                channel_id TEXT,
+                required_keywords TEXT,
+                ignored_keywords TEXT,
+                PRIMARY KEY (server_id, profile)
+            )''')
+            c.execute(
+                '''REPLACE INTO listener_channels
+                   (server_id, profile, channel_id, required_keywords, ignored_keywords)
+                   VALUES (?, ?, ?, ?, ?)''',
+                (str(interaction.guild.id), selected_profile, str(selected_channel), required_keywords, ignored_keywords)
+            )
+            results.append(
+                f"<#{selected_channel}> set as **listener channel** for **{selected_profile}**.\n"
+                f"Required: `{required_keywords or 'None'}` | Ignored: `{ignored_keywords or 'None'}`"
+            )
     conn.commit()
     conn.close()
     await interaction.followup.send("\n".join(results), ephemeral=True)
+
 
 # Notification loop function to load and schedule pending notifications
 async def notification_loop():

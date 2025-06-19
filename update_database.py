@@ -2,58 +2,38 @@ import sqlite3
 
 DB_PATH = "kanami_data.db"
 
-def fix_hyv_region_fields():
+def add_listener_channels_table():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-
-    # Find all HSR/ZZZ events
-    c.execute("""
-        SELECT id, title, profile, start_date, end_date,
-               asia_start, america_start, europe_start,
-               asia_end, america_end, europe_end
-        FROM user_data
-        WHERE profile IN ('HSR', 'ZZZ')
-    """)
-    rows = c.fetchall()
-
-    updated = 0
-    for row in rows:
-        (event_id, title, profile, start_date, end_date,
-         asia_start, america_start, europe_start,
-         asia_end, america_end, europe_end) = row
-
-        updates = {}
-        # Fill missing region starts
-        if not asia_start or asia_start in ('', None):
-            updates['asia_start'] = start_date
-        if not america_start or america_start in ('', None):
-            updates['america_start'] = start_date
-        if not europe_start or europe_start in ('', None):
-            updates['europe_start'] = start_date
-        # Fill missing region ends
-        if not asia_end or asia_end in ('', None):
-            updates['asia_end'] = end_date
-        if not america_end or america_end in ('', None):
-            updates['america_end'] = end_date
-        if not europe_end or europe_end in ('', None):
-            updates['europe_end'] = end_date
-        # Fill missing global fields with Asia server time
-        if not start_date or start_date in ('', None):
-            updates['start_date'] = asia_start or america_start or europe_start
-        if not end_date or end_date in ('', None):
-            updates['end_date'] = asia_end or america_end or europe_end
-
-        if updates:
-            set_clause = ", ".join([f"{k}=?" for k in updates.keys()])
-            values = list(updates.values())
-            values.append(event_id)
-            c.execute(f"UPDATE user_data SET {set_clause} WHERE id=?", values)
-            print(f"Updated event '{title}' ({profile}) id={event_id}: {updates}")
-            updated += 1
-
+    # Create the listener_channels table if it doesn't exist
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS listener_channels (
+            server_id TEXT,
+            profile TEXT,
+            channel_id TEXT,
+            required_keywords TEXT,
+            ignored_keywords TEXT,
+            PRIMARY KEY (server_id, profile)
+        )
+    ''')
     conn.commit()
     conn.close()
-    print(f"Done. {updated} event(s) updated.")
+    print("listener_channels table ensured.")
+
+def add_version_tracker_table():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS version_tracker (
+            profile TEXT PRIMARY KEY,
+            version TEXT,
+            start_date TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    print("version_tracker table ensured.")
 
 if __name__ == "__main__":
-    fix_hyv_region_fields()
+    add_listener_channels_table()
+    add_version_tracker_table()

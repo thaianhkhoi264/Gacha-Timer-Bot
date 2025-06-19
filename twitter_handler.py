@@ -2,7 +2,7 @@ from modules import *
 from bot import *
 from database_handler import update_timer_channel
 from notification_handler import schedule_notifications_for_event
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import asyncio
 import inspect
@@ -22,10 +22,123 @@ PROFILE_NORMALIZATION = {
     "wuwa": "WUWA",
     "all": "ALL"
 }
+
+
+def normalize_twitter_link(link: str) -> str:
+    """
+    Converts embed/third-party Twitter links (fixupx, fxtwitter, vxtwitter, etc.)
+    to a standard https://twitter.com/ or https://x.com/ link.
+    """
+    # Match URLs like https://fxtwitter.com/username/status/123456789
+    match = re.match(r"https?://(?:fx|vx|fixupx|twitfix|tweet|pbs|pt|xtwitter)\.twitter\.com/([^/]+)/status/(\d+)", link)
+    if match:
+        username, status_id = match.groups()
+        return f"https://twitter.com/{username}/status/{status_id}"
+    # Generic: replace known domains with twitter.com or x.com
+    link = re.sub(r"https?://(fx|vx|fixupx|fxtwitter|vxtwitter|twitfix|tweet|pbs|pt|xtwitter)\.com", "https://twitter.com", link)
+    link = re.sub(r"https?://(fx|vx|fixupx|fxtwitter|vxtwitter|twitfix|tweet|pbs|pt|xtwitter)\.net", "https://twitter.com", link)
+    link = re.sub(r"https?://x\.com", "https://twitter.com", link)
+    return link
+
 def normalize_profile(profile):
     if not profile:
         return "ALL"
     return PROFILE_NORMALIZATION.get(profile.lower(), profile.upper())
+
+def get_version_start_dynamic(profile, version_str, default_base_version, default_base_date):
+    """
+    Looks up the latest known version and start date for the profile.
+    If the requested version is newer, calculates its start date as 6 weeks after the last known.
+    If not found, uses the default base.
+    """
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT version, start_date FROM version_tracker WHERE profile=?", (profile,))
+    row = c.fetchone()
+    conn.close()
+
+    # Parse version numbers
+    def parse_version(v):
+        major, minor = map(int, v.split('.'))
+        return major, minor
+
+    req_major, req_minor = parse_version(version_str)
+
+    if row:
+        base_version, base_date_str = row
+        base_major, base_minor = parse_version(base_version)
+        base_date = datetime.fromisoformat(base_date_str)
+    else:
+        base_major, base_minor = parse_version(default_base_version)
+        base_date = default_base_date
+
+    # If requested version is before base, just return base
+    if (req_major, req_minor) <= (base_major, base_minor):
+        return base_date
+
+    # Calculate weeks difference
+    delta_versions = (req_major - base_major) * 10 + (req_minor - base_minor)
+    start_date = base_date + timedelta(weeks=6 * delta_versions)
+    return start_date
+
+def update_version_tracker(profile, version_str, start_date):
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute(
+        "INSERT OR REPLACE INTO version_tracker (profile, version, start_date) VALUES (?, ?, ?)",
+        (profile, version_str, start_date.isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+# Honkai: Star Rail specific parsing functions
+def get_version_start_hsr(version_str):
+    # Default base: 3.3, 2025/05/21 11:00 (UTC+8)
+    default_base_version = "3.3"
+    default_base_date = datetime(2025, 5, 21, 11, 0, tzinfo=timezone(timedelta(hours=8)))
+    return get_version_start_dynamic("HSR", version_str, default_base_version, default_base_date)
+
+def parse_title_hsr(text):
+    """
+    Attempts to extract the event title from a Honkai: Star Rail tweet.
+    """
+    # Split into lines and remove empty lines
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    first_line = lines[0]
+
+    # If the first line contains "Event Warp", "Event", or "Version", keep the whole line
+    if any(kw in first_line for kw in ["Event Warp", "Event", "Version"]):
+        return first_line
+
+    # If the first line contains a colon, take the part before the colon
+    if ":" in first_line:
+        before_colon = first_line.split(":", 1)[0].strip()
+        # Avoid picking up "Event Period" or similar
+        if not re.search(r"(period|details|duration|time|start|end)", before_colon, re.IGNORECASE):
+            return before_colon
+
+    # If the first line contains a dash, take the part before the dash (if not a date)
+    if "-" in first_line and not re.search(r"\d{4}/\d{2}/\d{2}", first_line):
+        before_dash = first_line.split("-", 1)[0].strip()
+        return before_dash
+
+    # Fallback: look for a line before "Event Period"
+    for line in lines:
+        if "Event Period" in line or "▌Event Period" in line:
+            idx = lines.index(line)
+            if idx > 0:
+                return lines[idx - 1]
+
+    # Fallback: first hashtag
+    for line in lines:
+        if line.startswith("#"):
+            return line
+
+    # Fallback: first line
+    return first_line
 
 def parse_category_hsr(text):
     """
@@ -49,6 +162,36 @@ def parse_dates_hsr(text):
       - Event Period: 2025/04/30 12:00:00 - 2025/05/20 15:00:00 (server time)
       - Event Period: After the Version 3.3 update – 2025/06/11 11:59:00 (server time)
     """
+    # Edge case: "After the Version X.X update – <end time>"
+    match = re.search(
+        r"After the Version (\d+\.\d+) update\s*[–-]\s*([\d/\- :]+(?:\([^)]+\))?)",
+        text, re.IGNORECASE)
+    if match:
+        version = match.group(1)
+        end_str = match.group(2).strip()
+        start_dt = get_version_start_hsr(version)
+        if start_dt:
+            update_version_tracker("HSR", version, start_dt)
+            start_str = start_dt.strftime("%Y/%m/%d %H:%M (UTC+8)")
+        else:
+            start_str = None
+        return start_str, end_str
+    
+    # Maintenance case: "maintenance on <datetime> (timezone)"
+    match = re.search(
+        r'maintenance on ([0-9/\- :]+)\s*\((UTC[+-]\d+)\)', text, re.IGNORECASE)
+    if match:
+        start_str = f"{match.group(1).strip()} {match.group(2).strip()}"
+        import dateparser
+        dt = dateparser.parse(start_str)
+        if dt:
+            end_dt = dt + timedelta(hours=5)
+            # Format end time in the same style as start
+            end_str = end_dt.strftime("%Y/%m/%d %H:%M:%S") + f" ({match.group(2).strip()})"
+            return start_str, end_str
+        else:
+            return start_str, None
+        
     # 1. Try full range with dash or en-dash
     match = re.search(
         r'event period[:：]?\s*([0-9/\- :]+)\s*[-–]\s*([0-9/\- :]+)(?:\s*\([^)]+\))?',
@@ -76,6 +219,44 @@ def parse_dates_hsr(text):
 
     return None, None
 
+# Zenless Zone Zero specific parsing functions
+def get_version_start_zzz(version_str):
+    # Default base: 2.0, 2025/06/06 11:00 (UTC+8)
+    default_base_version = "2.0"
+    default_base_date = datetime(2025, 6, 6, 11, 0, tzinfo=timezone(timedelta(hours=8)))
+    return get_version_start_dynamic("ZZZ", version_str, default_base_version, default_base_date)
+
+def parse_title_zzz(text):
+    """
+    Extracts the event title from a Zenless Zone Zero tweet.
+    """
+    import re
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    first_line = lines[0]
+
+    # If quoted, strip quotes
+    if first_line.startswith('"') and '"' in first_line[1:]:
+        # Remove leading and trailing quotes
+        first_line = first_line.strip('"')
+        # Remove trailing details
+        first_line = re.sub(r'\s*(Event Details|Signal Search Details)$', '', first_line, flags=re.IGNORECASE)
+        return first_line.strip()
+
+    # Remove trailing "Event Details" or "Signal Search Details"
+    match = re.match(r'(.+?)\s*(Event Details|Signal Search Details)$', first_line, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+
+    # Versioned event (e.g., "V2.0 Limited-Time Channels (Phase I)")
+    if re.match(r"V\d+\.\d+.*", first_line):
+        return first_line
+
+    # Fallback: first non-empty line
+    return first_line
+
 def parse_category_zzz(text):
     """
     Parses Zenless Zone Zero tweet text to determine the event category.
@@ -99,6 +280,36 @@ def parse_dates_zzz(text):
       - After the Version X.X update – 2025/06/23 03:59 (server time)
     Returns (start, end) as strings if found, otherwise None for missing.
     """
+    import dateparser
+
+    # Maintenance case: [Update Start Time] <datetime> (timezone), "It will take about five hours to complete."
+    match = re.search(
+        r'\[Update Start Time\][^\d]*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})\s*\((UTC[+-]\d+)\)[^\n]*\n.*five hours',
+        text, re.IGNORECASE)
+    if match:
+        start_str = f"{match.group(1).strip()} {match.group(2).strip()}"
+        dt = dateparser.parse(start_str)
+        if dt:
+            end_dt = dt + timedelta(hours=5)
+            end_str = end_dt.strftime("%Y/%m/%d %H:%M") + f" ({match.group(2).strip()})"
+            return start_str, end_str
+        else:
+            return start_str, None
+        
+    # Edge case: "After the Version X.X update – <end time>"
+    match = re.search(
+        r"After the Version (\d+\.\d+) update\s*[–-]\s*([\d/ :]+(?:\([^)]+\))?)",
+        text, re.IGNORECASE)
+    if match:
+        version = match.group(1)
+        end_str = match.group(2).strip()
+        start_dt = get_version_start_zzz(version)
+        if start_dt:
+            update_version_tracker("ZZZ", version, start_dt)
+            start_str = start_dt.strftime("%Y/%m/%d %H:%M (UTC+8)")
+        else:
+            start_str = None
+        return start_str, end_str
     # 1. [Event Duration] ... – ... (range)
     match = re.search(
         r'\[Event Duration\][^\d]*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})[^\d–-]*[–-][^\d]*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})',
@@ -133,6 +344,92 @@ def parse_dates_zzz(text):
         return date_candidates[0], None
     else:
         return None, None
+
+# Arknights specific parsing functions
+def parse_title_ak(text):
+    """
+    Parses Arknights tweet text to extract the event/banner/maintenance title.
+    Handles banner logic as described in the prompt.
+    """
+    import re
+    # 1. Maintenance
+    maint_match = re.search(r"maintenance on (\w+ \d{1,2}, \d{4})", text, re.IGNORECASE)
+    if maint_match:
+        date = maint_match.group(1)
+        return f"{date} Maintenance"
+
+    # 2. Event line after "Dear Doctor," (for events like "Rerun Side Story Event: The Rides to Lake Silberneherze will soon be live ...")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for i, line in enumerate(lines):
+        if "dear doctor" in line.lower() and i + 1 < len(lines):
+            next_line = lines[i + 1]
+            # Look for a colon and extract the part after it, before "will soon be live" or before the next period
+            match = re.search(r":\s*([^\.\n]+?)(?: will soon be live|\.|$)", next_line, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+            return next_line
+
+    # 3. Banner logic
+    # Find ★★★★★★ line
+    six_star_match = re.search(r"★{6}:\s*(.+)", text)
+    if six_star_match:
+        six_star_line = six_star_match.group(1)
+        # Split by / or comma
+        six_stars = [s.strip() for s in re.split(r"/|,|\n", six_star_line) if s.strip()]
+        num_six = len(six_stars)
+
+        # Case 1: 2 6*s
+        if num_six == 2:
+            kernel_list = [
+                "Exusiai", "Siege", "Ifrit", "Eyjafjalla", "Angelina", "Shining", "Nightingale",
+                "Hoshiguma", "Saria", "SilverAsh", "Skadi", "Ch'en", "Schwarz", "Hellagur",
+                "Magallan", "Mostima", "Blaze", "Aak", "Ceobe", "Bagpipe", "Phantom", "Rosa",
+                "Suzuran", "Weedy", "Thorns", "Eunectes", "Surtr", "Blemishine", "Mudrock",
+                "Mountain", "Archetto", "Saga", "Passenger", "Kal'tsit", "Carnelian", "Pallas"
+            ]
+            # If any kernel operator is present
+            if any(op.lower() in (s.lower() for s in six_stars) for op in kernel_list):
+                return "Kernel Banner"
+            # If "Limited" or "[Limited]" in text
+            if re.search(r"\[?Limited\]?", text, re.IGNORECASE):
+                return "Limited Banner"
+            return "Rotating Banner"
+
+        # Case 2: 4 6*s
+        elif num_six == 4:
+            return "Joint Operation"
+
+        # Case 3: 1 6*
+        elif num_six == 1:
+            return f"{six_stars[0]} Banner"
+
+        # Case 4: fallback
+        else:
+            return "Special Banner"
+
+    # Fallback: Look for "Dear Doctor," followed by a line ending with "will be available soon"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for i, line in enumerate(lines):
+        if "dear doctor" in line.lower() and i + 1 < len(lines):
+            next_line = lines[i + 1]
+            match = re.match(r"(.+?) will be available soon\.?", next_line, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+            else:
+                return next_line
+
+    # Fallback: first non-empty line after "Dear Doctor,"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for i, line in enumerate(lines):
+        if "dear doctor" in line.lower() and i + 1 < len(lines):
+            return lines[i + 1]
+
+    # Fallback: first non-empty line
+    for line in lines:
+        if line:
+            return line
+
+    return "Special Banner"
 
 def parse_category_ak(text):
     """
@@ -224,24 +521,29 @@ async def parse_dates_ak(ctx, text):
 
     return None, None
 
+# Strinova specific parsing functions
 # def parse_category_stri(text):
 
 # def parse_dates_stri(text):
 
+# Wuthering Waves specific parsing functions
 # def parse_category_wuwa(text):
 
 # def parse_dates_wuwa(text):
 
 POSTER_PROFILES = {
     "honkaistarrail": {
+        "parse_title": parse_title_hsr,
         "parse_dates": parse_dates_hsr,
         "parse_category": parse_category_hsr
     },
     "zzz_en": {
+        "parse_title": parse_title_zzz,
         "parse_dates": parse_dates_zzz,
         "parse_category": parse_category_zzz
     },
     "arknightsen": {
+        "parse_title": parse_title_ak,
         "parse_dates": parse_dates_ak,
         "parse_category": parse_category_ak
     },
@@ -561,6 +863,7 @@ async def read(ctx, link: str):
     prompts for missing info, and stores the event in the database.
     """
     await ctx.send("Reading tweet, please wait...")
+    link = normalize_twitter_link(link)
     tweet_text, tweet_image, username = await fetch_tweet_content(link)
     if not tweet_text:
         await ctx.send("Could not read the tweet. Please check the link or try again later.")
@@ -571,11 +874,18 @@ async def read(ctx, link: str):
     profile_parser = POSTER_PROFILES.get(username.lower() if username else "")
 
     # --- Parse category and dates using poster profile logic ---
+    title = None
     category = None
     start = None
     end = None
 
     if profile_parser:
+        if "parse_title" in profile_parser:
+            parse_title_fn = profile_parser["parse_title"]
+            if inspect.iscoroutinefunction(parse_title_fn):
+                title = await parse_title_fn(tweet_text)
+            else:
+                title = parse_title_fn(tweet_text)
         if "parse_category" in profile_parser:
             parse_category_fn = profile_parser["parse_category"]
             if inspect.iscoroutinefunction(parse_category_fn):
@@ -588,33 +898,29 @@ async def read(ctx, link: str):
                 start, end = await parse_date_fn(ctx, tweet_text)
             else:
                 start, end = parse_date_fn(tweet_text)
-        # If you add more special logic, check and use it here
-        # e.g. if "parse_special" in profile_parser: ...
     else:
         # Fallback: prompt for category and use generic date parser
         pass
 
-    # --- Prompt for missing info ---
-    if not category:
-        category = await prompt_for_category(ctx)
-        if not category:
-            return
-
-    title = await prompt_for_title(ctx, tweet_text)
+    # --- Autofill for missing info ---
     if not title:
-        return
-
-    image = await prompt_for_image(ctx, tweet_image)
+        title = "Unknown Title"
+    if not category:
+        category = "Unknown Category"
+    image = await prompt_for_image(ctx, tweet_image) if tweet_image else None
 
     # --- Parse dates if not already parsed ---
     if not (start and end):
         start, end = parse_dates_from_text(tweet_text)
 
-    # --- Prompt for missing dates ---
+    # --- Autofill for missing dates ---
+    if not start:
+        start = "2001/01/01 00:00"
+    if not end:
+        end = "2001/01/01 00:00"
+
     is_hyv = username in HYV_ACCOUNTS
-    start, end = await prompt_for_missing_dates(ctx, start, end, is_hyv=is_hyv)
-    if not (start and end):
-        return
+    # No prompt_for_missing_dates, just use autofilled values
 
     # --- Hoyoverse logic below ---
     if is_hyv:
