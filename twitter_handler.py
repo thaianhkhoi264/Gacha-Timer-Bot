@@ -101,13 +101,27 @@ def get_version_start_hsr(version_str):
 def parse_title_hsr(text):
     """
     Attempts to extract the event title from a Honkai: Star Rail tweet.
+    Skips lines that are just the game name or @username.
     """
-    # Split into lines and remove empty lines
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines:
         return None
 
-    first_line = lines[0]
+    # Skip lines that are just the game name or @username
+    skip_patterns = [
+        r"^Honkai: Star Rail$",
+        r"^@honkaistarrail$",
+        r"^#HonkaiStarRail$"
+    ]
+    event_lines = []
+    for line in lines:
+        if any(re.match(pat, line, re.IGNORECASE) for pat in skip_patterns):
+            continue
+        event_lines.append(line)
+    if not event_lines:
+        return lines[0]  # fallback
+
+    first_line = event_lines[0]
 
     # If the first line contains "Event Warp", "Event", or "Version", keep the whole line
     if any(kw in first_line for kw in ["Event Warp", "Event", "Version"]):
@@ -126,18 +140,18 @@ def parse_title_hsr(text):
         return before_dash
 
     # Fallback: look for a line before "Event Period"
-    for line in lines:
+    for line in event_lines:
         if "Event Period" in line or "▌Event Period" in line:
-            idx = lines.index(line)
+            idx = event_lines.index(line)
             if idx > 0:
-                return lines[idx - 1]
+                return event_lines[idx - 1]
 
     # Fallback: first hashtag
-    for line in lines:
+    for line in event_lines:
         if line.startswith("#"):
             return line
 
-    # Fallback: first line
+    # Fallback: first event line
     return first_line
 
 def parse_category_hsr(text):
@@ -229,32 +243,38 @@ def get_version_start_zzz(version_str):
 def parse_title_zzz(text):
     """
     Extracts the event title from a Zenless Zone Zero tweet.
+    Skips lines that are just the game name, @username, or hashtags.
     """
     import re
+    skip_patterns = [
+        r"^Zenless Zone Zero$",
+        r"^@ZZZ_EN$",
+        r"^#ZZZ$"
+    ]
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if not lines:
-        return None
+    event_lines = []
+    for line in lines:
+        if any(re.match(pat, line, re.IGNORECASE) for pat in skip_patterns):
+            continue
+        event_lines.append(line)
+    if not event_lines:
+        return lines[0] if lines else None
 
-    first_line = lines[0]
+    first_line = event_lines[0]
 
     # If quoted, strip quotes
     if first_line.startswith('"') and '"' in first_line[1:]:
-        # Remove leading and trailing quotes
         first_line = first_line.strip('"')
-        # Remove trailing details
         first_line = re.sub(r'\s*(Event Details|Signal Search Details)$', '', first_line, flags=re.IGNORECASE)
         return first_line.strip()
 
-    # Remove trailing "Event Details" or "Signal Search Details"
     match = re.match(r'(.+?)\s*(Event Details|Signal Search Details)$', first_line, re.IGNORECASE)
     if match:
         return match.group(1).strip()
 
-    # Versioned event (e.g., "V2.0 Limited-Time Channels (Phase I)")
     if re.match(r"V\d+\.\d+.*", first_line):
         return first_line
 
-    # Fallback: first non-empty line
     return first_line
 
 def parse_category_zzz(text):
@@ -352,6 +372,21 @@ def parse_title_ak(text):
     Handles banner logic as described in the prompt.
     """
     import re
+    # Patterns to skip
+    skip_patterns = [
+        r"^Arknights$",
+        r"^@ArknightsEN$",
+        r"^#Arknights$"
+    ]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    # Remove lines that match skip patterns
+    event_lines = []
+    for line in lines:
+        if any(re.match(pat, line, re.IGNORECASE) for pat in skip_patterns):
+            continue
+        event_lines.append(line)
+    if not event_lines:
+        return lines[0] if lines else "Unknown Title"
     # 1. Maintenance
     maint_match = re.search(r"maintenance on (\w+ \d{1,2}, \d{4})", text, re.IGNORECASE)
     if maint_match:
@@ -429,7 +464,7 @@ def parse_title_ak(text):
         if line:
             return line
 
-    return "Special Banner"
+    return "Unknown Title"
 
 def parse_category_ak(text):
     """
