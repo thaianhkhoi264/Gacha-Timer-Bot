@@ -18,7 +18,8 @@ PROFILE_KEYWORDS = {
             "trailer", "teaser", "demo", "collab", "birthday", "prize", "winner", "strategy",
             "behind-the-scenes", "mechanics intro", "agent record", "cutscene", "news", "discord",
             "check-in", "twitch", "store", "an outstanding partner", "for display only",
-            "collaboration", "renovation talk", "benefits express", "overview", "hoyolab"
+            "collaboration", "renovation talk", "benefits express", "overview", "hoyolab",
+            "pop-up", "pop up", "offline", "cosplayer", "cosplayers", "fanart", "fanarts"
         ]
     },
     "AK": {
