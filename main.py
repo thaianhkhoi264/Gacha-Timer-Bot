@@ -330,39 +330,49 @@ async def assign(ctx):
     conn.close()
     await ctx.send("This channel has been assigned for bot announcements.")
 
-@bot.command()  # "checkchannels" command to show assigned announcement, timer, and notification channels
+@bot.command()  # "checkchannels" command to show all assigned channels
 async def check_channels(ctx):
     """
-    Shows which channels are set for announcements, timer updates, and notification timings in this server.
-    Usage: Kanami checkchannels
+    Shows all channels set for announcements, timer updates, listeners, and notifications in this server.
+    Usage: Kanami check_channels
     """
     guild_id = str(ctx.guild.id)
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
 
-    # Get announcement channel
+    # Announcement channel
     c.execute("SELECT announce_channel_id FROM announce_config WHERE server_id=?", (guild_id,))
     announce_row = c.fetchone()
-    announce_channel = None
-    if announce_row and announce_row[0]:
-        announce_channel = ctx.guild.get_channel(int(announce_row[0]))
+    announce_channel = ctx.guild.get_channel(int(announce_row[0])) if announce_row and announce_row[0] else None
 
-    # Get all timer channels for all profiles
+    # Timer channels (per profile)
     c.execute("SELECT profile, timer_channel_id FROM config WHERE server_id=?", (guild_id,))
     timer_rows = c.fetchall()
 
-    # Get notification timing channel
-    c.execute("SELECT channel_id FROM notification_timing_channel WHERE server_id=?", (guild_id,))
+    # Listener channels (per profile)
+    c.execute("SELECT profile, channel_id, required_keywords, ignored_keywords FROM listener_channels WHERE server_id=?", (guild_id,))
+    listener_rows = c.fetchall()
+
+    # Notification channel
+    c.execute("SELECT channel_id FROM notification_channel WHERE server_id=?", (guild_id,))
     notif_row = c.fetchone()
-    notif_channel = None
-    if notif_row and notif_row[0]:
-        notif_channel = ctx.guild.get_channel(int(notif_row[0]))
+    notif_channel = ctx.guild.get_channel(int(notif_row[0])) if notif_row and notif_row[0] else None
+
+    # Notification timing channel
+    c.execute("SELECT channel_id FROM notification_timing_channel WHERE server_id=?", (guild_id,))
+    notif_timing_row = c.fetchone()
+    notif_timing_channel = ctx.guild.get_channel(int(notif_timing_row[0])) if notif_timing_row and notif_timing_row[0] else None
+
+    # Pending notifications channel (per profile)
+    c.execute("SELECT profile, channel_id FROM pending_notifications_channel WHERE server_id=?", (guild_id,))
+    pending_rows = c.fetchall()
 
     conn.close()
 
     msg = "**Assigned Channels:**\n"
     msg += f"**Announcement Channel:** {announce_channel.mention if announce_channel else 'Not set'}\n"
 
+    # Timer Channels
     if timer_rows:
         msg += "**Timer Channels:**\n"
         for profile, channel_id in timer_rows:
@@ -371,7 +381,32 @@ async def check_channels(ctx):
     else:
         msg += "**Timer Channels:** Not set\n"
 
-    msg += f"**Notification Timing Channel:** {notif_channel.mention if notif_channel else 'Not set'}\n"
+    # Listener Channels
+    if listener_rows:
+        msg += "**Listener Channels:**\n"
+        for profile, channel_id, req, ign in listener_rows:
+            channel = ctx.guild.get_channel(int(channel_id)) if channel_id else None
+            msg += (
+                f"  • **{profile}**: {channel.mention if channel else 'Not set'}"
+                f" (Required: `{req or 'None'}` | Ignored: `{ign or 'None'}`)\n"
+            )
+    else:
+        msg += "**Listener Channels:** Not set\n"
+
+    # Notification Channel
+    msg += f"**Notification Channel:** {notif_channel.mention if notif_channel else 'Not set'}\n"
+
+    # Notification Timing Channel
+    msg += f"**Notification Timing Channel:** {notif_timing_channel.mention if notif_timing_channel else 'Not set'}\n"
+
+    # Pending Notifications Channel
+    if pending_rows:
+        msg += "**Pending Notifications Channels:**\n"
+        for profile, channel_id in pending_rows:
+            channel = ctx.guild.get_channel(int(channel_id)) if channel_id else None
+            msg += f"  • **{profile}**: {channel.mention if channel else 'Not set'}\n"
+    else:
+        msg += "**Pending Notifications Channels:** Not set\n"
 
     await ctx.send(msg)
 

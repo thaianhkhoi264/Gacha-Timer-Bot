@@ -33,8 +33,21 @@ PROFILE_KEYWORDS = {
         ]
     },
     "STRI": {
-        "required": ["event", "banner", "update"],
-        "ignored": ["retweet", "maintenance complete"]
+        "required": [
+            "event", "preview", "offer", "maintenance", "availability", "duration", "date", "update"
+        ],
+        "ignored": [
+            "giveaway", "prize", "winner", "winners", "fanart", "workshop", "showcase", "wallpaper",
+            "birthday", "trailer", "teaser", "collab", "collaboration", "profile puzzle", "snap & share",
+            "meme", "hotfix", "patch notes", "cd-key", "cdk code", "reward", "prizes", "congratulations",
+            "thank you", "launch", "official website", "comic", "episode", "record your", "share your",
+            "show us", "capture", "artist", "artwork", "template", "entry", "entries", "dm",
+            "winner announcement", "strategy", "gameplay", "join the", "join us", "premiering",
+            "premiere", "premieres", "premiered", "now available", "maintenance complete", "retweet",
+            "rt", "like this post", "how to enter", "to enter", "first look", "new agent",
+            "agent preview", "agent reveal", "new team arena", "new map", "map preview", "over",
+            "sword clash", "four-panel comics", "panel comic", "panel comics", "panel episode", "panel episodes"
+        ]
     },
     "WUWA": {
         "required": ["event", "banner", "update"],

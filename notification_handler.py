@@ -251,7 +251,7 @@ async def send_notification(event, timing_type):
         time_str = "starting" if timing_type == "start" else "ending"
         try:
             await channel.send(
-                f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
+                f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
             )
             send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
         except Exception as e:
