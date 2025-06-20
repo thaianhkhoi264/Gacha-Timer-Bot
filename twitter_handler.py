@@ -533,6 +533,21 @@ async def parse_dates_ak(ctx, text):
 def parse_title_stri(text):
     import re
 
+    # Skip lines that are just the game name or @username
+    skip_patterns = [
+        r"^Strinova$",
+        r"^@Strinova_EN$",
+        r"^Strinova \(@Strinova_EN\)$"
+    ]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    event_lines = []
+    for line in lines:
+        if any(re.match(pat, line, re.IGNORECASE) for pat in skip_patterns):
+            continue
+        event_lines.append(line)
+    if not event_lines:
+        return lines[0] if lines else "Unknown Title"
+
     # 1. Maintenance
     maint_match = re.search(r"maintenance (?:is scheduled )?for ([A-Za-z]+\s*\d{1,2})", text, re.IGNORECASE)
     if maint_match:
@@ -546,7 +561,17 @@ def parse_title_stri(text):
     if coming_match:
         return coming_match.group(1).strip("! ").title()
 
-    # 3. Legendary Outfit/Weapon Skin Previews (longest non-generic hashtag)
+    # 3. Event Previews and Offers
+    if event_lines:
+        first_line = event_lines[0]
+        first_line = re.sub(
+            r"^(Event Preview\s*\|\s*|Limited Time Offer Preview\s*\|\s*|Availability:|[✨]*[A-Za-z]+ Legendary Outfit and Weapon Skin \| Preview[✨🔥]*|Event Preview\s*\|)",
+            "", first_line, flags=re.IGNORECASE
+        ).strip(" |")
+        if first_line:
+            return first_line
+
+    # 4. Legendary Outfit/Weapon Skin Previews (longest non-generic hashtag)
     hashtags = re.findall(r"#([A-Za-z0-9]+)", text)
     generic_tags = {"strinova", "strinovaconquest", "boomfest"}
     non_generic_hashtags = [tag for tag in hashtags if tag.lower() not in generic_tags and not tag.lower().startswith("strinova")]
@@ -561,24 +586,8 @@ def parse_title_stri(text):
             title = " ".join(word.capitalize() for word in title.split())
         return title
 
-    # 4. Event Previews and Offers
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if lines:
-        first_line = lines[0]
-        first_line = re.sub(
-            r"^(Event Preview\s*\|\s*|Limited Time Offer Preview\s*\|\s*|Availability:|[✨]*[A-Za-z]+ Legendary Outfit and Weapon Skin \| Preview[✨🔥]*|Event Preview\s*\|)",
-            "", first_line, flags=re.IGNORECASE
-        ).strip(" |")
-        if first_line:
-            return first_line
-
-    # 5. Fallback: Use longest non-generic hashtag
-    if non_generic_hashtags:
-        legend_tag = max(non_generic_hashtags, key=len)
-        return legend_tag.replace("_", " ").title()
-
-    # 6. Fallback: Use first non-empty line
-    for line in lines:
+    # 5. Fallback: Use first non-empty event line
+    for line in event_lines:
         if line:
             return line
 
