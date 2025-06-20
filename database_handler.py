@@ -653,3 +653,23 @@ async def add_custom_category(ctx, *, category: str):
     conn.commit()
     conn.close()
     await ctx.send(f"Custom category `{category}` added for this server!")
+
+@bot.command()
+@commands.has_permissions(manage_guild=True)
+async def remove_custom_category(ctx, *, category: str):
+    """
+    Removes a custom event category for this server.
+    Usage: Kanami remove_custom_category <category name>
+    """
+    server_id = str(ctx.guild.id)
+    category = category.strip()
+    if not category:
+        await ctx.send("Please provide a category name.")
+        return
+
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM custom_categories WHERE server_id=? AND category=?", (server_id, category))
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Custom category `{category}` removed for this server!")
