@@ -7,7 +7,8 @@ PROFILE_KEYWORDS = {
         "required": ["update", "maintenance", "event", "warp", "period"],
         "ignored": [
             "special program", "trailer", "winner announcement", "strategy guide",
-            "developer radio", "gallery", "manuscript", "radio"
+            "developer radio", "gallery", "manuscript", "radio", "novaflare", "outfit", "pack", "packs",
+            "outfits", "adjustments", "improvements"
         ]
     },
     "ZZZ": {
