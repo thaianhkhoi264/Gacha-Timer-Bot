@@ -553,11 +553,11 @@ def parse_title_stri(text):
         title = " ".join(word.capitalize() for word in title.split())
         return title
 
-    # Try to find "Get ready for ... - Title!" or "is coming soon! Title"
+    # Try to find "Get ready for ... - Title!" or "<Title> is coming soon!"
     ready_match = re.search(r"Get ready for [^\n-]+-\s*([^\n!]+)", text, re.IGNORECASE)
     if ready_match:
         return ready_match.group(1).strip("! ").title()
-    coming_match = re.search(r"is coming soon!([^\n#]+)", text, re.IGNORECASE)
+    coming_match = re.search(r"([A-Za-z0-9\s\-]+)\s+is coming soon!", text, re.IGNORECASE)
     if coming_match:
         return coming_match.group(1).strip("! ").title()
 
@@ -621,7 +621,7 @@ def parse_dates_stri(text):
         # Try to parse with dateparser, fallback to adding year if missing
         import dateparser
         date_str = clean_date(date_str)
-        settings = {'PREFER_DATES_FROM': 'future', 'RETURN_AS_TIMEZONE_AWARE': False}
+        settings = {'PREFER_DAY_OF_MONTH': 'first', 'PREFER_DATES_FROM': 'current_period', 'RETURN_AS_TIMEZONE_AWARE': False}
         dt = dateparser.parse(date_str, settings=settings)
         if not dt and default_year:
             # Try adding the year
