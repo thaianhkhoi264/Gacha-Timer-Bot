@@ -2,7 +2,7 @@ from modules import *
 from discord.ext import commands
 import discord
 
-bot_version = "1.0.2"
+bot_version = "1.1.0"
 assigned_channels = {}
 
 load_dotenv()

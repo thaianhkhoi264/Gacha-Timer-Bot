@@ -42,7 +42,7 @@ async def help_command(ctx):
             "`Kanami hello` — Say hello to Kanami\n"
             "`Kanami version` — Show bot version\n"
             "`Kanami timer` — Show all events for this server\n"
-            "`Kanami checkchannels` — Show assigned channels\n"
+            "`Kanami check_channels` — Show assigned channels\n"
         ),
         inline=False
     )

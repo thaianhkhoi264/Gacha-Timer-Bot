@@ -530,9 +530,221 @@ async def parse_dates_ak(ctx, text):
     return None, None
 
 # Strinova specific parsing functions
-# def parse_category_stri(text):
+def parse_title_stri(text):
+    """
+    Extracts the event title from a Strinova tweet.
+    Handles legendary outfit/skin, maintenance, and event previews.
+    """
+    import re
 
-# def parse_dates_stri(text):
+    # 1. Maintenance
+    maint_match = re.search(r"maintenance (?:is scheduled )?for ([A-Za-z]+\s*\d{1,2})", text, re.IGNORECASE)
+    if maint_match:
+        return f"Maintenance on {maint_match.group(1)}"
+
+    # 2. Legendary Outfit/Weapon Skin Previews
+    # Try to find a hashtag that isn't #Strinova or generic
+    hashtags = re.findall(r"#([A-Za-z0-9]+)", text)
+    generic_tags = {"strinova", "strinovaconquest", "boomfest"}
+    legend_tag = None
+    for tag in hashtags:
+        tag_lower = tag.lower()
+        if tag_lower not in generic_tags and not tag_lower.startswith("strinova"):
+            legend_tag = tag
+            break
+    if legend_tag:
+        # Insert spaces before capital letters/numbers, capitalize words
+        title = re.sub(r'([A-Z])', r' \1', legend_tag).replace("_", " ").strip()
+        title = re.sub(r'([0-9])', r' \1', title)
+        title = " ".join(word.capitalize() for word in title.split())
+        return title
+
+    # Try to find "Get ready for ... - Title!" or "is coming soon! Title"
+    ready_match = re.search(r"Get ready for [^\n-]+-\s*([^\n!]+)", text, re.IGNORECASE)
+    if ready_match:
+        return ready_match.group(1).strip("! ").title()
+    coming_match = re.search(r"is coming soon!([^\n#]+)", text, re.IGNORECASE)
+    if coming_match:
+        return coming_match.group(1).strip("! ").title()
+
+    # 3. Event Previews and Offers
+    # Use the first line, remove known prefixes
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if lines:
+        first_line = lines[0]
+        # Remove known prefixes
+        first_line = re.sub(
+            r"^(Event Preview\s*\|\s*|Limited Time Offer Preview\s*\|\s*|Availability:|[✨]*Kanami Legendary Outfit and Weapon Skin \| Preview[✨]*|[A-Za-z]+ Legendary Outfit and Weapon Skin \| Preview[🔥]*|Event Preview\s*\|)", 
+            "", first_line, flags=re.IGNORECASE
+        ).strip(" |")
+        if first_line:
+            return first_line
+
+    # 4. Fallback: Use first non-empty hashtag (not generic)
+    for tag in hashtags:
+        tag_lower = tag.lower()
+        if tag_lower not in generic_tags:
+            return tag.replace("_", " ").title()
+
+    # 5. Fallback: Use first non-empty line
+    for line in lines:
+        if line:
+            return line
+
+    return "Unknown Title"
+
+def parse_category_stri(text):
+    """
+    Parses Strinova tweet text to determine the event category.
+    Returns one of: "Banner", "Event", "Maintenance", "Offer" or None.
+    """
+    text_lower = text.lower()
+    if "banner" in text_lower or "legendary" in text_lower:
+        return "Banner"
+    elif "event preview" in text_lower:
+        return "Event"
+    elif "maintenance" in text_lower:
+        return "Maintenance"
+    elif "offer" in text_lower:
+        return "Offer"
+    return None
+
+def parse_dates_stri(text):
+    """
+    Parses Strinova tweet text for start and end dates/times.
+    - Assumes current year if missing.
+    - If end < start, advances end year by 1.
+    - Handles "after the update" and "offer" logic as described.
+    Returns (start, end) as strings or None if not found.
+    """
+    import re
+    from datetime import datetime, timedelta
+
+    def clean_date(s):
+        # Remove ordinal suffixes (st, nd, rd, th)
+        return re.sub(r'(\d{1,2})(st|nd|rd|th)', r'\1', s, flags=re.IGNORECASE)
+
+    def parse_date(date_str, default_time=None, default_year=None):
+        # Try to parse with dateparser, fallback to adding year if missing
+        import dateparser
+        date_str = clean_date(date_str)
+        settings = {'PREFER_DATES_FROM': 'future', 'RETURN_AS_TIMEZONE_AWARE': False}
+        dt = dateparser.parse(date_str, settings=settings)
+        if not dt and default_year:
+            # Try adding the year
+            date_str_with_year = f"{date_str} {default_year}"
+            dt = dateparser.parse(date_str_with_year, settings=settings)
+        if dt and default_time:
+            # If time is missing, set default time
+            if dt.hour == 0 and dt.minute == 0 and ':' not in date_str:
+                dt = dt.replace(hour=default_time.hour, minute=default_time.minute)
+        return dt
+
+    now = datetime.now()
+    current_year = now.year
+
+    # Offer logic
+    is_offer = "offer" in text.lower()
+
+    # Patterns to match date ranges
+    patterns = [
+        # e.g. "June 26, after the update - August 5, 6:59 AM (UTC+0)"
+        r'([A-Za-z]+\s*\d{1,2}(?:,)?(?:\s*\d{4})?)\s*(?:,?\s*after the update)?\s*[-–to]+\s*([A-Za-z]+\s*\d{1,2}(?:,)?(?:\s*\d{4})?(?:,\s*\d{2}:\d{2}(?:\s*[APMapm\.]*)?)?)',
+        # e.g. "May 22nd, after the update - June 19th, 06:59 AM (UTC+0)"
+        r'([A-Za-z]+\s*\d{1,2}(?:,)?(?:\s*\d{4})?),?\s*after the update\s*[-–to]+\s*([A-Za-z]+\s*\d{1,2}(?:,)?(?:\s*\d{4})?(?:,\s*\d{2}:\d{2}(?:\s*[APMapm\.]*)?)?)',
+        # e.g. "05/22 after the update - 06/19 12:59 AM (UTC+0)"
+        r'(\d{1,2}[/-]\d{1,2})(?:,)?\s*after the update\s*[-–to]+\s*(\d{1,2}[/-]\d{1,2}(?:\s*\d{2}:\d{2}(?:\s*[APMapm\.]*)?)?)',
+        # e.g. "April 29, 07:00 - May 27, 06:59 AM (UTC+0)"
+        r'([A-Za-z]+\s*\d{1,2}(?:,)?(?:\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*[APMapm\.]*)?)\s*[-–to]+\s*([A-Za-z]+\s*\d{1,2}(?:,)?(?:\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*[APMapm\.]*)?)',
+        # e.g. "May 15, 1:00 a.m. to June 12, 12:59 a.m. (UTC+0)"
+        r'([A-Za-z]+\s*\d{1,2}(?:,)?(?:\s*\d{4})?,?\s*\d{1,2}:\d{2}\s*[APMapm\.]*)\s*(?:-|to|–)\s*([A-Za-z]+\s*\d{1,2}(?:,)?(?:\s*\d{4})?,?\s*\d{1,2}:\d{2}\s*[APMapm\.]*)',
+        # e.g. "05/22 after the update - 06/19 12:59 AM (UTC+0)"
+        r'(\d{1,2}[/-]\d{1,2})\s*after the update\s*[-–to]+\s*(\d{1,2}[/-]\d{1,2}(?:\s*\d{2}:\d{2}(?:\s*[APMapm\.]*)?)?)',
+        # e.g. "June 19 - July 17 (UTC+0)"
+        r'([A-Za-z]+\s*\d{1,2})\s*[-–to]+\s*([A-Za-z]+\s*\d{1,2})',
+        # e.g. "05/22 - 06/19 (UTC+0)"
+        r'(\d{1,2}[/-]\d{1,2})\s*[-–to]+\s*(\d{1,2}[/-]\d{1,2})',
+    ]
+
+    # Find timezone
+    tz_match = re.search(r'\(UTC[+-]?\d+\)', text)
+    tz_str = tz_match.group(0) if tz_match else "(UTC+0)"
+
+    # Try all patterns
+    for pat in patterns:
+        match = re.search(pat, text, re.IGNORECASE)
+        if match:
+            start_raw, end_raw = match.group(1), match.group(2)
+            start_raw = clean_date(start_raw)
+            end_raw = clean_date(end_raw)
+
+            # Handle "after the update"
+            if "after the update" in text.lower() and not is_offer:
+                # Start time is 4:00 AM
+                start_time = "04:00"
+            elif is_offer:
+                # Offer: 1:00 AM start, 12:59 AM end
+                start_time = "01:00"
+                end_time = "12:59"
+            else:
+                start_time = None
+                end_time = None
+
+            # Parse start date
+            start_dt = parse_date(start_raw, default_time=datetime.strptime(start_time, "%H:%M") if start_time else None, default_year=current_year)
+            # Parse end date
+            # Try to extract time from end_raw
+            end_time_match = re.search(r'(\d{1,2}:\d{2}(?:\s*[APMapm\.]*)?)', end_raw)
+            if is_offer:
+                end_dt = parse_date(end_raw, default_time=datetime.strptime(end_time, "%H:%M"), default_year=current_year)
+            elif end_time_match:
+                end_dt = parse_date(end_raw, default_year=current_year)
+            else:
+                # If no time, use default
+                if "after the update" in text.lower() and not is_offer:
+                    end_dt = parse_date(end_raw + " 06:59", default_year=current_year)
+                elif is_offer:
+                    end_dt = parse_date(end_raw + " 12:59", default_year=current_year)
+                else:
+                    end_dt = parse_date(end_raw, default_year=current_year)
+
+            # If year is missing and end < start, increment end year
+            if start_dt and end_dt and end_dt < start_dt:
+                end_dt = end_dt.replace(year=end_dt.year + 1)
+
+            # Format output
+            def fmt(dt, time_override=None):
+                if not dt:
+                    return None
+                if time_override:
+                    dt = dt.replace(hour=time_override.hour, minute=time_override.minute)
+                return dt.strftime("%B %d, %Y, %H:%M") + f" {tz_str}"
+
+            # For offers, always use 01:00 for start, 12:59 for end
+            if is_offer:
+                start_str = fmt(start_dt, datetime.strptime("01:00", "%H:%M"))
+                end_str = fmt(end_dt, datetime.strptime("12:59", "%H:%M"))
+            elif "after the update" in text.lower():
+                start_str = fmt(start_dt, datetime.strptime("04:00", "%H:%M"))
+                # Try to preserve time for end if present, else 06:59
+                if end_time_match:
+                    end_str = fmt(end_dt)
+                else:
+                    end_str = fmt(end_dt, datetime.strptime("06:59", "%H:%M"))
+            else:
+                start_str = fmt(start_dt)
+                end_str = fmt(end_dt)
+
+            return start_str, end_str
+
+    # Fallback: try to find a single date
+    date_match = re.search(r'([A-Za-z]+\s*\d{1,2}(?:,)?(?:\s*\d{4})?)', text)
+    if date_match:
+        dt = parse_date(date_match.group(1), default_year=current_year)
+        if dt:
+            return dt.strftime("%B %d, %Y, %H:%M") + f" {tz_str}", None
+
+    return None, None
 
 # Wuthering Waves specific parsing functions
 # def parse_category_wuwa(text):
@@ -556,7 +768,9 @@ POSTER_PROFILES = {
         "parse_category": parse_category_ak
     },
     "strinova_en": {
-        # "parse_dates": parse_dates_stri  # Add if you have a custom parser
+        "parse_title": parse_title_stri,
+        "parse_dates": parse_dates_stri,
+        "parse_category": parse_category_stri
     },
     "wuthering_waves": {
         # "parse_dates": parse_dates_wuwa  # Add if you have a custom parser

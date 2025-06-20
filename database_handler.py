@@ -109,6 +109,8 @@ async def upsert_event_message(guild, channel, event_row, event_id):
         color = discord.Color.gold()
     elif category == "Maintenance":
         color = discord.Color.green()
+    elif category == "Offer":
+        color = discord.Color.fuchsia()
     elif category == "Ended":
         color = discord.Color.red()
     else:
@@ -231,7 +233,7 @@ async def update_timer_channel(guild, bot, profile="ALL"):
 
 async def get_valid_categories(server_id):
     # Built-in categories
-    categories = {"Banner", "Event", "Maintenance"}
+    categories = {"Banner", "Event", "Maintenance", "Offer"}
     # Add custom categories from DB
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
