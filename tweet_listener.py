@@ -109,6 +109,22 @@ async def tweet_listener_on_message(message):
             twitter_link = word
             break
     print(f"[DEBUG] twitter_link: {twitter_link}")
+    if not twitter_link and message.embeds:
+        for embed in message.embeds:
+            # Check embed.url
+            if hasattr(embed, "url") and embed.url and ("twitter.com" in embed.url or "x.com" in embed.url):
+                twitter_link = embed.url
+                print(f"[DEBUG] Found twitter link in embed.url: {twitter_link}")
+                break
+            # Check embed.description
+            if hasattr(embed, "description") and embed.description:
+                for word in embed.description.split():
+                    if "twitter.com" in word or "x.com" in word:
+                        twitter_link = word
+                        print(f"[DEBUG] Found twitter link in embed.description: {twitter_link}")
+                        break
+            if twitter_link:
+                break
     if not twitter_link:
         print("[DEBUG] No Twitter/X link found in message.")
         await message.add_reaction("❌")
