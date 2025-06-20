@@ -538,22 +538,7 @@ def parse_title_stri(text):
     if maint_match:
         return f"Maintenance on {maint_match.group(1)}"
 
-    # 2. Legendary Outfit/Weapon Skin Previews
-    hashtags = re.findall(r"#([A-Za-z0-9]+)", text)
-    generic_tags = {"strinova", "strinovaconquest", "boomfest"}
-    legend_tag = None
-    for tag in hashtags:
-        tag_lower = tag.lower()
-        if tag_lower not in generic_tags and not tag_lower.startswith("strinova"):
-            legend_tag = tag
-            break
-    if legend_tag:
-        title = re.sub(r'([A-Z])', r' \1', legend_tag).replace("_", " ").strip()
-        title = re.sub(r'([0-9])', r' \1', title)
-        title = " ".join(word.capitalize() for word in title.split())
-        return title
-
-    # Try to find "Get ready for ... - Title!" or "<Title> is coming soon!"
+    # 2. Try to find "Get ready for ... - Title!" or "<Title> is coming soon!"
     ready_match = re.search(r"Get ready for [^\n-]+-\s*([^\n!]+)", text, re.IGNORECASE)
     if ready_match:
         return ready_match.group(1).strip("! ").title()
@@ -561,25 +546,38 @@ def parse_title_stri(text):
     if coming_match:
         return coming_match.group(1).strip("! ").title()
 
-    # 3. Event Previews and Offers
+    # 3. Legendary Outfit/Weapon Skin Previews (longest non-generic hashtag)
+    hashtags = re.findall(r"#([A-Za-z0-9]+)", text)
+    generic_tags = {"strinova", "strinovaconquest", "boomfest"}
+    non_generic_hashtags = [tag for tag in hashtags if tag.lower() not in generic_tags and not tag.lower().startswith("strinova")]
+    if non_generic_hashtags:
+        legend_tag = max(non_generic_hashtags, key=len)
+        # Robustly split and capitalize
+        title = legend_tag.replace("_", " ")
+        if title.islower() or title.isupper():
+            title = title.title()
+        else:
+            title = re.sub(r'([A-Z])', r' \1', title).strip()
+            title = " ".join(word.capitalize() for word in title.split())
+        return title
+
+    # 4. Event Previews and Offers
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if lines:
         first_line = lines[0]
-        # Remove known prefixes (make the regex more robust)
         first_line = re.sub(
             r"^(Event Preview\s*\|\s*|Limited Time Offer Preview\s*\|\s*|Availability:|[✨]*[A-Za-z]+ Legendary Outfit and Weapon Skin \| Preview[✨🔥]*|Event Preview\s*\|)",
             "", first_line, flags=re.IGNORECASE
         ).strip(" |")
-        if first_line:  # Only return if not empty after stripping
+        if first_line:
             return first_line
 
-    # 4. Fallback: Use first non-generic hashtag
-    for tag in hashtags:
-        tag_lower = tag.lower()
-        if tag_lower not in generic_tags:
-            return tag.replace("_", " ").title()
+    # 5. Fallback: Use longest non-generic hashtag
+    if non_generic_hashtags:
+        legend_tag = max(non_generic_hashtags, key=len)
+        return legend_tag.replace("_", " ").title()
 
-    # 5. Fallback: Use first non-empty line
+    # 6. Fallback: Use first non-empty line
     for line in lines:
         if line:
             return line
