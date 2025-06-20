@@ -531,10 +531,6 @@ async def parse_dates_ak(ctx, text):
 
 # Strinova specific parsing functions
 def parse_title_stri(text):
-    """
-    Extracts the event title from a Strinova tweet.
-    Handles legendary outfit/skin, maintenance, and event previews.
-    """
     import re
 
     # 1. Maintenance
@@ -543,7 +539,6 @@ def parse_title_stri(text):
         return f"Maintenance on {maint_match.group(1)}"
 
     # 2. Legendary Outfit/Weapon Skin Previews
-    # Try to find a hashtag that isn't #Strinova or generic
     hashtags = re.findall(r"#([A-Za-z0-9]+)", text)
     generic_tags = {"strinova", "strinovaconquest", "boomfest"}
     legend_tag = None
@@ -553,7 +548,6 @@ def parse_title_stri(text):
             legend_tag = tag
             break
     if legend_tag:
-        # Insert spaces before capital letters/numbers, capitalize words
         title = re.sub(r'([A-Z])', r' \1', legend_tag).replace("_", " ").strip()
         title = re.sub(r'([0-9])', r' \1', title)
         title = " ".join(word.capitalize() for word in title.split())
@@ -568,19 +562,18 @@ def parse_title_stri(text):
         return coming_match.group(1).strip("! ").title()
 
     # 3. Event Previews and Offers
-    # Use the first line, remove known prefixes
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if lines:
         first_line = lines[0]
-        # Remove known prefixes
+        # Remove known prefixes (make the regex more robust)
         first_line = re.sub(
-            r"^(Event Preview\s*\|\s*|Limited Time Offer Preview\s*\|\s*|Availability:|[✨]*Kanami Legendary Outfit and Weapon Skin \| Preview[✨]*|[A-Za-z]+ Legendary Outfit and Weapon Skin \| Preview[🔥]*|Event Preview\s*\|)", 
+            r"^(Event Preview\s*\|\s*|Limited Time Offer Preview\s*\|\s*|Availability:|[✨]*[A-Za-z]+ Legendary Outfit and Weapon Skin \| Preview[✨🔥]*|Event Preview\s*\|)",
             "", first_line, flags=re.IGNORECASE
         ).strip(" |")
-        if first_line:
+        if first_line:  # Only return if not empty after stripping
             return first_line
 
-    # 4. Fallback: Use first non-empty hashtag (not generic)
+    # 4. Fallback: Use first non-generic hashtag
     for tag in hashtags:
         tag_lower = tag.lower()
         if tag_lower not in generic_tags:
