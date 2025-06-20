@@ -29,7 +29,7 @@ PROFILE_KEYWORDS = {
         "ignored": [
             "trailer", "animation", "pv", "collection", "ep", "artwork", "compensation",
             "has ended", "issue", "artist", "hd", "mechanisms", "enemies", "introduction",
-            "details", "emoji", "prize", "good luck", "new operators"
+            "details", "emoji", "prize", "good luck", "new operators", "winner", "winners"
         ]
     },
     "STRI": {
