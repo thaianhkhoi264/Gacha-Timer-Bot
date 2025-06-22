@@ -3,7 +3,6 @@ from discord import app_commands
 from discord.ext import commands
 from modules import *
 from bot import bot
-from notification_handler import schedule_notifications_for_event
 import asyncio
 
 # Initialize the database
@@ -292,6 +291,7 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
     """
     import sqlite3
     import asyncio
+    from notification_handler import schedule_notifications_for_event
 
     def parse_time(val, tz):
         try:
