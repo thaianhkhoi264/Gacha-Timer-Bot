@@ -211,15 +211,7 @@ async def send_notification(event, timing_type):
     HYV_PROFILES = {"HSR", "ZZZ"}
     profile = event['profile'].upper()
     if profile in HYV_PROFILES:
-        # Fetch the region for this notification
-        # Defensive: Try to get the correct notify_unix for this notification
-        notify_unix = event['start_date'] if timing_type == "start" else event['end_date']
-        c.execute(
-            "SELECT region FROM pending_notifications WHERE server_id=? AND category=? AND profile=? AND title=? AND timing_type=? AND event_time_unix=?",
-            (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix)
-        )
-        region_row = c.fetchone()
-        region = region_row[0] if region_row and region_row[0] else None
+        region = event.get('region')
         if not region:
             send_log(event['server_id'], f"No region found for notification: {event['title']}")
             conn.close()
@@ -234,6 +226,17 @@ async def send_notification(event, timing_type):
             send_log(event['server_id'], f"No combined role found for {profile} {region}")
             conn.close()
             return
+
+        unix_time = event['start_date'] if timing_type == "start" else event['end_date']
+        time_str = "starting" if timing_type == "start" else "ending"
+        try:
+            await channel.send(
+                f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
+            )
+            send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
+        except Exception as e:
+            send_log(event['server_id'], f"Failed to send notification for {profile} {region}: {e}")
+        conn.close()
 
         # Pick the correct event time for this region
         unix_time = None
@@ -1017,3 +1020,27 @@ async def refresh_pending_notifications(ctx):
         await update_timer_channel(ctx.guild, bot, profile=profile)
 
     await ctx.send(f"Cleared all pending notifications and recreated {recreated} from current events.")
+
+
+@bot.command()
+@commands.has_permissions(manage_guild=True)
+async def remove_custom_category(ctx, *, category: str):
+    """
+    Removes a custom event category for this server.
+    Usage: Kanami remove_custom_category <category name>
+    """
+    server_id = str(ctx.guild.id)
+    category = category.strip()
+    if not category:
+        await ctx.send("Please provide a category name.")
+        return
+
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    # Remove from custom_categories
+    c.execute("DELETE FROM custom_categories WHERE server_id=? AND category=?", (server_id, category))
+    # Optionally, also remove notification timings for this category
+    c.execute("DELETE FROM notification_timings WHERE server_id=? AND category=?", (server_id, category))
+    conn.commit()
+    conn.close()
+    await ctx.send(f"Custom category `{category}` removed for this server (and any associated notification timings).")
