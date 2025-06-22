@@ -1,7 +1,5 @@
 from modules import *
 from bot import bot
-from database_handler import update_timer_channel
-from notification_handler import schedule_notifications_for_event
 from datetime import datetime, timedelta, timezone
 
 import asyncio
@@ -1084,6 +1082,9 @@ async def read(ctx, link: str):
     Reads a tweet from a Twitter/X link, parses category and dates using POSTER_PROFILES,
     prompts for missing info, and stores the event in the database.
     """
+    from database_handler import update_timer_channel
+    from notification_handler import schedule_notifications_for_event
+
     await ctx.send("Reading tweet, please wait...")
     link = normalize_twitter_link(link)
     tweet_text, tweet_image, username = await fetch_tweet_content(link)
