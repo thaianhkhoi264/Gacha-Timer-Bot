@@ -1030,27 +1030,3 @@ async def refresh_pending_notifications(ctx):
         await update_timer_channel(ctx.guild, bot, profile=profile)
 
     await ctx.send(f"Cleared all pending notifications and recreated {recreated} from current events.")
-
-
-@bot.command()
-@commands.has_permissions(manage_guild=True)
-async def remove_custom_category(ctx, *, category: str):
-    """
-    Removes a custom event category for this server.
-    Usage: Kanami remove_custom_category <category name>
-    """
-    server_id = str(ctx.guild.id)
-    category = category.strip()
-    if not category:
-        await ctx.send("Please provide a category name.")
-        return
-
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    # Remove from custom_categories
-    c.execute("DELETE FROM custom_categories WHERE server_id=? AND category=?", (server_id, category))
-    # Optionally, also remove notification timings for this category
-    c.execute("DELETE FROM notification_timings WHERE server_id=? AND category=?", (server_id, category))
-    conn.commit()
-    conn.close()
-    await ctx.send(f"Custom category `{category}` removed for this server (and any associated notification timings).")
