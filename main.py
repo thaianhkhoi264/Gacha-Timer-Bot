@@ -1,8 +1,6 @@
-from modules import *
 from twitter_handler import *
 from database_handler import *
 from utilities import *
-from bot import *
 from notification_handler import *
 from discord.ui import View, Select
 from discord import app_commands
