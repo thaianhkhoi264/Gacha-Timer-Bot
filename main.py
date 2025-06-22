@@ -1,12 +1,16 @@
-from twitter_handler import *
-from database_handler import *
-from utilities import *
-from notification_handler import *
+import twitter_handler
+import database_handler
+import utilities
+import notification_handler
+from bot import bot, bot_version, token, handler, logging
+from database_handler import init_db
 from discord.ui import View, Select
 from discord import app_commands
+from discord.ext import commands
 from tweet_listener import tweet_listener_on_message
-from bot import *
 
+import sqlite3
+import discord
 import signal
 import asyncio
 
@@ -253,7 +257,7 @@ async def set_channel_slash(interaction: discord.Interaction):
 # Notification loop function to load and schedule pending notifications
 async def notification_loop():
     while True:
-        await load_and_schedule_pending_notifications(bot)
+        await notification_handler.load_and_schedule_pending_notifications(bot)
         await asyncio.sleep(30)  # Check every 30 seconds
 
 @bot.event
@@ -293,7 +297,7 @@ async def on_ready():
         if not profiles:
             continue  # No timer channels set for this server
         for profile in profiles:
-            await update_timer_channel(guild, bot, profile=profile)
+            await notification_handler.update_timer_channel(guild, bot, profile=profile)
     # load and schedule pending notifications
     bot.loop.create_task(notification_loop())
 
@@ -420,7 +424,7 @@ async def convert(ctx, time: str, date: str = None):
         if date is None:
             date = datetime.now().strftime("%Y-%m-%d")
         
-        unix_timestamp = convert_to_unix(date, time)
+        unix_timestamp = utilities.convert_to_unix(date, time)
         await ctx.send(f"The Unix timestamp for {date} {time} is: `{unix_timestamp}`")
         await ctx.send(f"Which is <t:{unix_timestamp}:F> your time or <t:{unix_timestamp}:R>")
     except ValueError:
@@ -435,7 +439,7 @@ async def converttz(ctx, time: str, date: str = None, timezone_str: str = "UTC")
     try:
         if date is None:
             date = datetime.now().strftime("%Y-%m-%d")
-        unix_timestamp = convert_to_unix_tz(date, time, timezone_str)
+        unix_timestamp = utilities.convert_to_unix_tz(date, time, timezone_str)
         await ctx.send(
             f"The Unix timestamp for {date} {time} in `{timezone_str}` is: `{unix_timestamp}`"
         )
@@ -463,7 +467,7 @@ async def update(ctx):
         return
     # Update each profile's timer channel
     for profile in profiles:
-        await update_timer_channel(ctx.guild, bot, profile=profile)
+        await notification_handler.update_timer_channel(ctx.guild, bot, profile=profile)
     await ctx.send(f"Timer channels updated for profiles: {', '.join(profiles)}.")
 
 @bot.command()
