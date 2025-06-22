@@ -1,7 +1,6 @@
 from modules import *
-from bot import *
-from twitter_handler import *
-from utilities import send_log
+from bot import bot
+
 from collections import deque
 
 import sqlite3
@@ -60,6 +59,17 @@ def format_minutes(minutes):
     if minutes:
         parts.append(f"{minutes}m")
     return " ".join(parts) if parts else "0m"
+
+# Function to log messages to both console and a file
+def send_log(server_id, message):
+    """Logs a message to both the console and the discord.log file, including the server ID."""
+    log_entry = f"[Server {server_id}] {message}"
+    print(log_entry)
+    try:
+        with open("discord.log", "a", encoding="utf-8") as f:
+            f.write(log_entry + "\n")
+    except Exception as e:
+        print(f"Failed to write to log file: {e}")
 
 # Function to update the notification timing message in the specified channel
 async def update_notification_timing_message(guild):

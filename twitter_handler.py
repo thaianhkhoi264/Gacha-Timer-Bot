@@ -1,5 +1,5 @@
 from modules import *
-from bot import *
+from bot import bot
 from database_handler import update_timer_channel
 from notification_handler import schedule_notifications_for_event
 from datetime import datetime, timedelta, timezone

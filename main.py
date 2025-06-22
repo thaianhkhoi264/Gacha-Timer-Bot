@@ -5,6 +5,7 @@ from notification_handler import *
 from discord.ui import View, Select
 from discord import app_commands
 from tweet_listener import tweet_listener_on_message
+from bot import *
 
 import signal
 import asyncio
