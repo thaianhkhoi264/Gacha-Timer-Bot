@@ -241,39 +241,22 @@ def get_version_start_zzz(version_str):
 def parse_title_zzz(text):
     """
     Extracts the event title from a Zenless Zone Zero tweet.
-    Skips lines that are just the game name, @username, or hashtags.
+    Skips the first 2 non-empty lines (account name and version header),
+    then applies the original fallback/title logic.
     """
-    import re
-    skip_patterns = [
-        r"^Zenless Zone Zero$",
-        r"^@ZZZ_EN$",
-        r"^#ZZZ$"
-    ]
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    event_lines = []
-    for line in lines:
-        if any(re.match(pat, line, re.IGNORECASE) for pat in skip_patterns):
-            continue
-        event_lines.append(line)
+    # Skip the first 2 non-empty lines
+    event_lines = lines[2:] if len(lines) > 2 else lines
+
     if not event_lines:
         return lines[0] if lines else None
 
     first_line = event_lines[0]
 
-    # If quoted, strip quotes
-    if first_line.startswith('"') and '"' in first_line[1:]:
-        first_line = first_line.strip('"')
-        first_line = re.sub(r'\s*(Event Details|Signal Search Details)$', '', first_line, flags=re.IGNORECASE)
-        return first_line.strip()
-
-    match = re.match(r'(.+?)\s*(Event Details|Signal Search Details)$', first_line, re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-
-    if re.match(r"V\d+\.\d+.*", first_line):
-        return first_line
-
-    return first_line
+    # Remove trailing "Event Details" or similar
+    import re
+    first_line = re.sub(r'\s*(Event Details|Signal Search Details)$', '', first_line, flags=re.IGNORECASE)
+    return first_line.strip()
 
 def parse_category_zzz(text):
     """
@@ -1020,11 +1003,19 @@ async def fetch_tweet_content(url: str):
             await page.goto(url, timeout=20000)
             await page.wait_for_selector("article", timeout=10000)
             tweet_text = await page.locator("article").inner_text()
-            # Get the first image
+            # Get all images, filter out emoji/profile images
             images = await page.locator("article img").all()
             for img in images:
                 src = await img.get_attribute("src")
-                if src and "profile_images" not in src and "emoji" not in src:
+                # Filter: skip emoji, profile, SVG, and very small images
+                if (
+                    src
+                    and "profile_images" not in src
+                    and "emoji" not in src
+                    and not src.endswith(".svg")
+                    and not re.search(r'/emoji/', src)
+                    and not re.search(r'/ext_tw_emoji/', src)
+                ):
                     image_url = src
                     break
             # Get the poster's username (usually in the first <a> with href="/username")
