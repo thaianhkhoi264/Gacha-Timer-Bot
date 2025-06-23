@@ -353,6 +353,16 @@ def parse_dates_zzz(text):
         end = match.group(1).strip()
         return None, end
 
+    # 3.5. In case there isn't the [Event Duration] or [Update Start Time] text
+    match = re.search(
+        r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2})\s*[–-]\s*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})',
+        text
+    )
+    if match:
+        start = match.group(1).strip()
+        end = match.group(2).strip()
+        return start, end
+
     # 4. Fallback: find any date-like substrings
     date_candidates = re.findall(
         r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2}(?:\s*\([^)]+\))?)', text)
