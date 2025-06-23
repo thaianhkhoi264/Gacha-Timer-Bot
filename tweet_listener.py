@@ -8,7 +8,7 @@ PROFILE_KEYWORDS = {
         "ignored": [
             "special program", "trailer", "winner announcement", "strategy guide",
             "developer radio", "gallery", "manuscript", "radio", "novaflare", "outfit", "pack", "packs",
-            "outfits", "adjustments", "improvements"
+            "outfits", "adjustments", "improvements", "ep"
         ]
     },
     "ZZZ": {
@@ -18,7 +18,7 @@ PROFILE_KEYWORDS = {
         "ignored": [
             "trailer", "teaser", "demo", "collab", "birthday", "prize", "winner", "strategy",
             "behind-the-scenes", "mechanics intro", "agent record", "cutscene", "news", "discord",
-            "check-in", "twitch", "store", "an outstanding partner", "for display only",
+            "check-in", "twitch", "store", "an outstanding partner", "for display only", "ep",
             "collaboration", "renovation talk", "benefits express", "overview", "hoyolab",
             "pop-up", "pop up", "offline", "cosplayer", "cosplayers", "fanart", "fanarts"
         ]
