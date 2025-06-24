@@ -282,6 +282,7 @@ def parse_dates_zzz(text):
     Returns (start, end) as strings if found, otherwise None for missing.
     """
     import dateparser
+    import re
 
     # Maintenance case: [Update Start Time] <datetime> (timezone), "It will take about five hours to complete."
     match = re.search(
@@ -311,6 +312,17 @@ def parse_dates_zzz(text):
         else:
             start_str = None
         return start_str, end_str
+    
+    # 0. Look for a date range anywhere in the text (YYYY/MM/DD HH:MM – YYYY/MM/DD HH:MM)
+    match = re.search(
+        r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2})\s*[–-]\s*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})',
+        text
+    )
+    if match:
+        start = match.group(1).strip()
+        end = match.group(2).strip()
+        return start, end
+
     # 1. [Event Duration] ... – ... (range)
     match = re.search(
         r'\[Event Duration\][^\d]*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})[^\d–-]*[–-][^\d]*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})',
