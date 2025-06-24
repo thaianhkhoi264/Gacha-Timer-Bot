@@ -8,7 +8,8 @@ PROFILE_KEYWORDS = {
         "ignored": [
             "special program", "trailer", "winner announcement", "strategy guide",
             "developer radio", "gallery", "manuscript", "radio", "novaflare", "outfit", "pack", "packs",
-            "outfits", "adjustments", "improvements", "ep"
+            "outfits", "adjustments", "improvements", "ep", "trailblaze mission", "trailblaze missions",
+            "hoyo fest", "hoyofest", "sales", "sale"
         ]
     },
     "ZZZ": {
