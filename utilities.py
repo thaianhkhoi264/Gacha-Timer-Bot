@@ -1,6 +1,9 @@
 from modules import *
 from bot import bot, bot_version
 
+import aiohttp
+from discord.ext import commands
+
 import logging
 from datetime import datetime, timezone
 
@@ -159,3 +162,29 @@ async def purge(ctx, amount: int = 50):
             await ctx.message.delete()
         except Exception:
             pass
+
+@bot.command()
+async def restart(ctx):
+    """Calls the Cloud Run endpoint to restart the VM (and the bot)."""
+    await ctx.send("Requesting VM restart...")
+
+    OWNER_ID = 680653908259110914
+    if ctx.author.id != OWNER_ID:
+        await ctx.send("You don't get to use this command!")
+        return
+
+    url = "https://reboot-vm-218886309090.us-central1.run.app"
+    headers = {
+        # If your Cloud Run endpoint requires an API key or auth, add it here
+        # "Authorization": "Bearer YOUR_TOKEN"
+    }
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(url, headers=headers) as resp:
+                if resp.status == 200:
+                    await ctx.send("VM restart requested! Kanami will go offline and auto-restart soon.")
+                else:
+                    await ctx.send(f"Kanami failed to request restart. Status: {resp.status}")
+        except Exception as e:
+            await ctx.send(f"Error contacting Cloud Run: {e}")
