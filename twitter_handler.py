@@ -315,7 +315,7 @@ def parse_dates_zzz(text):
     
     # 0. Look for a date range anywhere in the text (YYYY/MM/DD HH:MM – YYYY/MM/DD HH:MM)
     match = re.search(
-        r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2})\s*[–-]\s*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})',
+        r'(\d{4}/\d{2}/\d{2} \d{2}:\d{2})(?:\s*\([^)]+\))?\s*[–-]\s*(\d{4}/\d{2}/\d{2} \d{2}:\d{2})(?:\s*\([^)]+\))?',
         text
     )
     if match:
