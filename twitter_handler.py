@@ -89,6 +89,62 @@ def update_version_tracker(profile, version_str, start_date):
     conn.commit()
     conn.close()
 
+# General date parsing function
+def parse_dates(text):
+    # Find all date-like substrings (very broad)
+    date_patterns = [
+        r'\d{4}/\d{2}/\d{2} \d{2}:\d{2}(?:\s*\([^)]+\))?',  # 2025/06/18 04:00 (UTC+8)
+        r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?:\s*\([^)]+\))?',  # 2025-06-18 04:00 (UTC+8)
+        r'[A-Za-z]+\s+\d{1,2},?\s*\d{4},?\s*\d{1,2}:\d{2}(?:\s*[APMapm\.]*)?(?:\s*\([^)]+\))?',  # June 18, 2025, 04:00 AM (UTC+8)
+        r'[A-Za-z]+\s+\d{1,2},?\s*\d{1,2}:\d{2}(?:\s*[APMapm\.]*)?(?:\s*\([^)]+\))?',  # June 18, 04:00 AM (UTC+8)
+        r'\d{1,2}/\d{1,2}/\d{4} \d{2}:\d{2}(?:\s*\([^)]+\))?',  # 06/18/2025 04:00
+        r'\d{1,2}-\d{1,2}-\d{4} \d{2}:\d{2}(?:\s*\([^)]+\))?',  # 06-18-2025 04:00
+    ]
+    matches = []
+    for pat in date_patterns:
+        matches += re.findall(pat, text)
+    # Remove duplicates, preserve order
+    seen = set()
+    dates = []
+    for d in matches:
+        if d not in seen:
+            seen.add(d)
+            dates.append(d)
+    # Try to parse and keep timezone info
+    parsed = []
+    for d in dates:
+        dt = dateparser.parse(d, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+        if dt:
+            parsed.append((d, dt))
+    # If less than 2, try to find more with dateparser search
+    if len(parsed) < 2:
+        # Try to find any date with dateparser search
+        for result in dateparser.search.search_dates(text, settings={'RETURN_AS_TIMEZONE_AWARE': True}) or []:
+            d, dt = result
+            if dt and (d, dt) not in parsed:
+                parsed.append((d, dt))
+    # Missing Year
+    if len(parsed) >= 2:
+        dt1, dt2 = parsed[0][1], parsed[1][1]
+        # If either date is missing a year, assume current year
+        now = datetime.now(dt1.tzinfo)
+        if dt1.year == 1900:
+            dt1 = dt1.replace(year=now.year)
+        if dt2.year == 1900:
+            dt2 = dt2.replace(year=now.year)
+        # If start is December and end is January, increment end year
+        if dt1.month == 12 and dt2.month == 1 and dt2.year == dt1.year:
+            dt2 = dt2.replace(year=dt1.year + 1)
+        return int(dt1.timestamp()), int(dt2.timestamp())
+    elif len(parsed) == 1:
+        dt1 = parsed[0][1]
+        now = datetime.now(dt1.tzinfo)
+        if dt1.year == 1900:
+            dt1 = dt1.replace(year=now.year)
+        return int(dt1.timestamp()), None
+    else:
+        return None, None
+
 # Honkai: Star Rail specific parsing functions
 def get_version_start_hsr(version_str):
     # Default base: 3.3, 2025/05/21 11:00 (UTC+8)
@@ -1135,7 +1191,6 @@ async def read(ctx, link: str):
             else:
                 start, end = parse_date_fn(tweet_text)
     else:
-        # Fallback: prompt for category and use generic date parser
         pass
 
     # --- Autofill for missing info ---
@@ -1148,8 +1203,11 @@ async def read(ctx, link: str):
     image = tweet_image if tweet_image else None
 
     # --- Parse dates if not already parsed ---
-    if not (start and end):
-        start, end = parse_dates_from_text(tweet_text)
+    if not (start or end):
+        start, end = parse_dates(tweet_text)
+        if not (start and end):
+            # If still no dates, try to parse from text
+            start, end = parse_dates_from_text(tweet_text)
 
     # --- Autofill for missing dates ---
     if not start:
