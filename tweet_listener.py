@@ -45,7 +45,7 @@ PROFILE_KEYWORDS = {
             "meme", "hotfix", "patch notes", "cd-key", "cdk code", "reward", "prizes", "congratulations",
             "thank you", "launch", "official website", "comic", "episode", "record your", "share your",
             "show us", "capture", "artist", "artwork", "template", "entry", "entries", "dm",
-            "winner announcement", "strategy", "gameplay", "join the", "join us", "premiering",
+            "winner announcement", "strategy", "join the", "join us", "premiering",
             "premiere", "premieres", "premiered", "now available", "maintenance complete", "retweet",
             "rt", "like this post", "how to enter", "to enter", "first look", "new agent",
             "agent preview", "agent reveal", "new team arena", "new map", "map preview", "over",
