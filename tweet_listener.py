@@ -46,10 +46,10 @@ PROFILE_KEYWORDS = {
             "thank you", "launch", "official website", "comic", "episode", "record your", "share your",
             "show us", "capture", "artist", "artwork", "template", "entry", "entries", "dm",
             "winner announcement", "strategy", "join the", "join us", "premiering",
-            "premiere", "premieres", "premiered", "now available", "maintenance complete", "retweet",
-            "rt", "like this post", "how to enter", "to enter", "first look", "new agent",
-            "agent preview", "agent reveal", "new team arena", "new map", "map preview", "over",
-            "sword clash", "four-panel comics", "panel comic", "panel comics", "panel episode", "panel episodes"
+            "premiere", "premieres", "premiered", "maintenance complete", "retweet",
+            "rt", "like this post", "how to enter", "to enter", "first look",
+            "agent preview", "agent reveal", "map preview", 
+            "four-panel comics", "panel comic", "panel comics", "panel episode", "panel episodes"
         ]
     },
     "WUWA": {
@@ -156,11 +156,14 @@ async def tweet_listener_on_message(message):
         return True
 
     # Ignore if any ignored keyword is present (word-boundary match)
+    ignored_found = []
     for kw in ignored_keywords:
         if re.search(rf'\b{re.escape(kw.lower())}\b', tweet_text.lower()):
-            print(f"[DEBUG] Ignored keyword matched: {kw}")
-            await message.add_reaction("❌")
-            return True
+            ignored_found.append(kw)
+    if ignored_found:
+        print(f"[DEBUG] Ignored keywords found: {ignored_found}")
+        await message.add_reaction("❌")
+        return True
 
     # Flatten text for keyword check
     flat_text = tweet_text.replace("\n", " ").replace("\r", " ").lower()
