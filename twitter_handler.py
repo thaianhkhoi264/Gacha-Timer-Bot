@@ -552,6 +552,19 @@ async def parse_dates_ak(ctx, text):
         start = f"{date}, {start_time} ({tz})"
         end = f"{date}, {end_time} ({tz})"
         return start, end
+    
+    # 2.5. Lax date-time range
+    match = re.search(
+    r'([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{1,2}:\d{2})\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{1,2}:\d{2})(?:\s*\((UTC[+-]\d+)\))?',
+    text, re.IGNORECASE)
+    if match:
+        start = ensure_year(match.group(1).strip())
+        end = ensure_year(match.group(2).strip())
+        tz = match.group(3)
+        if tz:
+            start += f" ({tz})"
+            end += f" ({tz})"
+        return start, end
 
     # 3. Fallback: single date/time with UTC or missing year
     match = re.search(
