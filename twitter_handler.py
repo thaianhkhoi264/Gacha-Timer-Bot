@@ -1103,7 +1103,8 @@ async def fetch_tweet_content(url: str):
             user_link = await page.locator("article a[href^='/']").first.get_attribute("href")
             if user_link:
                 username = user_link.strip("/").lower()
-        except Exception:
+        except Exception as e:
+            print(f"[DEBUG] Exception in fetch_tweet_content: {e}")
             pass
         await browser.close()
     return tweet_text, image_url, username
