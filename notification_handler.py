@@ -304,6 +304,11 @@ async def load_and_schedule_pending_notifications(bot):
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+
+    # Mark all expired, unsent notifications as sent
+    c.execute("UPDATE pending_notifications SET sent=1 WHERE sent=0 AND notify_unix <= ?", (now,))
+    conn.commit()
+
     # Only schedule notifications that are not sent and are in the future
     c.execute("SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix FROM pending_notifications WHERE sent=0 AND notify_unix > ?", (now,))
     rows = c.fetchall()
