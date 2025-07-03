@@ -199,6 +199,7 @@ async def schedule_notifications_for_event(event):
     guild = bot.get_guild(int(event['server_id']))
     await update_pending_notifications_embed_for_profile(guild, event['profile'])
 
+
 async def send_notification(event, timing_type):
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
@@ -300,38 +301,24 @@ async def send_notification(event, timing_type):
     conn.close()
 
 async def load_and_schedule_pending_notifications(bot):
-    global _last_log_time
+    """
+    Batch notification loop: checks for due notifications and sends them immediately.
+    Should be called in a background loop every 30-60 seconds.
+    """
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
 
-    # Mark all expired, unsent notifications as sent
-    c.execute("UPDATE pending_notifications SET sent=1 WHERE sent=0 AND notify_unix <= ?", (now,))
-    conn.commit()
-
-    # Only schedule notifications that are not sent and are in the future
-    c.execute("SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix FROM pending_notifications WHERE sent=0 AND notify_unix > ?", (now,))
+    # Get all notifications due in the past or next 60 seconds, and not sent
+    c.execute("""
+        SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, region
+        FROM pending_notifications
+        WHERE sent=0 AND notify_unix <= ?
+    """, (now + 60,))
     rows = c.fetchall()
-    conn.close()
-
-    # Log only every 15 minutes
-    if time.time() - _last_log_time > 900:
-        now = int(time.time())
-        for row in rows:
-            notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix = row
-            seconds_until = notify_unix - now
-            send_log(
-                server_id,
-                f"Pending notification: `{title}` ({category}/{profile}) in {seconds_until} seconds (timing_type: {timing_type})"
-            )
-        _last_log_time = time.time()
 
     for row in rows:
-        notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix = row
-        delay = notify_unix - now
-        # Defensive: Don't schedule if delay is negative (shouldn't happen, but just in case)
-        if delay < 0:
-            continue
+        notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, region = row
         event = {
             'server_id': server_id,
             'category': category,
@@ -339,11 +326,17 @@ async def load_and_schedule_pending_notifications(bot):
             'title': title,
             'start_date': event_time_unix if timing_type == "start" else None,
             'end_date': event_time_unix if timing_type == "end" else None,
-            'timing_minutes': abs((notify_unix - event_time_unix) // 60)
+            'region': region
         }
-        asyncio.create_task(send_persistent_notification(bot, notif_id, event, timing_type, delay))
+        # Mark as sent
+        c.execute("UPDATE pending_notifications SET sent=1 WHERE id=?", (notif_id,))
+        # Send notification
+        await send_notification(event, timing_type)
 
-async def send_persistent_notification(bot, notif_id, event, timing_type, delay):
+    conn.commit()
+    conn.close()
+
+"""async def send_persistent_notification(bot, notif_id, event, timing_type, delay):
     # Defensive: Don't sleep negative time
     if delay > 0:
         await asyncio.sleep(delay)
@@ -380,7 +373,7 @@ async def send_persistent_notification(bot, notif_id, event, timing_type, delay)
     await send_notification(event, timing_type)
     send_log(event['server_id'], f"Marked notification as sent for event: {event['title']}")
     guild = bot.get_guild(int(event['server_id']))
-    await update_pending_notifications_embed_for_profile(guild, event['profile'])
+    await update_pending_notifications_embed_for_profile(guild, event['profile'])"""
 
 async def update_all_pending_notifications_embeds(guild):
     """Update all game embeds in the pending notifications channel."""
