@@ -437,20 +437,31 @@ async def converttz(ctx, time: str, date: str = None, timezone_str: str = "UTC")
     Supports IANA tz names (e.g., 'Asia/Tokyo') and offsets like 'UTC-8', 'GMT+5', etc.
     """
     try:
+        debug_msgs = []
         if date is None:
             date = datetime.now().strftime("%Y-%m-%d")
+            debug_msgs.append(f"[DEBUG] No date provided, using today's date: {date}")
+        debug_msgs.append(f"[DEBUG] Input: date={date}, time={time}, timezone_str={timezone_str}")
         unix_timestamp = utilities.convert_to_unix_tz(date, time, timezone_str)
+        debug_msgs.append(f"[DEBUG] Calculated unix_timestamp: {unix_timestamp}")
         await ctx.send(
             f"The Unix timestamp for {date} {time} in `{timezone_str}` is: `{unix_timestamp}`"
         )
         await ctx.send(
             f"Which is <t:{unix_timestamp}:F> your time or <t:{unix_timestamp}:R>"
         )
+        for msg in debug_msgs:
+            await ctx.send(msg)
     except ValueError as e:
         await ctx.send(
             str(e) if "Unknown timezone" in str(e) else
             "Invalid date or time format. Please use `YYYY-MM-DD` for the date and `HH:MM` (24-hour) for the time."
-        )       
+        )
+        await ctx.send(f"[DEBUG] ValueError: {e}")
+    except Exception as e:
+        await ctx.send(f"An unexpected error occurred: {e}")
+        await ctx.send(f"[DEBUG] converttz error: {e}")
+        print(f"[DEBUG] converttz error: {e}")
 
 
 @bot.command() # "update" command to manually update all timer channels for all profiles
