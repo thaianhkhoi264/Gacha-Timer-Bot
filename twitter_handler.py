@@ -1168,16 +1168,24 @@ async def read(ctx, link: str):
     from database_handler import update_timer_channel
     from notification_handler import schedule_notifications_for_event
 
+    print("[DEBUG] read: Starting command")
     await ctx.send("Reading tweet, please wait...")
+
     link = normalize_twitter_link(link)
+    print(f"[DEBUG] read: Normalized link: {link}")
+
     tweet_text, tweet_image, username = await fetch_tweet_content(link)
+    print(f"[DEBUG] read: tweet_text={repr(tweet_text)[:200]}, tweet_image={tweet_image}, username={username}")
+
     if not tweet_text:
         await ctx.send("Could not read the tweet. Please check the link or try again later.")
+        print("[DEBUG] read: No tweet text found, aborting.")
         return
 
-    # Normalize profile and get poster logic
     event_profile = normalize_profile(username) if username else "ALL"
+    print(f"[DEBUG] read: event_profile={event_profile}")
     profile_parser = POSTER_PROFILES.get(username.lower() if username else "")
+    print(f"[DEBUG] read: profile_parser keys={list(profile_parser.keys()) if profile_parser else None}")
 
     # --- Parse category and dates using poster profile logic ---
     title = None
@@ -1188,76 +1196,92 @@ async def read(ctx, link: str):
     if profile_parser:
         if "parse_title" in profile_parser:
             parse_title_fn = profile_parser["parse_title"]
+            print("[DEBUG] read: Parsing title...")
             if inspect.iscoroutinefunction(parse_title_fn):
                 title = await parse_title_fn(tweet_text)
             else:
                 title = parse_title_fn(tweet_text)
+            print(f"[DEBUG] read: Parsed title: {title}")
         if "parse_category" in profile_parser:
             parse_category_fn = profile_parser["parse_category"]
+            print("[DEBUG] read: Parsing category...")
             if inspect.iscoroutinefunction(parse_category_fn):
                 category = await parse_category_fn(tweet_text)
             else:
                 category = parse_category_fn(tweet_text)
+            print(f"[DEBUG] read: Parsed category: {category}")
         if "parse_dates" in profile_parser:
             parse_date_fn = profile_parser["parse_dates"]
+            print("[DEBUG] read: Parsing dates...")
             if inspect.iscoroutinefunction(parse_date_fn):
                 start, end = await parse_date_fn(ctx, tweet_text)
             else:
                 start, end = parse_date_fn(tweet_text)
+            print(f"[DEBUG] read: Parsed dates: start={start}, end={end}")
     else:
-        pass
+        print("[DEBUG] read: No profile_parser found for this username.")
 
     # --- Autofill for missing info ---
     if not title:
         title = "Unknown Title"
+        print("[DEBUG] read: Autofilled title.")
     if not category:
         category = "Unknown Category"
+        print("[DEBUG] read: Autofilled category.")
 
-    # Automatically use the first image if present
     image = tweet_image if tweet_image else None
+    print(f"[DEBUG] read: image={image}")
 
     # --- Parse dates if not already parsed ---
     if not (start or end):
+        print("[DEBUG] read: No dates found, using general parser.")
         start, end = parse_dates(tweet_text)
+        print(f"[DEBUG] read: General parser dates: start={start}, end={end}")
         if not (start and end):
-            # If still no dates, try to parse from text
+            print("[DEBUG] read: Still missing dates, using parse_dates_from_text.")
             start, end = parse_dates_from_text(tweet_text)
+            print(f"[DEBUG] read: parse_dates_from_text: start={start}, end={end}")
 
     # --- Autofill for missing dates ---
     if not start:
         start = "2001/01/01 00:00"
+        print("[DEBUG] read: Autofilled start date.")
     if not end:
         end = "2001/01/01 00:00"
+        print("[DEBUG] read: Autofilled end date.")
 
     is_hyv = username in HYV_ACCOUNTS
-    # No prompt_for_missing_dates, just use autofilled values
+    print(f"[DEBUG] read: is_hyv={is_hyv}")
 
     # --- Hoyoverse logic below ---
     if is_hyv:
+        print("[DEBUG] read: Converting to all timezones...")
         start_times = convert_to_all_timezones(start)
         end_times = convert_to_all_timezones(end)
+        print(f"[DEBUG] read: start_times={start_times}, end_times={end_times}")
         if not (start_times and end_times):
             await ctx.send("Could not parse start or end time for all regions. Cancelling.")
+            print("[DEBUG] read: Could not parse all regions, aborting.")
             return
 
-        # Optionally prompt for category if not set
         if not category:
+            print("[DEBUG] read: Prompting for category...")
             category = await prompt_for_category(ctx)
             if not category:
+                print("[DEBUG] read: No category selected, aborting.")
                 return
 
-        # image is already set above
-
-        # Use the new function to insert and prepare notification events
         event_entries, new_title = prepare_hyv_event_entries(
             ctx, {}, start_times, end_times, image, category, event_profile, title
         )
+        print(f"[DEBUG] read: Prepared HYV event entries.")
 
         await ctx.send(
             f"Added `{new_title}` as **{category}** for all HYV server regions to the database!"
         )
         await update_timer_channel(ctx.guild, bot, profile=event_profile)
-        # Update all timer channels for all profiles in this server (HYV logic)
+        print("[DEBUG] read: Updated timer channel for HYV.")
+
         conn = sqlite3.connect('kanami_data.db')
         c = conn.cursor()
         c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
@@ -1265,22 +1289,24 @@ async def read(ctx, link: str):
         conn.close()
         for profile in profiles:
             await update_timer_channel(ctx.guild, bot, profile=profile)
+        print("[DEBUG] read: Updated all timer channels for HYV.")
 
-        # --- Schedule notifications for each region ---
         for event in event_entries:
             asyncio.create_task(schedule_notifications_for_event(event))
+        print("[DEBUG] read: Scheduled notifications for HYV.")
         return
 
     # --- Non-HYV logic: store as usual ---
-    # Timezone detection
     timezone_regex = r"(UTC[+-]\d+|GMT[+-]\d+|[+-]\d{2}:?\d{2}|[A-Z]{2,5})"
     tz_in_start = bool(start and re.search(timezone_regex, start))
     tz_in_end = bool(end and re.search(timezone_regex, end))
     timezone_str = None
 
     if not (tz_in_start or tz_in_end):
+        print("[DEBUG] read: Prompting for timezone...")
         timezone_str = await prompt_for_timezone(ctx)
         if not timezone_str:
+            print("[DEBUG] read: No timezone provided, aborting.")
             return
 
     try:
@@ -1290,8 +1316,10 @@ async def read(ctx, link: str):
         else:
             start_unix = int(start) if start and start.isdigit() else to_unix_timestamp(start)
             end_unix = int(end) if end and end.isdigit() else to_unix_timestamp(end)
+        print(f"[DEBUG] read: start_unix={start_unix}, end_unix={end_unix}")
     except Exception as e:
         await ctx.send(f"Error parsing date/time: {e}")
+        print(f"[DEBUG] read: Exception parsing date/time: {e}")
         return
 
     # Ensure unique title
@@ -1310,6 +1338,7 @@ async def read(ctx, link: str):
             break
         suffix += 1
         new_title = f"{base_title} {suffix}"
+    print(f"[DEBUG] read: Final event title: {new_title}")
 
     c.execute(
         "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1317,13 +1346,14 @@ async def read(ctx, link: str):
     )
     conn.commit()
     conn.close()
+    print("[DEBUG] read: Inserted event into database.")
 
     await ctx.send(
         f"Added `{new_title}` as **{category}** with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!"
     )
     await update_timer_channel(ctx.guild, bot, profile=event_profile)
+    print("[DEBUG] read: Updated timer channel for non-HYV.")
 
-    # After adding the event, update all timer channels for all profiles in this server
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
@@ -1333,8 +1363,8 @@ async def read(ctx, link: str):
     unique_profiles.add("ALL")
     for profile in unique_profiles:
         await update_timer_channel(ctx.guild, bot, profile=profile)
+    print("[DEBUG] read: Updated all timer channels for non-HYV.")
 
-    # SCHEDULE NOTIFICATION HERE
     event = {
         'server_id': str(ctx.guild.id),
         'category': category,
@@ -1344,4 +1374,5 @@ async def read(ctx, link: str):
         'end_date': str(end_unix)
     }
     asyncio.create_task(schedule_notifications_for_event(event))
+    print("[DEBUG] read: Scheduled notification for non-HYV.")
 
