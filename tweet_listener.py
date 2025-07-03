@@ -205,17 +205,15 @@ async def tweet_listener_on_message(message):
 
 @bot.event
 async def on_reaction_add(reaction, user):
-    # Only respond to ❌ reactions from users (not the bot itself)
+    # Only respond to reactions from users (not the bot itself)
     if user.bot:
         return
-    if str(reaction.emoji) != "❌":
+
+    # Only process if the reaction is either ❌ or ✅
+    if str(reaction.emoji) not in ("❌", "✅"):
         return
 
     message = reaction.message
-
-    # Only proceed if the bot has already reacted with ❌ to this message
-    if not any(r.me and str(r.emoji) == "❌" for r in message.reactions):
-        return
 
     # Only process Twitter/X links
     twitter_link = None
@@ -226,7 +224,7 @@ async def on_reaction_add(reaction, user):
     if not twitter_link:
         return
 
-    # Use the announcement channel for all follow-up prompts
+    # Only trigger if the user added the reaction (no need to check for both)
     announce_channel = await get_announce_channel(message.guild)
     if not announce_channel:
         announce_channel = message.channel
@@ -235,6 +233,6 @@ async def on_reaction_add(reaction, user):
     ctx.channel = announce_channel
 
     await announce_channel.send(
-        f"{user.mention} forced a read on a previously ignored tweet. Parsing now..."
+        f"{user.mention} forced a read on this tweet (by reacting with {reaction.emoji}). Parsing now..."
     )
     await read(ctx, twitter_link)
