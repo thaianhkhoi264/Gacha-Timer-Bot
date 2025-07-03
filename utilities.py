@@ -188,3 +188,19 @@ async def restart(ctx):
                     await ctx.send(f"Kanami failed to request restart. Status: {resp.status}")
         except Exception as e:
             await ctx.send(f"Error contacting Cloud Run: {e}")
+
+def convert_to_unix_tz(date: str, time: str, timezone_str: str = "UTC"):
+    """
+    Converts a date and time string in a given timezone to a Unix timestamp.
+    Supports IANA tz names (e.g., 'Asia/Tokyo') and offsets like 'UTC-8', 'GMT+5', etc.
+    """
+    from datetime import datetime
+    import pytz
+    import dateparser
+    # Combine date and time
+    dt_str = f"{date} {time}"
+    # Try to parse with dateparser and timezone
+    dt = dateparser.parse(dt_str, settings={'TIMEZONE': timezone_str, 'RETURN_AS_TIMEZONE_AWARE': True})
+    if not dt:
+        raise ValueError(f"Could not parse date/time: {dt_str} {timezone_str}")
+    return int(dt.timestamp())
