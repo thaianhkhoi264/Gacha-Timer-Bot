@@ -1104,6 +1104,7 @@ async def fetch_tweet_content(url: str):
                     and not src.endswith(".svg")
                     and not re.search(r'/emoji/', src)
                     and not re.search(r'/ext_tw_emoji/', src)
+                    and not re.search(r'/hashflags/', src)
                 ):
                     image_url = src
                     break
