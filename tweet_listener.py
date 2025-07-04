@@ -21,7 +21,8 @@ PROFILE_KEYWORDS = {
             "behind-the-scenes", "mechanics intro", "agent record", "cutscene", "news", "discord",
             "check-in", "twitch", "store", "an outstanding partner", "for display only", "ep",
             "collaboration", "renovation talk", "benefits express", "overview", "hoyolab",
-            "pop-up", "pop up", "offline", "cosplayer", "cosplayers", "fanart", "fanarts"
+            "pop-up", "pop up", "offline", "cosplayer", "cosplayers", "fanart", "fanarts",
+            "anniversary countdown", "countdown event", "agent mechanics", "observation log"
         ]
     },
     "AK": {
