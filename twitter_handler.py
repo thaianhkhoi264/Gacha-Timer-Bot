@@ -90,7 +90,7 @@ def update_version_tracker(profile, version_str, start_date):
     conn.close()
 
 # General date parsing function
-def parse_dates(text):
+async def parse_dates(text):
     # Find all date-like substrings (very broad)
     date_patterns = [
         r'\d{4}/\d{2}/\d{2} \d{2}:\d{2}(?:\s*\([^)]+\))?',  # 2025/06/18 04:00 (UTC+8)
@@ -116,13 +116,21 @@ def parse_dates(text):
         dt = dateparser.parse(d, settings={'RETURN_AS_TIMEZONE_AWARE': True})
         if dt:
             parsed.append((d, dt))
-    # If less than 2, try to find more with dateparser search
+    # If less than 2, try to find more with dateparser search (with timeout)
     if len(parsed) < 2:
-        # Try to find any date with dateparser search
-        for result in dateparser.search.search_dates(text, settings={'RETURN_AS_TIMEZONE_AWARE': True}) or []:
-            d, dt = result
-            if dt and (d, dt) not in parsed:
-                parsed.append((d, dt))
+        async def search_dates_thread():
+            return dateparser.search.search_dates(text, settings={'RETURN_AS_TIMEZONE_AWARE': True}) or []
+        try:
+            results = await asyncio.wait_for(
+                asyncio.to_thread(dateparser.search.search_dates, text, settings={'RETURN_AS_TIMEZONE_AWARE': True}),
+                timeout=5
+            )
+            for result in results:
+                d, dt = result
+                if dt and (d, dt) not in parsed:
+                    parsed.append((d, dt))
+        except asyncio.TimeoutError:
+            print("[DEBUG] parse_dates: dateparser.search.search_dates timed out!")
     # Missing Year
     if len(parsed) >= 2:
         dt1, dt2 = parsed[0][1], parsed[1][1]
@@ -1241,20 +1249,41 @@ async def read(ctx, link: str):
         # --- Parse dates if not already parsed ---
         if not (start or end):
             print("[DEBUG] read: No dates found, using general parser.")
-            start, end = parse_dates(tweet_text)
+            start, end = await parse_dates(tweet_text)
             print(f"[DEBUG] read: General parser dates: start={start}, end={end}")
-            if not (start and end):
-                print("[DEBUG] read: Still missing dates, using parse_dates_from_text.")
-                start, end = parse_dates_from_text(tweet_text)
-                print(f"[DEBUG] read: parse_dates_from_text: start={start}, end={end}")
+            if not (start or end):
+                await ctx.send("No valid dates found in the tweet. Cancelling read: this tweet does not appear to contain an event time.")
+                print("[DEBUG] read: No dates found after all parsing, cancelling.")
+                return
+            if start and not end:
+                # Assume end is 2 weeks after start
+                try:
+                    dt_start = dateparser.parse(start, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+                    if dt_start:
+                        dt_end = dt_start + timedelta(days=14)
+                        # Format end in the same style as start
+                        if dt_start.tzinfo:
+                            end = dt_end.strftime("%Y/%m/%d %H:%M %Z")
+                        else:
+                            end = dt_end.strftime("%Y/%m/%d %H:%M")
+                        print(f"[DEBUG] read: End date autofilled as 2 weeks after start: {end}")
+                        assumed_end = True
+                    else:
+                        await ctx.send("Could not parse the start date to autofill end date. Cancelling.")
+                        print("[DEBUG] read: Could not parse start date for autofill, cancelling.")
+                        return
+                except Exception as e:
+                    await ctx.send(f"Error autofilling end date: {e}")
+                    print(f"[DEBUG] read: Exception autofilling end date: {e}")
+                    return
 
-        # --- Autofill for missing dates ---
+        """   # --- Autofill for missing dates ---
         if not start:
             start = "2001/01/01 00:00"
             print("[DEBUG] read: Autofilled start date.")
         if not end:
             end = "2001/01/01 00:00"
-            print("[DEBUG] read: Autofilled end date.")
+            print("[DEBUG] read: Autofilled end date.")"""
 
         is_hyv = username in HYV_ACCOUNTS
         print(f"[DEBUG] read: is_hyv={is_hyv}")
@@ -1354,9 +1383,15 @@ async def read(ctx, link: str):
         conn.close()
         print("[DEBUG] read: Inserted event into database.")
 
-        await ctx.send(
-            f"Added `{new_title}` as **{category}** with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!"
-        )
+        if not assumed_end:
+            await ctx.send(
+                f"Added `{new_title}` as **{category}** with start `<t:{start_unix}:F>` and end `<t:{end_unix}:F>` to the database!"
+            )
+        else:
+            await ctx.send(
+                f"Added `{new_title}` as **{category}** with start `<t:{start_unix}:F>` and __**assumed**__ end `<t:{end_unix}:F>` to the database!"
+            )
+
         await update_timer_channel(ctx.guild, bot, profile=event_profile)
         print("[DEBUG] read: Updated timer channel for non-HYV.")
 
