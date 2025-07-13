@@ -465,8 +465,12 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
                             f"Notify: {', '.join(notify_strs)}"
                         )
             if value_lines:
+                max_field_name_length = 256
+                field_name = f"{title} ({category})"
+                if len(field_name) > max_field_name_length:
+                    field_name = field_name[:max_field_name_length - 3] + "..."
                 fields.append({
-                    "name": f"{title} ({category})",
+                    "name": field_name,
                     "value": "\n\n".join(value_lines)
                 })
     else:
@@ -1047,25 +1051,22 @@ async def refresh_pending_notifications(ctx):
         profile_upper = profile.upper()
         try:
             if profile_upper in ("HSR", "ZZZ"):
-                # Schedule for each region
-                region_data = [
-                    ("NA", america_start, america_end),
-                    ("EU", europe_start, europe_end),
-                    ("ASIA", asia_start, asia_end)
-                ]
-                for region, region_start, region_end in region_data:
-                    event = {
-                        'server_id': server_id,
-                        'category': category,
-                        'profile': profile,
-                        'title': title,
-                        'start_date': str(region_start),
-                        'end_date': str(region_end),
-                        'region': region
-                    }
-                    await schedule_notifications_for_event(event)
-                    recreated += 1
-                    await debug_log(f"Scheduled notification for {title} [{profile_upper}] region {region}.", bot)
+                event = {
+                    'server_id': server_id,
+                    'category': category,
+                    'profile': profile,
+                    'title': title,
+                    'start_date': str(start_unix),
+                    'end_date': str(end_unix),
+                    'america_start': america_start,
+                    'america_end': america_end,
+                    'europe_start': europe_start,
+                    'europe_end': europe_end,
+                    'asia_start': asia_start,
+                    'asia_end': asia_end,
+                }
+                await schedule_notifications_for_event(event)
+                await debug_log(f"Scheduled notification for {title} [{profile_upper}].", bot)
             else:
                 # Non-HYV games
                 event = {
@@ -1081,7 +1082,6 @@ async def refresh_pending_notifications(ctx):
                 await debug_log(f"Scheduled notification for {title} [{profile_upper}].", bot)
         except Exception as e:
             await debug_log(f"Error scheduling event {title} [{profile_upper}]: {e}", bot, important=True)
-
     # --- Re-post timer channel messages for all profiles ---
     try:
         conn3 = sqlite3.connect('kanami_data.db')
