@@ -67,6 +67,7 @@ def init_db():
                     server_id TEXT PRIMARY KEY,
                     channel_id TEXT
                 )''')
+    # ...existing table creation code...
     # Pending notifications (persistent scheduling)
     c.execute('''CREATE TABLE IF NOT EXISTS pending_notifications (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,8 +78,14 @@ def init_db():
         timing_type TEXT,
         notify_unix INTEGER,
         event_time_unix INTEGER,
-        sent INTEGER DEFAULT 0
+        sent INTEGER DEFAULT 0,
+        region TEXT
     )''')
+    # UNIQUE index to prevent duplicates (including region for HYV)
+    c.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_notif
+        ON pending_notifications (server_id, category, profile, title, timing_type, notify_unix, region)
+    ''')
     # Role reaction emoji-role mapping
     c.execute('''CREATE TABLE IF NOT EXISTS role_reactions (
                     server_id TEXT,
@@ -372,7 +379,7 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
     """
     import sqlite3
     import asyncio
-    from notification_handler import schedule_notifications_for_event
+    from notification_handler import schedule_notifications_for_event, remove_duplicate_pending_notifications
 
     def parse_time(val, tz):
         try:
@@ -580,6 +587,7 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
         'end_date': str(end_unix)
     }
     asyncio.create_task(schedule_notifications_for_event(event))
+    remove_duplicate_pending_notifications()
 
 @bot.command()  # "remove" command to remove an event from the database
 async def remove(ctx, *, title: str):
@@ -587,6 +595,8 @@ async def remove(ctx, *, title: str):
     Removes an event by title (case-insensitive) from the current server, along with its notifications and messages.
     Usage: Kanami remove <event title>
     """
+    from notification_handler import remove_duplicate_pending_notifications
+
     server_id = str(ctx.guild.id)
     # Case-insensitive search for the event title
     conn = sqlite3.connect('kanami_data.db')
@@ -637,8 +647,8 @@ async def remove(ctx, *, title: str):
     conn.close()
     for profile in profiles:
         await update_timer_channel(ctx.guild, bot, profile=profile)
+    remove_duplicate_pending_notifications()
 
-# ...existing code...
 
 @bot.command()
 async def edit(ctx, title: str, item: str, value: str):
@@ -648,6 +658,7 @@ async def edit(ctx, title: str, item: str, value: str):
     Now supports editing the event title.
     """
     import sqlite3
+    from notification_handler import remove_duplicate_pending_notifications
 
     def parse_time(val, tz):
         try:
@@ -709,6 +720,7 @@ async def edit(ctx, title: str, item: str, value: str):
     conn.commit()
     await ctx.send(f"Updated `{item}` for `{title}` to `{value}`.")
     conn.close()
+    remove_duplicate_pending_notifications()
 
 @bot.command()
 @commands.has_permissions(manage_guild=True)

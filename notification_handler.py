@@ -75,6 +75,26 @@ def send_log(server_id, message):
     except Exception as e:
         print(f"Failed to write to log file: {e}")
 
+# Function to remove duplicate pending notifications
+def remove_duplicate_pending_notifications():
+    """
+    Removes duplicate pending notifications, keeping only the earliest entry for each unique combination.
+    """
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    # Delete duplicates, keep the one with the lowest id
+    c.execute("""
+        DELETE FROM pending_notifications
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM pending_notifications
+            GROUP BY server_id, category, profile, title, timing_type, notify_unix, region
+        )
+    """)
+    conn.commit()
+    conn.close()
+    print("Duplicate pending_notifications removed.")
+
 # Function to update the notification timing message in the specified channel
 async def update_notification_timing_message(guild):
     conn = sqlite3.connect('kanami_data.db')
@@ -202,7 +222,6 @@ async def schedule_notifications_for_event(event):
     conn.close()
     guild = bot.get_guild(int(event['server_id']))
     await update_pending_notifications_embed_for_profile(guild, event['profile'])
-
 
 async def send_notification(event, timing_type):
     conn = sqlite3.connect('kanami_data.db')
@@ -1075,6 +1094,9 @@ async def refresh_pending_notifications(ctx):
             await debug_log(f"Updated timer channel for profile {profile}.", bot)
     except Exception as e:
         await debug_log(f"Error updating timer channels: {e}", bot, important=True)
+
+    # Remove duplicate pending notifications to be safe
+    remove_duplicate_pending_notifications()
 
     await ctx.send(f"Cleared all pending notifications and recreated {recreated} from current events.")
     await debug_log(f"Finished refresh_pending_notifications for server {server_id}. Recreated {recreated} events.", bot, important=True)
