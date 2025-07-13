@@ -210,6 +210,87 @@ async def update_timer_channel(guild, bot, profile="ALL"):
     # Build a set of current event_ids
     current_event_ids = set(row[0] for row in rows)
 
+    # Delete messages for events that no longer exist or are marked as Ended
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    # Find all events marked as Ended
+    c.execute("SELECT id FROM user_data WHERE server_id=? AND category='Ended'", (str(guild.id),))
+    ended_event_ids = set(row[0] for row in c.fetchall())
+    conn.close()
+
+    # Delete messages for events that are either not in the DB anymore or are marked as Ended
+    for event_id in set(existing_msgs.keys()) | ended_event_ids:
+        if event_id not in current_event_ids or event_id in ended_event_ids:
+            try:
+                msg = await channel.fetch_message(int(existing_msgs.get(event_id)))
+                await msg.delete()
+            except Exception:
+                pass
+            # Remove from DB
+            conn = sqlite3.connect('kanami_data.db')
+            c = conn.cursor()
+            c.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
+            conn.commit()
+            conn.close()
+        # Also, if marked as Ended, remove from user_data
+        if event_id in ended_event_ids:
+            conn = sqlite3.connect('kanami_data.db')
+            c = conn.cursor()
+            c.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+            conn.commit()
+            conn.close()
+
+    # Upsert (edit or create) messages for current events (that are not ended)
+    for row in rows:
+        event_id = row[0]
+        category = row[5]
+        if category == "Ended":
+            continue  # Skip ended events
+        event_row = row[1:]  # skip id
+        await upsert_event_message(guild, channel, event_row, event_id)
+    # Mark ended events before fetching
+    await mark_ended_events(guild)
+
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile=?", (str(guild.id), profile))
+    row = c.fetchone()
+    if not row:
+        c.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),))
+        row = c.fetchone()
+    if not row:
+        conn.close()
+        return
+    channel_id = int(row[0])
+
+    # Fetch events for this profile only, or all if profile is "ALL"
+    if profile == "ALL":
+        c.execute(
+            "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? ORDER BY id DESC",
+            (str(guild.id),)
+        )
+    else:
+        c.execute(
+            "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? AND profile=? ORDER BY id DESC",
+            (str(guild.id), profile)
+        )
+    rows = c.fetchall()
+    conn.close()
+
+    channel = guild.get_channel(channel_id)
+    if not channel:
+        return
+
+    # Get all event_ids currently in the channel
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT event_id, message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(guild.id), str(channel.id)))
+    existing_msgs = {row[0]: row[1] for row in c.fetchall()}
+    conn.close()
+
+    # Build a set of current event_ids
+    current_event_ids = set(row[0] for row in rows)
+
     # Delete messages for events that no longer exist
     for event_id in set(existing_msgs.keys()) - current_event_ids:
         try:
