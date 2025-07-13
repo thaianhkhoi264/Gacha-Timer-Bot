@@ -221,7 +221,7 @@ async def export_pending_notifications_core(ctx):
     c.execute("""
         SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region
         FROM pending_notifications
-        ORDER BY server_id, notify_unix ASC
+        ORDER BY profile, server_id, notify_unix ASC
     """)
     rows = c.fetchall()
     conn.close()
@@ -231,53 +231,55 @@ async def export_pending_notifications_core(ctx):
         await ctx.send("Exported: No pending notifications.")
         return
 
-    # Group notifications by (title, category, profile)
-    from collections import defaultdict
+    from collections import defaultdict, OrderedDict
 
-    grouped = defaultdict(list)
+    # Group notifications by profile, then by (title, category)
+    grouped = defaultdict(lambda: defaultdict(list))
     for row in rows:
         notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region = row
-        key = (title, category, profile)
-        grouped[key].append({
+        key = (title, category)
+        grouped[profile][key].append({
             "timing_type": timing_type,
             "notify_unix": notify_unix,
             "event_time_unix": event_time_unix,
             "region": region
         })
 
-    # Build the export message
+    # Sort profiles alphabetically, then events by title
+    sorted_profiles = sorted(grouped.keys())
     lines = []
     lines.append(f"**Pending Notifications Export ({len(rows)} rows):**")
-    for (title, category, profile), events in grouped.items():
-        lines.append(f"[{title}]")
-        lines.append(f"{category}")
-        lines.append(f"Profile: {profile}")
-        # Check if any event has a region
-        has_region = any(e["region"] for e in events)
-        if has_region:
-            # Group by region
-            region_map = defaultdict(list)
-            for e in events:
-                region = e["region"] or "Unknown"
-                region_map[region].append(e)
-            for region, region_events in region_map.items():
-                lines.append(f"Region: {region}")
-                # Collect start and end times
-                start_times = [f"<t:{e['event_time_unix']}:F>" for e in region_events if e["timing_type"] == "start"]
-                end_times = [f"<t:{e['event_time_unix']}:F>" for e in region_events if e["timing_type"] == "end"]
+    for profile in sorted_profiles:
+        lines.append(f"# {profile}")
+        events_dict = grouped[profile]
+        # Sort events by title
+        for (title, category), events in sorted(events_dict.items(), key=lambda x: x[0][0].lower()):
+            lines.append(f"**{title}**")
+            lines.append(f"{category}")
+            # Check if any event has a region
+            has_region = any(e["region"] for e in events)
+            if has_region:
+                # Group by region
+                region_map = defaultdict(list)
+                for e in events:
+                    region = e["region"] or "Unknown"
+                    region_map[region].append(e)
+                for region, region_events in region_map.items():
+                    lines.append(f"Region: {region}")
+                    start_times = [f"<t:{e['event_time_unix']}:F>" for e in region_events if e["timing_type"] == "start"]
+                    end_times = [f"<t:{e['event_time_unix']}:F>" for e in region_events if e["timing_type"] == "end"]
+                    if start_times:
+                        lines.append(f"   Start: {', '.join(start_times)}")
+                    if end_times:
+                        lines.append(f"   End: {', '.join(end_times)}")
+            else:
+                start_times = [f"<t:{e['event_time_unix']}:F>" for e in events if e["timing_type"] == "start"]
+                end_times = [f"<t:{e['event_time_unix']}:F>" for e in events if e["timing_type"] == "end"]
                 if start_times:
-                    lines.append(f"   Start: {', '.join(start_times)}")
+                    lines.append(f"Start: {', '.join(start_times)}")
                 if end_times:
-                    lines.append(f"   End: {', '.join(end_times)}")
-        else:
-            # No region, just collect start and end times
-            start_times = [f"<t:{e['event_time_unix']}:F>" for e in events if e["timing_type"] == "start"]
-            end_times = [f"<t:{e['event_time_unix']}:F>" for e in events if e["timing_type"] == "end"]
-            if start_times:
-                lines.append(f"Start: {', '.join(start_times)}")
-            if end_times:
-                lines.append(f"End: {', '.join(end_times)}")
-        lines.append("")  # Blank line between events
+                    lines.append(f"End: {', '.join(end_times)}")
+            lines.append("")  # Blank line between events
 
     # Discord DMs have a 2000 character limit per message
     msg = ""
