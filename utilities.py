@@ -231,19 +231,53 @@ async def export_pending_notifications_core(ctx):
         await ctx.send("Exported: No pending notifications.")
         return
 
+    # Group notifications by (title, category, profile)
+    from collections import defaultdict
+
+    grouped = defaultdict(list)
+    for row in rows:
+        notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region = row
+        key = (title, category, profile)
+        grouped[key].append({
+            "timing_type": timing_type,
+            "notify_unix": notify_unix,
+            "event_time_unix": event_time_unix,
+            "region": region
+        })
+
     # Build the export message
     lines = []
     lines.append(f"**Pending Notifications Export ({len(rows)} rows):**")
-    for row in rows:
-        (notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region) = row
-        line = (
-            f"ID: {notif_id} | Server: {server_id} | Category: {category} | Profile: {profile} | "
-            f"Title: {title} | Type: {timing_type} | Notify: <t:{notify_unix}:F> | "
-            f"Event: <t:{event_time_unix}:F> | Sent: {sent}"
-        )
-        if region:
-            line += f" | Region: {region}"
-        lines.append(line)
+    for (title, category, profile), events in grouped.items():
+        lines.append(f"[{title}]")
+        lines.append(f"{category}")
+        lines.append(f"Profile: {profile}")
+        # Check if any event has a region
+        has_region = any(e["region"] for e in events)
+        if has_region:
+            # Group by region
+            region_map = defaultdict(list)
+            for e in events:
+                region = e["region"] or "Unknown"
+                region_map[region].append(e)
+            for region, region_events in region_map.items():
+                lines.append(f"Region: {region}")
+                # Collect start and end times
+                start_times = [f"<t:{e['event_time_unix']}:F>" for e in region_events if e["timing_type"] == "start"]
+                end_times = [f"<t:{e['event_time_unix']}:F>" for e in region_events if e["timing_type"] == "end"]
+                if start_times:
+                    lines.append(f"   Start: {', '.join(start_times)}")
+                if end_times:
+                    lines.append(f"   End: {', '.join(end_times)}")
+        else:
+            # No region, just collect start and end times
+            start_times = [f"<t:{e['event_time_unix']}:F>" for e in events if e["timing_type"] == "start"]
+            end_times = [f"<t:{e['event_time_unix']}:F>" for e in events if e["timing_type"] == "end"]
+            if start_times:
+                lines.append(f"Start: {', '.join(start_times)}")
+            if end_times:
+                lines.append(f"End: {', '.join(end_times)}")
+        lines.append("")  # Blank line between events
 
     # Discord DMs have a 2000 character limit per message
     msg = ""
@@ -255,7 +289,7 @@ async def export_pending_notifications_core(ctx):
     if msg:
         await ctx.author.send(f"```{msg}```")
 
-    await ctx.send("Pending notifications list sent!")
+    await ctx.send("Pending notifications exported to your DMs.")
 
 @bot.command(name="export_pending_notifications")
 async def export_pending_notifications(ctx):
