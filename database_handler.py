@@ -673,3 +673,4 @@ async def remove_custom_category(ctx, *, category: str):
     conn.commit()
     conn.close()
     await ctx.send(f"Custom category `{category}` removed for this server!")
+    
