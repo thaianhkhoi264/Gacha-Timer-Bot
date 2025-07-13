@@ -266,8 +266,8 @@ async def export_pending_notifications_core(ctx):
                     region_map[region].append(e)
                 for region, region_events in region_map.items():
                     lines.append(f"Region: {region}")
-                    start_times = [f"<t:{e['event_time_unix']}:F>" for e in region_events if e["timing_type"] == "start"]
-                    end_times = [f"<t:{e['event_time_unix']}:F>" for e in region_events if e["timing_type"] == "end"]
+                    start_times = [f"<t:{e['event_time_unix']}:R>" for e in region_events if e["timing_type"] == "start"]
+                    end_times = [f"<t:{e['event_time_unix']}:R>" for e in region_events if e["timing_type"] == "end"]
                     if start_times:
                         lines.append(f"   Start: {', '.join(start_times)}")
                     if end_times:
@@ -289,7 +289,7 @@ async def export_pending_notifications_core(ctx):
             msg = ""
         msg += line + "\n"
     if msg:
-        await ctx.author.send(f"```{msg}```")
+        await ctx.author.send(f"{msg}")
 
     await ctx.send("Pending notifications exported to your DMs.")
 
