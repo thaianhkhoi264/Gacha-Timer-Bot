@@ -204,3 +204,65 @@ def convert_to_unix_tz(date: str, time: str, timezone_str: str = "UTC"):
     if not dt:
         raise ValueError(f"Could not parse date/time: {dt_str} {timezone_str}")
     return int(dt.timestamp())
+
+# Export pending notifications function
+async def export_pending_notifications_core(ctx):
+    """
+    Exports the pending notifications table as a DM to the user.
+    Only the owner (ID: 680653908259110914) can use this command.
+    """
+    OWNER_ID = 680653908259110914
+    if ctx.author.id != OWNER_ID:
+        await ctx.send("You are not authorized to use this command.")
+        return
+
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region
+        FROM pending_notifications
+        ORDER BY server_id, notify_unix ASC
+    """)
+    rows = c.fetchall()
+    conn.close()
+
+    if not rows:
+        await ctx.author.send("There are no pending notifications in the database.")
+        await ctx.send("Exported: No pending notifications.")
+        return
+
+    # Build the export message
+    lines = []
+    lines.append(f"**Pending Notifications Export ({len(rows)} rows):**")
+    for row in rows:
+        (notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region) = row
+        line = (
+            f"ID: {notif_id} | Server: {server_id} | Category: {category} | Profile: {profile} | "
+            f"Title: {title} | Type: {timing_type} | Notify: <t:{notify_unix}:F> | "
+            f"Event: <t:{event_time_unix}:F> | Sent: {sent}"
+        )
+        if region:
+            line += f" | Region: {region}"
+        lines.append(line)
+
+    # Discord DMs have a 2000 character limit per message
+    msg = ""
+    for line in lines:
+        if len(msg) + len(line) + 1 > 1990:
+            await ctx.author.send(f"```{msg}```")
+            msg = ""
+        msg += line + "\n"
+    if msg:
+        await ctx.author.send(f"```{msg}```")
+
+    await ctx.send("Pending notifications list sent!")
+
+@bot.command(name="export_pending_notifications")
+async def export_pending_notifications(ctx):
+    """Exports the pending notifications table as a DM to the user (owner only)."""
+    await export_pending_notifications_core(ctx)
+
+@bot.command(name="epn")
+async def epn(ctx):
+    """Shortened command for exporting the pending notifications table as a DM to the user (owner only)."""
+    await export_pending_notifications_core(ctx)

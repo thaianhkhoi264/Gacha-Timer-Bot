@@ -41,6 +41,10 @@ def safe_int(val, fallback):
 # Global variable to track the last log time
 _last_log_time = 0
 
+# refresh pending notification logs path + Owner ID
+DEBUG_LOG_PATH = "debug_refresh_pending.log"
+IMPORTANT_DM_USER_ID = 680653908259110914
+
 # Global anti-notification spam failsafe variables
 recent_notification_times = deque(maxlen=10)  # Track last 10 notifications
 recently_sent_notifications = set()  # Track sent notifications to prevent duplicates
@@ -934,97 +938,143 @@ async def set_pending_notifications_channel(ctx, channel: discord.TextChannel):
     await ctx.send(f"Pending notifications channel set to {channel.mention}.")
     await update_all_pending_notifications_embeds(ctx.guild)
 
-# Refresh pending notifications from current events
+async def debug_log(message, bot=None, important=False):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] {message}"
+    # Write to file
+    try:
+        with open(DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(log_entry + "\n")
+    except Exception as e:
+        print(f"Failed to write debug log: {e}")
+    # Optionally send DM for important messages
+    if important and bot is not None:
+        try:
+            user = await bot.fetch_user(IMPORTANT_DM_USER_ID)
+            await user.send(f"[Kanami Debug]\n{log_entry}")
+        except Exception as e:
+            print(f"Failed to send debug DM: {e}")
+
+# In your refresh_pending_notifications command:
 @bot.command(name="refresh_pending_notifications")
 @commands.has_permissions(administrator=True)
 async def refresh_pending_notifications(ctx):
     """Clears all pending notifications and recreates them from current events, including region times for HSR/ZZZ."""
     from database_handler import update_timer_channel
     server_id = str(ctx.guild.id)
-    
+    await debug_log(f"Starting refresh_pending_notifications for server {server_id}", bot, important=True)
+
     # Delete all pending notifications for this server
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("DELETE FROM pending_notifications WHERE server_id=?", (server_id,))
-    conn.commit()
+    try:
+        conn = sqlite3.connect('kanami_data.db')
+        c = conn.cursor()
+        c.execute("DELETE FROM pending_notifications WHERE server_id=?", (server_id,))
+        conn.commit()
+        await debug_log("Deleted all pending notifications.", bot)
+    except Exception as e:
+        await debug_log(f"Error deleting pending notifications: {e}", bot, important=True)
+        await ctx.send("Error deleting pending notifications.")
+        return
 
     # Recreate pending notifications from current events
-    c.execute("""
-        SELECT title, start_date, end_date, category, profile,
-               asia_start, asia_end, america_start, america_end, europe_start, europe_end
-        FROM user_data WHERE server_id=?
-    """, (server_id,))
-    events = c.fetchall()
-    conn.close()
+    try:
+        c.execute("""
+            SELECT title, start_date, end_date, category, profile,
+                   asia_start, asia_end, america_start, america_end, europe_start, europe_end
+            FROM user_data WHERE server_id=?
+        """, (server_id,))
+        events = c.fetchall()
+        await debug_log(f"Fetched {len(events)} events from user_data.", bot)
+    except Exception as e:
+        await debug_log(f"Error fetching events: {e}", bot, important=True)
+        await ctx.send("Error fetching events.")
+        return
+    finally:
+        conn.close()
 
     # --- Clear all event messages in timer channels for this server ---
-    conn2 = sqlite3.connect('kanami_data.db')
-    c2 = conn2.cursor()
-    c2.execute("SELECT timer_channel_id FROM config WHERE server_id=?", (server_id,))
-    timer_channels = {row[0] for row in c2.fetchall()}
-    c2.execute("SELECT event_id, channel_id, message_id FROM event_messages WHERE server_id=?", (server_id,))
-    event_msgs = c2.fetchall()
-    for event_id, channel_id, message_id in event_msgs:
-        if channel_id in timer_channels:
-            guild = ctx.guild
-            channel = guild.get_channel(int(channel_id))
-            if channel:
-                try:
-                    msg = await channel.fetch_message(int(message_id))
-                    await msg.delete()
-                except Exception:
-                    pass
-            # Remove from DB
-            c2c = sqlite3.connect('kanami_data.db')
-            c2c_cur = c2c.cursor()
-            c2c_cur.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, channel_id))
-            c2c.commit()
-            c2c.close()
-    conn2.commit()
-    conn2.close()
+    try:
+        conn2 = sqlite3.connect('kanami_data.db')
+        c2 = conn2.cursor()
+        c2.execute("SELECT timer_channel_id FROM config WHERE server_id=?", (server_id,))
+        timer_channels = {row[0] for row in c2.fetchall()}
+        c2.execute("SELECT event_id, channel_id, message_id FROM event_messages WHERE server_id=?", (server_id,))
+        event_msgs = c2.fetchall()
+        await debug_log(f"Found {len(event_msgs)} event messages to check for deletion.", bot)
+        for event_id, channel_id, message_id in event_msgs:
+            if channel_id in timer_channels:
+                guild = ctx.guild
+                channel = guild.get_channel(int(channel_id))
+                if channel:
+                    try:
+                        msg = await channel.fetch_message(int(message_id))
+                        await msg.delete()
+                        await debug_log(f"Deleted message {message_id} in channel {channel_id}.", bot)
+                    except Exception as e:
+                        await debug_log(f"Failed to delete message {message_id} in channel {channel_id}: {e}", bot)
+                # Remove from DB
+                c2c = sqlite3.connect('kanami_data.db')
+                c2c_cur = c2c.cursor()
+                c2c_cur.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, channel_id))
+                c2c.commit()
+                c2c.close()
+        conn2.commit()
+        conn2.close()
+    except Exception as e:
+        await debug_log(f"Error clearing event messages: {e}", bot, important=True)
 
     recreated = 0
     for title, start_unix, end_unix, category, profile, asia_start, asia_end, america_start, america_end, europe_start, europe_end in events:
         profile_upper = profile.upper()
-        if profile_upper in ("HSR", "ZZZ"):
-            # Schedule for each region
-            region_data = [
-                ("NA", america_start, america_end),
-                ("EU", europe_start, europe_end),
-                ("ASIA", asia_start, asia_end)
-            ]
-            for region, region_start, region_end in region_data:
+        try:
+            if profile_upper in ("HSR", "ZZZ"):
+                # Schedule for each region
+                region_data = [
+                    ("NA", america_start, america_end),
+                    ("EU", europe_start, europe_end),
+                    ("ASIA", asia_start, asia_end)
+                ]
+                for region, region_start, region_end in region_data:
+                    event = {
+                        'server_id': server_id,
+                        'category': category,
+                        'profile': profile,
+                        'title': title,
+                        'start_date': str(region_start),
+                        'end_date': str(region_end),
+                        'region': region
+                    }
+                    await schedule_notifications_for_event(event)
+                    recreated += 1
+                    await debug_log(f"Scheduled notification for {title} [{profile_upper}] region {region}.", bot)
+            else:
+                # Non-HYV games
                 event = {
                     'server_id': server_id,
                     'category': category,
                     'profile': profile,
                     'title': title,
-                    'start_date': str(region_start),
-                    'end_date': str(region_end),
-                    'region': region
+                    'start_date': str(start_unix),
+                    'end_date': str(end_unix)
                 }
                 await schedule_notifications_for_event(event)
                 recreated += 1
-        else:
-            # Non-HYV games
-            event = {
-                'server_id': server_id,
-                'category': category,
-                'profile': profile,
-                'title': title,
-                'start_date': str(start_unix),
-                'end_date': str(end_unix)
-            }
-            await schedule_notifications_for_event(event)
-            recreated += 1
+                await debug_log(f"Scheduled notification for {title} [{profile_upper}].", bot)
+        except Exception as e:
+            await debug_log(f"Error scheduling event {title} [{profile_upper}]: {e}", bot, important=True)
 
     # --- Re-post timer channel messages for all profiles ---
-    conn3 = sqlite3.connect('kanami_data.db')
-    c3 = conn3.cursor()
-    c3.execute("SELECT profile FROM config WHERE server_id=?", (server_id,))
-    profiles = [row[0] for row in c3.fetchall()]
-    conn3.close()
-    for profile in profiles:
-        await update_timer_channel(ctx.guild, bot, profile=profile)
+    try:
+        conn3 = sqlite3.connect('kanami_data.db')
+        c3 = conn3.cursor()
+        c3.execute("SELECT profile FROM config WHERE server_id=?", (server_id,))
+        profiles = [row[0] for row in c3.fetchall()]
+        conn3.close()
+        for profile in profiles:
+            await update_timer_channel(ctx.guild, bot, profile=profile)
+            await debug_log(f"Updated timer channel for profile {profile}.", bot)
+    except Exception as e:
+        await debug_log(f"Error updating timer channels: {e}", bot, important=True)
 
     await ctx.send(f"Cleared all pending notifications and recreated {recreated} from current events.")
+    await debug_log(f"Finished refresh_pending_notifications for server {server_id}. Recreated {recreated} events.", bot, important=True)
