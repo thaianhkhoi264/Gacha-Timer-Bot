@@ -285,7 +285,7 @@ async def export_pending_notifications_core(ctx):
     msg = ""
     for line in lines:
         if len(msg) + len(line) + 1 > 1990:
-            await ctx.author.send(f"```{msg}```")
+            await ctx.author.send(f"{msg}")
             msg = ""
         msg += line + "\n"
     if msg:
