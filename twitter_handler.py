@@ -1177,7 +1177,7 @@ async def read(ctx, link: str):
     """
     import traceback
     from database_handler import update_timer_channel
-    from notification_handler import schedule_notifications_for_event
+    from notification_handler import schedule_notifications_for_event, remove_duplicate_pending_notifications
 
     print("[DEBUG] read: Starting command")
     await ctx.send("Reading tweet, please wait...")
@@ -1331,6 +1331,8 @@ async def read(ctx, link: str):
             for event in event_entries:
                 asyncio.create_task(schedule_notifications_for_event(event))
             print("[DEBUG] read: Scheduled notifications for HYV.")
+            
+            remove_duplicate_pending_notifications()
             return
 
         # --- Non-HYV logic: store as usual ---
@@ -1419,6 +1421,7 @@ async def read(ctx, link: str):
         
         asyncio.create_task(schedule_notifications_for_event(event))
         print("[DEBUG] read: Scheduled notification for non-HYV.")
+        remove_duplicate_pending_notifications()
         
     except Exception as e:
         await ctx.send(f"An unexpected error occurred: `{e}`")
