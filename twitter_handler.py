@@ -1178,6 +1178,7 @@ async def read(ctx, link: str):
     import traceback
     from database_handler import update_timer_channel
     from notification_handler import schedule_notifications_for_event, remove_duplicate_pending_notifications
+    assumed_end = False
 
     print("[DEBUG] read: Starting command")
     await ctx.send("Reading tweet, please wait...")
