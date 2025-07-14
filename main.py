@@ -13,6 +13,8 @@ import sqlite3
 import discord
 import signal
 import asyncio
+import pytz
+from datetime import datetime, timedelta
 
 init_db()
 
@@ -253,6 +255,55 @@ async def set_channel_slash(interaction: discord.Interaction):
     conn.close()
     await interaction.followup.send("\n".join(results), ephemeral=True)
 
+# Daily report task to send a summary of today's notifications
+async def send_daily_report():
+    await bot.wait_until_ready()
+    OWNER_ID = 680653908259110914
+    tz = pytz.timezone("Asia/Bangkok")  # GMT+7
+    while not bot.is_closed():
+        now = datetime.now(tz)
+        # Calculate next 9am
+        next_run = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        if now >= next_run:
+            next_run += timedelta(days=1)
+        wait_seconds = (next_run - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+
+        # Fetch today's notifications
+        today_start = next_run.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+        unix_start = int(today_start.timestamp())
+        unix_end = int(today_end.timestamp())
+
+        conn = sqlite3.connect('kanami_data.db')
+        c = conn.cursor()
+        c.execute("""
+            SELECT category, profile, title, timing_type, notify_unix, event_time_unix, region
+            FROM pending_notifications
+            WHERE notify_unix >= ? AND notify_unix < ? AND sent=0
+            ORDER BY notify_unix ASC
+        """, (unix_start, unix_end))
+        rows = c.fetchall()
+        conn.close()
+
+        if not rows:
+            report = "No notifications scheduled for today."
+        else:
+            report = f"**Daily Notification Report for {today_start.strftime('%Y-%m-%d')} (GMT+7):**\n"
+            for cat, prof, title, ttype, notify_unix, event_time_unix, region in rows:
+                notify_time = datetime.fromtimestamp(notify_unix, tz).strftime('%H:%M')
+                event_time = datetime.fromtimestamp(event_time_unix, tz).strftime('%H:%M')
+                region_str = f" [{region}]" if region else ""
+                report += (
+                    f"- [{prof}]{region_str} **{title}** ({cat})\n"
+                    f"  • {ttype.capitalize()} at {event_time}, notify at {notify_time}\n"
+                )
+
+        try:
+            owner = await bot.fetch_user(OWNER_ID)
+            await owner.send(report)
+        except Exception as e:
+            print(f"[Daily Report] Failed to send DM: {e}")
 
 # Notification loop function to load and schedule pending notifications
 async def notification_loop():
@@ -300,6 +351,7 @@ async def on_ready():
             await database_handler.update_timer_channel(guild, bot, profile=profile)
     # load and schedule pending notifications
     bot.loop.create_task(notification_loop())
+    bot.loop.create_task(send_daily_report())
 
 @bot.event # Checks for "good girl" and "good boy" in messages
 async def on_message(message):

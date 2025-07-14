@@ -260,18 +260,7 @@ async def send_notification(event, timing_type):
             send_log(event['server_id'], f"No combined role found for {profile} {region}")
             conn.close()
             return
-
-        unix_time = event['start_date'] if timing_type == "start" else event['end_date']
-        time_str = "starting" if timing_type == "start" else "ending"
-        try:
-            await channel.send(
-                f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
-            )
-            send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
-        except Exception as e:
-            send_log(event['server_id'], f"Failed to send notification for {profile} {region}: {e}")
-        conn.close()
-
+        # --- Hoyo Games ---
         # Pick the correct event time for this region
         unix_time = None
         if region == "NA":
@@ -293,6 +282,7 @@ async def send_notification(event, timing_type):
             send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
         except Exception as e:
             send_log(event['server_id'], f"Failed to send notification for {profile} {region}: {e}")
+        conn.close()
     else:
         # --- Non-HYV games: mention the profile role as before ---
         emoji = PROFILE_EMOJIS.get(profile)
