@@ -154,6 +154,9 @@ async def parse_dates(text):
     else:
         return None, None
 
+# Strip server time from date strings
+def strip_server_time(dt_str):
+    return re.sub(r"\s*\(server time\)", "", dt_str, flags=re.IGNORECASE).strip()
 # Honkai: Star Rail specific parsing functions
 def get_version_start_hsr(version_str):
     # Default base: 3.3, 2025/05/21 11:00 (UTC+8)
@@ -365,7 +368,7 @@ def parse_dates_zzz(text):
         
     # Edge case: "After the Version X.X update – <end time>"
     match = re.search(
-        r"After the Version (\d+\.\d+) update\s*[–-]\s*([\d/ :]+(?:\([^)]+\))?)",
+        r"After the Version (\d+\.\d+) update\s*[-–—~]\s*([\d/ :]+(?:\([^)]+\))?)",
         text, re.IGNORECASE)
     if match:
         version = match.group(1)
@@ -376,6 +379,8 @@ def parse_dates_zzz(text):
             start_str = start_dt.strftime("%Y/%m/%d %H:%M (UTC+8)")
         else:
             start_str = None
+        if end_str:
+            end_str = strip_server_time(end_str)
         return start_str, end_str
     
     # 0. Look for a date range anywhere in the text (YYYY/MM/DD HH:MM – YYYY/MM/DD HH:MM)
