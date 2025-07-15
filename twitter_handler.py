@@ -1072,14 +1072,61 @@ async def prompt_for_missing_dates(ctx, start, end, is_hyv=False):
 
 # Function to convert a date string to all three Hoyoverse timezones
 def convert_to_all_timezones(dt_str):
-    # Try to parse as naive datetime (no timezone info)
-    dt = dateparser.parse(dt_str, settings={'RETURN_AS_TIMEZONE_AWARE': False})
+    import dateparser
+    import pytz
+    import re
+
+    dt = dateparser.parse(dt_str, settings={'RETURN_AS_TIMEZONE_AWARE': True})
     if not dt:
-        return None
+        dt = dateparser.parse(dt_str, settings={'RETURN_AS_TIMEZONE_AWARE': False})
+        if not dt:
+            return None
+
+    # Check if dt matches any known version start (ZZZ or HSR)
+    def is_version_start(dt):
+        # ZZZ
+        zzz_base_version = "2.0"
+        zzz_base_date = datetime(2025, 6, 6, 11, 0, tzinfo=timezone(timedelta(hours=8)))
+        # HSR
+        hsr_base_version = "3.3"
+        hsr_base_date = datetime(2025, 5, 21, 11, 0, tzinfo=timezone(timedelta(hours=8)))
+        # Check all known versions in tracker for both games
+        import sqlite3
+        conn = sqlite3.connect('kanami_data.db')
+        c = conn.cursor()
+        for profile, base_version, base_date in [
+            ("ZZZ", zzz_base_version, zzz_base_date),
+            ("HSR", hsr_base_version, hsr_base_date)
+        ]:
+            c.execute("SELECT version, start_date FROM version_tracker WHERE profile=?", (profile,))
+            rows = c.fetchall()
+            for version, start_date in rows:
+                try:
+                    ver_dt = datetime.fromisoformat(start_date)
+                    if abs((dt - ver_dt).total_seconds()) < 60:
+                        conn.close()
+                        return True
+                except Exception:
+                    continue
+            # Also check the base date
+            if abs((dt - base_date).total_seconds()) < 60:
+                conn.close()
+                return True
+        conn.close()
+        return False
+
+    if dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None:
+        if is_version_start(dt):
+            unix = int(dt.timestamp())
+            return {region: (dt, unix) for region in HYV_TIMEZONES}
+        # Otherwise, just use the same time for all regions
+        unix = int(dt.timestamp())
+        return {region: (dt, unix) for region in HYV_TIMEZONES}
+
+    # Otherwise, localize naive time to each region
     results = {}
     for region, tz_name in HYV_TIMEZONES.items():
         tz = pytz.timezone(tz_name)
-        # Localize the naive datetime to the region's timezone
         dt_tz = tz.localize(dt)
         unix = int(dt_tz.timestamp())
         results[region] = (dt_tz, unix)
