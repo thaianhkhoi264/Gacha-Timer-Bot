@@ -459,9 +459,12 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
                 field_name = f"{title} ({category})"
                 if len(field_name) > max_field_name_length:
                     field_name = field_name[:max_field_name_length - 3] + "..."
+                value = "\n\n".join(value_lines)
+                if len(value) > 1024:
+                    value = value[:1021] + "..."
                 fields.append({
                     "name": field_name,
-                    "value": "\n\n".join(value_lines)
+                    "value": value
                 })
     else:
         # Group by (title, category)
