@@ -305,6 +305,57 @@ async def send_daily_report():
         except Exception as e:
             print(f"[Daily Report] Failed to send DM: {e}")
 
+# Task to periodically clean up expired events
+async def expired_event_cleanup_task():
+    """
+    Periodically deletes expired events (where end_date < now) from the database,
+    updates timer channels, and cleans up notifications.
+    """
+    while True:
+        now = int(datetime.now().timestamp())
+        conn = sqlite3.connect('kanami_data.db')
+        c = conn.cursor()
+        # Find expired events for all servers
+        c.execute("SELECT server_id, id, title FROM user_data WHERE end_date != '' AND CAST(end_date AS INTEGER) < ?", (now,))
+        expired = c.fetchall()
+        # Remove expired events and their notifications/messages
+        for server_id, event_id, title in expired:
+            # Remove from user_data
+            c.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+            # Remove pending notifications for this event
+            c.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, title))
+            # Remove event messages
+            c.execute("SELECT channel_id, message_id FROM event_messages WHERE event_id=?", (event_id,))
+            msg_rows = c.fetchall()
+            for channel_id, message_id in msg_rows:
+                guild = bot.get_guild(int(server_id))
+                if guild:
+                    channel = guild.get_channel(int(channel_id))
+                    if channel:
+                        try:
+                            msg = await channel.fetch_message(int(message_id))
+                            await msg.delete()
+                        except Exception:
+                            pass
+            c.execute("DELETE FROM event_messages WHERE event_id=?", (event_id,))
+        conn.commit()
+        # Update timer channels for all affected servers/profiles
+        c.execute("SELECT DISTINCT server_id FROM user_data")
+        server_ids = [row[0] for row in c.fetchall()]
+        conn.close()
+        for server_id in server_ids:
+            guild = bot.get_guild(int(server_id))
+            if not guild:
+                continue
+            conn2 = sqlite3.connect('kanami_data.db')
+            c2 = conn2.cursor()
+            c2.execute("SELECT profile FROM config WHERE server_id=?", (server_id,))
+            profiles = [row[0] for row in c2.fetchall()]
+            conn2.close()
+            for profile in profiles:
+                await database_handler.update_timer_channel(guild, bot, profile=profile)
+        await asyncio.sleep(3600)  # Run every hour
+
 # Notification loop function to load and schedule pending notifications
 async def notification_loop():
     while True:
@@ -349,9 +400,11 @@ async def on_ready():
             continue  # No timer channels set for this server
         for profile in profiles:
             await database_handler.update_timer_channel(guild, bot, profile=profile)
-    # load and schedule pending notifications
+    
+    # load and schedule various tasks
     bot.loop.create_task(notification_loop())
     bot.loop.create_task(send_daily_report())
+    bot.loop.create_task(expired_event_cleanup_task())
 
 @bot.event # Checks for "good girl" and "good boy" in messages
 async def on_message(message):
@@ -559,8 +612,6 @@ async def set_timer_channel(ctx, channel: discord.TextChannel, profile: str = No
 def handle_shutdown(*args):
     loop = asyncio.get_event_loop()
     loop.create_task(shutdown_message())
-    # Optionally, stop the bot after sending the message:
-    # loop.create_task(bot.close())
 
 signal.signal(signal.SIGINT, lambda s, f: handle_shutdown())
 signal.signal(signal.SIGTERM, lambda s, f: handle_shutdown())
