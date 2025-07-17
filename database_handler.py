@@ -766,4 +766,66 @@ async def remove_custom_category(ctx, *, category: str):
     conn.commit()
     conn.close()
     await ctx.send(f"Custom category `{category}` removed for this server!")
-    
+
+@bot.command(name="refresh_all")
+@commands.has_permissions(manage_guild=True)
+async def refresh_all(ctx):
+    """
+    Completely refreshes all event data:
+    - Deletes expired events (end time in the past)
+    - Clears and updates all timer channels (removes ended/expired events)
+    - Clears and recreates all pending notifications
+    """
+    import sqlite3
+    from datetime import datetime
+    from notification_handler import remove_duplicate_pending_notifications, refresh_pending_notifications
+    from database_handler import update_timer_channel
+
+    server_id = str(ctx.guild.id)
+    now = int(datetime.now().timestamp())
+
+    await ctx.send("Refreshing all event data. This may take a moment...")
+
+    # 1. Delete expired events and their notifications/messages
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT id, title FROM user_data WHERE server_id=? AND end_date != '' AND CAST(end_date AS INTEGER) < ?", (server_id, now))
+    expired = c.fetchall()
+    expired_titles = [row[1] for row in expired]
+    for event_id, title in expired:
+        # Remove from user_data
+        c.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+        # Remove pending notifications for this event
+        c.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, title))
+        # Remove event messages
+        c.execute("SELECT channel_id, message_id FROM event_messages WHERE event_id=?", (event_id,))
+        msg_rows = c.fetchall()
+        for channel_id, message_id in msg_rows:
+            channel = ctx.guild.get_channel(int(channel_id))
+            if channel:
+                try:
+                    msg = await channel.fetch_message(int(message_id))
+                    await msg.delete()
+                except Exception:
+                    pass
+        c.execute("DELETE FROM event_messages WHERE event_id=?", (event_id,))
+    conn.commit()
+    conn.close()
+
+    # 2. Update all timer channels for all profiles in this server
+    conn = sqlite3.connect('kanami_data.db')
+    c = conn.cursor()
+    c.execute("SELECT profile FROM config WHERE server_id=?", (server_id,))
+    profiles = [row[0] for row in c.fetchall()]
+    conn.close()
+    for profile in profiles:
+        await update_timer_channel(ctx.guild, bot, profile=profile)
+
+    # 3. Clear and recreate all pending notifications for this server
+    await ctx.invoke(bot.get_command("refresh_pending_notifications"))
+
+    await ctx.send(
+        f"Refreshed all event data!\n"
+        f"Deleted expired events: {', '.join(expired_titles) if expired_titles else 'None'}\n"
+        f"Timer channels and pending notifications have been updated."
+    )    
