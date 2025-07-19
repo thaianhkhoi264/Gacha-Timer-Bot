@@ -281,10 +281,9 @@ class CraftDashboardView(ui.View):
     async def interaction_check(self, interaction: Interaction) -> bool:
         return interaction.user.id == self.user.id
 
-@bot.event
-async def on_message(message):
+async def shadowverse_on_message(message):
     if message.author.bot:
-        return
+        return False
     try:
         sv_channel_id = get_sv_channel_id(message.guild.id)
         if sv_channel_id and message.channel.id == sv_channel_id:
@@ -292,20 +291,18 @@ async def on_message(message):
             try:
                 parsed = parse_sv_input(message.content)
             except Exception as e:
-                # Log parsing error for debugging
                 print(f"[Shadowverse] Parse error: {e}")
             await message.delete()
             if parsed:
                 try:
                     played_craft, enemy_craft, win = parsed
                     record_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win)
-                    # Ephemeral confirmation (Discord doesn't support true ephemeral for normal messages, so DM the user)
                     try:
                         await message.author.send(
                             f"✅ Recorded: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}"
                         )
                     except Exception:
-                        pass  # Ignore DM errors (user may have DMs closed)
+                        pass
                     await update_dashboard_message(message.author, message.channel)
                 except Exception as e:
                     print(f"[Shadowverse] Record error: {e}")
@@ -324,8 +321,10 @@ async def on_message(message):
                     )
                 except Exception:
                     pass
+            return True  # handled
     except Exception as e:
         print(f"[Shadowverse] Unexpected error in on_message: {e}")
+    return False  # not handled
 
 @bot.command(name="shadowverse")
 @commands.has_permissions(manage_channels=True)
@@ -366,4 +365,4 @@ async def shadowverse(ctx, channel_id: int = None):
             await update_dashboard_message(member, channel)
 
 # Initialize the database
-init_sv_db
+init_sv_db()

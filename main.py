@@ -416,6 +416,10 @@ async def on_message(message):
     if await tweet_listener_on_message(message):
         return
 
+    # Call the shadowverse handler to process Shadowverse messages
+    if await shadowverse_handler.shadowverse_on_message(message):
+        return
+
     if "good girl" in message.content.lower():
         emoji = "<:KanamiHeart:1374409597628186624>"  # Custom emoji with the given ID
         await message.channel.send(emoji)
