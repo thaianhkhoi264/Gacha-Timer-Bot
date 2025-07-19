@@ -344,15 +344,10 @@ async def shadowverse_on_message(message):
                 try:
                     if action == "add":
                         record_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win)
-                        await message.author.send(
-                            f"✅ Recorded: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}"
-                        )
                     elif action == "remove":
                         removed = remove_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win)
                         if removed:
-                            await message.author.send(
-                                f"🗑️ Removed one record: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}"
-                            )
+                            pass
                         else:
                             await message.author.send(
                                 f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}"
@@ -378,7 +373,7 @@ async def shadowverse_on_message(message):
             return True  # handled
     except Exception as e:
         print(f"[Shadowverse] Unexpected error in on_message: {e}")
-    return False  # not handled
+    return False  # not
 
 @bot.command(name="shadowverse")
 @commands.has_permissions(manage_channels=True)
