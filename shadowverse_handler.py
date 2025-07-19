@@ -297,12 +297,6 @@ async def shadowverse_on_message(message):
                 try:
                     played_craft, enemy_craft, win = parsed
                     record_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win)
-                    try:
-                        await message.author.send(
-                            f"✅ Recorded: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}"
-                        )
-                    except Exception:
-                        pass
                     await update_dashboard_message(message.author, message.channel)
                 except Exception as e:
                     print(f"[Shadowverse] Record error: {e}")
