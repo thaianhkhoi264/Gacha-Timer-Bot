@@ -281,6 +281,43 @@ class CraftDashboardView(ui.View):
     async def interaction_check(self, interaction: Interaction) -> bool:
         return interaction.user.id == self.user.id
 
+def remove_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool):
+    """
+    Removes one win/loss record for a user if it exists.
+    """
+    if played_craft not in CRAFTS or opponent_craft not in CRAFTS:
+        raise ValueError("Invalid craft name.")
+    conn = sqlite3.connect('shadowverse_data.db')
+    c = conn.cursor()
+    # Check if a record exists
+    c.execute('''
+        SELECT wins, losses FROM winrates
+        WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+    ''', (user_id, server_id, played_craft, opponent_craft))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return False
+    wins, losses = row
+    if win and wins > 0:
+        c.execute('''
+            UPDATE winrates SET wins = wins - 1
+            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+        ''', (user_id, server_id, played_craft, opponent_craft))
+        conn.commit()
+        conn.close()
+        return True
+    elif not win and losses > 0:
+        c.execute('''
+            UPDATE winrates SET losses = losses - 1
+            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+        ''', (user_id, server_id, played_craft, opponent_craft))
+        conn.commit()
+        conn.close()
+        return True
+    conn.close()
+    return False
+
 async def shadowverse_on_message(message):
     if message.author.bot:
         return False
@@ -288,15 +325,38 @@ async def shadowverse_on_message(message):
         sv_channel_id = get_sv_channel_id(message.guild.id)
         if sv_channel_id and message.channel.id == sv_channel_id:
             parsed = None
+            parts = message.content.strip().lower().split()
             try:
-                parsed = parse_sv_input(message.content)
+                if len(parts) == 3:
+                    parsed = parse_sv_input(message.content)
+                    action = "add"
+                elif len(parts) == 4 and parts[3] == "r":
+                    parsed = parse_sv_input(" ".join(parts[:3]))
+                    action = "remove"
+                else:
+                    parsed = None
+                    action = None
             except Exception as e:
                 print(f"[Shadowverse] Parse error: {e}")
             await message.delete()
             if parsed:
+                played_craft, enemy_craft, win = parsed
                 try:
-                    played_craft, enemy_craft, win = parsed
-                    record_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win)
+                    if action == "add":
+                        record_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win)
+                        await message.author.send(
+                            f"✅ Recorded: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}"
+                        )
+                    elif action == "remove":
+                        removed = remove_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win)
+                        if removed:
+                            await message.author.send(
+                                f"🗑️ Removed one record: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}"
+                            )
+                        else:
+                            await message.author.send(
+                                f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}"
+                            )
                     await update_dashboard_message(message.author, message.channel)
                 except Exception as e:
                     print(f"[Shadowverse] Record error: {e}")
@@ -310,7 +370,7 @@ async def shadowverse_on_message(message):
             else:
                 try:
                     await message.channel.send(
-                        f"{message.author.mention} Invalid format. Use `[Your Deck] [Enemy Deck] [Win/Lose]` (e.g., `Sword Dragon Win` or `S D W`).",
+                        f"{message.author.mention} Invalid format. Use `[Your Deck] [Enemy Deck] [Win/Lose]` (e.g., `Sword Dragon Win` or `S D W`). Add `R` at the end to remove a record.",
                         delete_after=5
                     )
                 except Exception:
