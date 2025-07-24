@@ -47,7 +47,7 @@ def init_sv_db():
             channel_id TEXT
         )
     ''')
-    # Winrate tracking table
+    # Winrate tracking table (add bricks column)
     c.execute('''
         CREATE TABLE IF NOT EXISTS winrates (
             user_id TEXT,
@@ -56,20 +56,24 @@ def init_sv_db():
             opponent_craft TEXT,
             wins INTEGER DEFAULT 0,
             losses INTEGER DEFAULT 0,
+            bricks INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, server_id, played_craft, opponent_craft)
         )
     ''')
+    # Add bricks column if missing (for upgrades)
+    try:
+        c.execute('ALTER TABLE winrates ADD COLUMN bricks INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # Already exists
     conn.commit()
     conn.close()
 
-def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool):
+BRICK_EMOJI = "<a:golden_brick:1397960479971741747>"
+
+def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
     """
     Records a match result for a user.
-    :param user_id: Discord user ID
-    :param server_id: Discord server ID
-    :param played_craft: The craft the user played
-    :param opponent_craft: The craft the opponent played
-    :param win: True if user won, False if lost
+    :param brick: True if the match was a brick, False otherwise
     """
     if played_craft not in CRAFTS or opponent_craft not in CRAFTS:
         raise ValueError("Invalid craft name.")
@@ -77,10 +81,10 @@ def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft
     c = conn.cursor()
     # Ensure row exists
     c.execute('''
-        INSERT OR IGNORE INTO winrates (user_id, server_id, played_craft, opponent_craft, wins, losses)
-        VALUES (?, ?, ?, ?, 0, 0)
+        INSERT OR IGNORE INTO winrates (user_id, server_id, played_craft, opponent_craft, wins, losses, bricks)
+        VALUES (?, ?, ?, ?, 0, 0, 0)
     ''', (user_id, server_id, played_craft, opponent_craft))
-    # Update win/loss
+    # Update win/loss/brick
     if win:
         c.execute('''
             UPDATE winrates SET wins = wins + 1
@@ -91,15 +95,23 @@ def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft
             UPDATE winrates SET losses = losses + 1
             WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
         ''', (user_id, server_id, played_craft, opponent_craft))
+    if brick:
+        c.execute('''
+            UPDATE winrates SET bricks = bricks + 1
+            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+        ''', (user_id, server_id, played_craft, opponent_craft))
     conn.commit()
     conn.close()
 
 def parse_sv_input(text):
     # Accepts formats like "Sword Dragon Win", "S D W", "Swordcraft Dragon W", etc.
     parts = text.strip().lower().split()
-    if len(parts) != 3:
+    # Detect R/B at the end (any order)
+    flags = [p for p in parts if p in ("r", "b")]
+    core = [p for p in parts if p not in ("r", "b")]
+    if len(core) != 3:
         return None
-    played, enemy, result = parts
+    played, enemy, result = core
     played_craft = CRAFT_ALIASES.get(played[:6], None) or CRAFT_ALIASES.get(played[0], None)
     enemy_craft = CRAFT_ALIASES.get(enemy[:6], None) or CRAFT_ALIASES.get(enemy[0], None)
     win = None
@@ -107,8 +119,10 @@ def parse_sv_input(text):
         win = True
     elif result.startswith("l"):
         win = False
+    brick = "b" in flags
+    remove = "r" in flags
     if played_craft and enemy_craft and win is not None:
-        return played_craft, enemy_craft, win
+        return played_craft, enemy_craft, win, brick, remove
     return None
 
 def get_sv_channel_id(server_id):
@@ -165,7 +179,6 @@ async def update_dashboard_message(member, channel):
     msg = await channel.send(embed=embed, view=view)
     set_dashboard_message_id(channel.guild.id, member.id, msg.id)
 
-
 def get_user_played_crafts(user_id, server_id):
     """
     Returns a list of crafts the user has recorded matches for (as played_craft).
@@ -182,33 +195,37 @@ def get_user_played_crafts(user_id, server_id):
 
 def get_winrate(user_id, server_id, played_craft):
     """
-    Returns a dict of win/loss stats for the user's played_craft against each opponent craft.
+    Returns a dict of win/loss/brick stats for the user's played_craft against each opponent craft.
     """
     conn = sqlite3.connect('shadowverse_data.db')
     c = conn.cursor()
     c.execute('''
-        SELECT opponent_craft, wins, losses FROM winrates
+        SELECT opponent_craft, wins, losses, bricks FROM winrates
         WHERE user_id=? AND server_id=? AND played_craft=?
     ''', (str(user_id), str(server_id), played_craft))
-    results = {craft: {"wins": 0, "losses": 0} for craft in CRAFTS}
-    for opponent_craft, wins, losses in c.fetchall():
-        results[opponent_craft] = {"wins": wins, "losses": losses}
+    results = {craft: {"wins": 0, "losses": 0, "bricks": 0} for craft in CRAFTS}
+    for opponent_craft, wins, losses, bricks in c.fetchall():
+        results[opponent_craft] = {"wins": wins, "losses": losses, "bricks": bricks}
     conn.close()
     return results
 
 def craft_winrate_summary(user, played_craft, winrate_dict):
     total_wins = sum(v["wins"] for v in winrate_dict.values())
     total_losses = sum(v["losses"] for v in winrate_dict.values())
+    total_bricks = sum(v["bricks"] for v in winrate_dict.values())
     total_games = total_wins + total_losses
     winrate = (total_wins / total_games * 100) if total_games > 0 else 0
     title = f"{user.display_name}\n**{played_craft} {CRAFT_EMOJIS.get(played_craft, '')} Win Rate**"
-    desc = f"**Total:** {total_wins}W / {total_losses}L / Win rate: {winrate:.1f}%\n"
+    desc = f"**Total:** {total_wins}W / {total_losses}L / Win rate: {winrate:.1f}% / {BRICK_EMOJI}: {total_bricks}\n"
     desc += "---\n"
     for craft in CRAFTS:
         v = winrate_dict[craft]
         games = v["wins"] + v["losses"]
         wr = (v["wins"] / games * 100) if games > 0 else 0
-        desc += f"{craft} {CRAFT_EMOJIS.get(craft, '')}: win: {v['wins']} / loss: {v['losses']} / Win rate: {wr:.1f}%\n"
+        desc += (
+            f"{craft} {CRAFT_EMOJIS.get(craft, '')}: "
+            f"win: {v['wins']} / loss: {v['losses']} / Win rate: {wr:.1f}% / {BRICK_EMOJI}: {v['bricks']}\n"
+        )
     return title, desc
 
 class CraftDashboardView(ui.View):
@@ -224,7 +241,7 @@ class CraftDashboardView(ui.View):
         start = page * self.max_per_page
         end = start + self.max_per_page
         crafts_page = crafts[start:end]
-        for i, craft in enumerate(crafts_page):
+        for craft in crafts_page:
             self.add_item(ui.Button(
                 label=craft,
                 emoji=CRAFT_EMOJIS.get(craft, None),
@@ -247,23 +264,12 @@ class CraftDashboardView(ui.View):
     async def interaction_check(self, interaction: Interaction) -> bool:
         return interaction.user.id == self.user.id
 
-    @ui.button(label="dummy", style=ButtonStyle.secondary, disabled=True, row=4)
-    async def dummy(self, interaction: Interaction, button: ui.Button):
-        pass  # Placeholder to avoid empty row error
-
     async def on_error(self, interaction: Interaction, error: Exception, item, /):
         await interaction.response.send_message("An error occurred.", ephemeral=True)
 
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
-
-    @ui.button(label="dummy", style=ButtonStyle.secondary, disabled=True, row=4)
-    async def dummy2(self, interaction: Interaction, button: ui.Button):
-        pass
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        return interaction.user.id == self.user.id
 
     async def on_button_click(self, interaction: Interaction):
         custom_id = interaction.data["custom_id"]
@@ -278,45 +284,45 @@ class CraftDashboardView(ui.View):
         elif custom_id == "prev_page":
             await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1))
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        return interaction.user.id == self.user.id
-
-def remove_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool):
+def remove_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
     """
-    Removes one win/loss record for a user if it exists.
+    Removes one win/loss/brick record for a user if it exists.
     """
     if played_craft not in CRAFTS or opponent_craft not in CRAFTS:
         raise ValueError("Invalid craft name.")
     conn = sqlite3.connect('shadowverse_data.db')
     c = conn.cursor()
-    # Check if a record exists
     c.execute('''
-        SELECT wins, losses FROM winrates
+        SELECT wins, losses, bricks FROM winrates
         WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
     ''', (user_id, server_id, played_craft, opponent_craft))
     row = c.fetchone()
     if not row:
         conn.close()
         return False
-    wins, losses = row
+    wins, losses, bricks = row
+    updated = False
     if win and wins > 0:
         c.execute('''
             UPDATE winrates SET wins = wins - 1
             WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
         ''', (user_id, server_id, played_craft, opponent_craft))
-        conn.commit()
-        conn.close()
-        return True
+        updated = True
     elif not win and losses > 0:
         c.execute('''
             UPDATE winrates SET losses = losses - 1
             WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
         ''', (user_id, server_id, played_craft, opponent_craft))
-        conn.commit()
-        conn.close()
-        return True
+        updated = True
+    if brick and bricks > 0:
+        c.execute('''
+            UPDATE winrates SET bricks = bricks - 1
+            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+        ''', (user_id, server_id, played_craft, opponent_craft))
+        updated = True
+    conn.commit()
     conn.close()
-    return False
+    return updated
 
 async def shadowverse_on_message(message):
     if message.author.bot:
@@ -324,33 +330,46 @@ async def shadowverse_on_message(message):
     try:
         sv_channel_id = get_sv_channel_id(message.guild.id)
         if sv_channel_id and message.channel.id == sv_channel_id:
+            # --- Refresh command for owner ---
+            if (
+                message.author.id == 680653908259110914
+                and message.content.strip().lower() == "refresh"
+            ):
+                await message.delete()
+                # Re-send instruction message
+                instruction = (
+                    "**Shadowverse Winrate Tracker**\n"
+                    "To record a match, type:\n"
+                    "`[Your Deck] [Enemy Deck] [Win/Lose]`\n"
+                    "Examples: `Sword Dragon Win`, `S D W`, `Swordcraft Dragon W`, `Abyss Haven Lose`, `A H L`\n"
+                    "Accepted abbreviations: `F`/`Forest`, `S`/`Sword`, `R`/`Rune`, `D`/`Dragon`, `A`/`Abyss`, `H`/`Haven`, `P`/`Portal`.\n"
+                    "Accepted results: `Win`/`W`, `Lose`/`L`.\n"
+                    "Add `B` for brick, `R` to remove, in any order.\n"
+                    "Your message will be deleted and your dashboard will be updated automatically."
+                )
+                await message.channel.send(instruction)
+                # Update dashboards for all users with data
+                for member in message.guild.members:
+                    if not member.bot:
+                        await update_dashboard_message(member, message.channel)
+                return True
+
             parsed = None
-            parts = message.content.strip().lower().split()
             try:
-                if len(parts) == 3:
-                    parsed = parse_sv_input(message.content)
-                    action = "add"
-                elif len(parts) == 4 and parts[3] == "r":
-                    parsed = parse_sv_input(" ".join(parts[:3]))
-                    action = "remove"
-                else:
-                    parsed = None
-                    action = None
+                parsed = parse_sv_input(message.content)
             except Exception as e:
                 print(f"[Shadowverse] Parse error: {e}")
             await message.delete()
             if parsed:
-                played_craft, enemy_craft, win = parsed
+                played_craft, enemy_craft, win, brick, remove = parsed
                 try:
-                    if action == "add":
-                        record_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win)
-                    elif action == "remove":
-                        removed = remove_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win)
-                        if removed:
-                            pass
-                        else:
+                    if not remove:
+                        record_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win, brick)
+                    else:
+                        removed = remove_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win, brick)
+                        if not removed:
                             await message.author.send(
-                                f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}"
+                                f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}{' (Brick)' if brick else ''}"
                             )
                     await update_dashboard_message(message.author, message.channel)
                 except Exception as e:
@@ -365,7 +384,7 @@ async def shadowverse_on_message(message):
             else:
                 try:
                     await message.channel.send(
-                        f"{message.author.mention} Invalid format. Use `[Your Deck] [Enemy Deck] [Win/Lose]` (e.g., `Sword Dragon Win` or `S D W`). Add `R` at the end to remove a record.",
+                        f"{message.author.mention} Invalid format. Use `[Your Deck] [Enemy Deck] [Win/Lose]` (e.g., `Sword Dragon Win` or `S D W`). Add `B` for brick, `R` to remove, in any order.",
                         delete_after=5
                     )
                 except Exception:
@@ -373,7 +392,7 @@ async def shadowverse_on_message(message):
             return True  # handled
     except Exception as e:
         print(f"[Shadowverse] Unexpected error in on_message: {e}")
-    return False  # not
+    return False
 
 @bot.command(name="shadowverse")
 @commands.has_permissions(manage_channels=True)
@@ -404,6 +423,7 @@ async def shadowverse(ctx, channel_id: int = None):
         "Examples: `Sword Dragon Win`, `S D W`, `Swordcraft Dragon W`, `Abyss Haven Lose`, `A H L`\n"
         "Accepted abbreviations: `F`/`Forest`, `S`/`Sword`, `R`/`Rune`, `D`/`Dragon`, `A`/`Abyss`, `H`/`Haven`, `P`/`Portal`.\n"
         "Accepted results: `Win`/`W`, `Lose`/`L`.\n"
+        "Add `B` for brick, `R` to remove, in any order.\n"
         "Your message will be deleted and your dashboard will be updated automatically."
     )
     await channel.send(instruction)
