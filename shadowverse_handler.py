@@ -104,13 +104,12 @@ def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft
     conn.close()
 
 def parse_sv_input(text):
-    # Accepts formats like "Sword Dragon Win", "S D W", "Swordcraft Dragon W", etc.
     parts = text.strip().lower().split()
-    # Detect R/B at the end (any order)
-    flags = [p for p in parts if p in ("r", "b")]
-    core = [p for p in parts if p not in ("r", "b")]
-    if len(core) != 3:
+    # Only treat r/b as flags if they are after the first 3 parts
+    if len(parts) < 3:
         return None
+    core = parts[:3]
+    flags = [p for p in parts[3:] if p in ("r", "b")]
     played, enemy, result = core
     played_craft = CRAFT_ALIASES.get(played[:6], None) or CRAFT_ALIASES.get(played[0], None)
     enemy_craft = CRAFT_ALIASES.get(enemy[:6], None) or CRAFT_ALIASES.get(enemy[0], None)
