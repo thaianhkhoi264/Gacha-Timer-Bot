@@ -298,32 +298,57 @@ class CraftDashboardView(ui.View):
         self.page = page
         self.max_per_page = 5
 
-        # Only show up to 5 crafts per page, last button is "→" if more pages
         start = page * self.max_per_page
         end = start + self.max_per_page
         crafts_page = crafts[start:end]
         for craft in crafts_page:
-            self.add_item(ui.Button(
+            button = ui.Button(
                 label=craft,
                 emoji=CRAFT_EMOJIS.get(craft, None),
                 style=ButtonStyle.primary,
                 custom_id=f"craft_{craft}"
-            ))
+            )
+            button.callback = self.make_craft_callback(craft)
+            self.add_item(button)
         if end < len(crafts):
-            self.add_item(ui.Button(
+            next_button = ui.Button(
                 label="→",
                 style=ButtonStyle.secondary,
                 custom_id="next_page"
-            ))
+            )
+            next_button.callback = self.next_page_callback
+            self.add_item(next_button)
         if page > 0:
-            self.add_item(ui.Button(
+            prev_button = ui.Button(
                 label="←",
                 style=ButtonStyle.secondary,
                 custom_id="prev_page"
-            ))
+            )
+            prev_button.callback = self.prev_page_callback
+            self.add_item(prev_button)
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        return interaction.user.id == self.user.id
+    def make_craft_callback(self, craft):
+        async def callback(interaction: Interaction):
+            if interaction.user.id != self.user.id:
+                await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
+                return
+            winrate_dict = get_winrate(str(self.user.id), str(self.server_id), craft)
+            title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
+            embed = Embed(title=title, description=desc, color=0x3498db)
+            await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page))
+        return callback
+
+    async def next_page_callback(self, interaction: Interaction):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
+            return
+        await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1))
+
+    async def prev_page_callback(self, interaction: Interaction):
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
+            return
+        await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1))
 
     async def on_error(self, interaction: Interaction, error: Exception, item, /):
         await interaction.response.send_message("An error occurred.", ephemeral=True)
@@ -331,19 +356,6 @@ class CraftDashboardView(ui.View):
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
-
-    async def on_button_click(self, interaction: Interaction):
-        custom_id = interaction.data["custom_id"]
-        if custom_id.startswith("craft_"):
-            craft = custom_id[6:]
-            winrate_dict = get_winrate(str(self.user.id), str(self.server_id), craft)
-            title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
-            embed = Embed(title=title, description=desc, color=0x3498db)
-            await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page))
-        elif custom_id == "next_page":
-            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1))
-        elif custom_id == "prev_page":
-            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1))
 
 def remove_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
     """
