@@ -407,7 +407,7 @@ async def shadowverse_on_message(message):
                     "Accepted abbreviations: `F`/`Forest`, `S`/`Sword`, `R`/`Rune`, `D`/`Dragon`, `A`/`Abyss`, `H`/`Haven`, `P`/`Portal`.\n"
                     "Accepted results: `Win`/`W`, `Lose`/`L`.\n"
                     "Add `B` for brick, `R` to remove, in any order.\n"
-                    "If you want to start a streak, type `streak start`, and to end it, type 'streak end'.\n"
+                    "If you want to start a streak, type `streak start`, and to end it, type `streak end`.\n"
                     "Your message will be deleted and your dashboard will be updated automatically."
                 )
                 await message.channel.send(instruction)
