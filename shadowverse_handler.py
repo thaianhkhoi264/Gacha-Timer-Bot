@@ -2,6 +2,7 @@ import sqlite3
 from discord.ext import commands
 from discord import ui, ButtonStyle, Embed, Interaction
 from bot import bot
+import json
 
 CRAFTS = [
     "Forestcraft",
@@ -227,6 +228,67 @@ def craft_winrate_summary(user, played_craft, winrate_dict):
         )
     return title, desc
 
+# --- Streak DB helpers ---
+def get_streak_state(user_id, server_id):
+    conn = sqlite3.connect('shadowverse_data.db')
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS streaks (
+            user_id TEXT,
+            server_id TEXT,
+            streak_data TEXT,
+            PRIMARY KEY (user_id, server_id)
+        )
+    ''')
+    c.execute('SELECT streak_data FROM streaks WHERE user_id=? AND server_id=?', (str(user_id), str(server_id)))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return json.loads(row[0])
+    return None
+
+def set_streak_state(user_id, server_id, streak_data):
+    conn = sqlite3.connect('shadowverse_data.db')
+    c = conn.cursor()
+    c.execute('''
+        INSERT OR REPLACE INTO streaks (user_id, server_id, streak_data)
+        VALUES (?, ?, ?)
+    ''', (str(user_id), str(server_id), json.dumps(streak_data)))
+    conn.commit()
+    conn.close()
+
+def clear_streak_state(user_id, server_id):
+    conn = sqlite3.connect('shadowverse_data.db')
+    c = conn.cursor()
+    c.execute('DELETE FROM streaks WHERE user_id=? AND server_id=?', (str(user_id), str(server_id)))
+    conn.commit()
+    conn.close()
+
+async def update_streak_dashboard(member, channel, streak_data):
+    # streak_data: list of dicts: [{"played":..., "enemy":..., "win":..., "brick":...}, ...]
+    total = len(streak_data)
+    wins = sum(1 for m in streak_data if m["win"])
+    losses = total - wins
+    bricks = sum(1 for m in streak_data if m.get("brick"))
+    winrate = (wins / total * 100) if total > 0 else 0
+    desc = f"**Streak:** {wins}W / {losses}L / Win rate: {winrate:.1f}% / {BRICK_EMOJI}: {bricks}\n"
+    desc += "---\n"
+    for i, match in enumerate(streak_data, 1):
+        desc += (
+            f"{i}. {match['played']} vs {match['enemy']} — {'Win' if match['win'] else 'Loss'}"
+            + (f" {BRICK_EMOJI}" if match.get("brick") else "") + "\n"
+        )
+    embed = Embed(title=f"{member.display_name}'s Streak", description=desc, color=0xf1c40f)
+    # Send or update streak dashboard message
+    msg = await channel.send(embed=embed)
+    return msg.id
+
+async def delete_streak_dashboard(channel, message_id):
+    try:
+        msg = await channel.fetch_message(message_id)
+        await msg.delete()
+    except Exception:
+        pass
 class CraftDashboardView(ui.View):
     def __init__(self, user, server_id, crafts, page=0):
         super().__init__(timeout=180)
@@ -323,19 +385,20 @@ def remove_match(user_id: str, server_id: str, played_craft: str, opponent_craft
     conn.close()
     return updated
 
+# --- Update shadowverse_on_message ---
 async def shadowverse_on_message(message):
     if message.author.bot:
         return False
     try:
         sv_channel_id = get_sv_channel_id(message.guild.id)
         if sv_channel_id and message.channel.id == sv_channel_id:
-            # --- Refresh command for owner ---
-            if (
-                message.author.id == 680653908259110914
-                and message.content.strip().lower() == "refresh"
-            ):
+            content = message.content.strip().lower()
+            user_id = str(message.author.id)
+            server_id = str(message.guild.id)
+
+            # --- Refresh command ---
+            if message.author.id == 680653908259110914 and content == "refresh":
                 await message.delete()
-                # Re-send instruction message
                 instruction = (
                     "**Shadowverse Winrate Tracker**\n"
                     "To record a match, type:\n"
@@ -344,15 +407,59 @@ async def shadowverse_on_message(message):
                     "Accepted abbreviations: `F`/`Forest`, `S`/`Sword`, `R`/`Rune`, `D`/`Dragon`, `A`/`Abyss`, `H`/`Haven`, `P`/`Portal`.\n"
                     "Accepted results: `Win`/`W`, `Lose`/`L`.\n"
                     "Add `B` for brick, `R` to remove, in any order.\n"
+                    "If you want to start a streak, type `streak start`, and to end it, type 'streak end'.\n"
                     "Your message will be deleted and your dashboard will be updated automatically."
                 )
                 await message.channel.send(instruction)
-                # Update dashboards for all users with data
                 for member in message.guild.members:
                     if not member.bot:
                         await update_dashboard_message(member, message.channel)
                 return True
 
+            # --- Streak start ---
+            if content == "streak start":
+                await message.delete()
+                set_streak_state(user_id, server_id, [])
+                streak_msg_id = await update_streak_dashboard(message.author, message.channel, [])
+                # Save streak dashboard message id
+                set_dashboard_message_id(server_id, f"streak_{user_id}", streak_msg_id)
+                await message.channel.send(f"{message.author.mention} Streak started! All matches will be tracked until you type `streak end`.", delete_after=10)
+                return True
+
+            # --- Streak end ---
+            if content == "streak end":
+                await message.delete()
+                streak_data = get_streak_state(user_id, server_id)
+                streak_msg_id = get_dashboard_message_id(server_id, f"streak_{user_id}")
+                if streak_data and streak_msg_id:
+                    # Prepare streak summary
+                    total = len(streak_data)
+                    wins = sum(1 for m in streak_data if m["win"])
+                    losses = total - wins
+                    bricks = sum(1 for m in streak_data if m.get("brick"))
+                    winrate = (wins / total * 100) if total > 0 else 0
+                    desc = f"**Streak:** {wins}W / {losses}L / Win rate: {winrate:.1f}% / {BRICK_EMOJI}: {bricks}\n"
+                    desc += "---\n"
+                    for i, match in enumerate(streak_data, 1):
+                        desc += (
+                            f"{i}. {match['played']} vs {match['enemy']} — {'Win' if match['win'] else 'Loss'}"
+                            + (f" {BRICK_EMOJI}" if match.get("brick") else "") + "\n"
+                        )
+                    embed = Embed(title=f"{message.author.display_name}'s Streak Summary", description=desc, color=0xf1c40f)
+                    try:
+                        await message.author.send(embed=embed)
+                    except Exception:
+                        pass
+                    await delete_streak_dashboard(message.channel, streak_msg_id)
+                    clear_streak_state(user_id, server_id)
+                    # Remove streak dashboard message id
+                    set_dashboard_message_id(server_id, f"streak_{user_id}", None)
+                    await message.channel.send(f"{message.author.mention} Streak ended! Summary sent via DM.", delete_after=10)
+                else:
+                    await message.channel.send(f"{message.author.mention} No active streak to end.", delete_after=10)
+                return True
+
+            # --- Normal match logging ---
             parsed = None
             try:
                 parsed = parse_sv_input(message.content)
@@ -362,10 +469,46 @@ async def shadowverse_on_message(message):
             if parsed:
                 played_craft, enemy_craft, win, brick, remove = parsed
                 try:
+                    # If streak is active, log to streak
+                    streak_data = get_streak_state(user_id, server_id)
+                    streak_msg_id = get_dashboard_message_id(server_id, f"streak_{user_id}")
+                    if streak_data is not None:
+                        streak_data.append({
+                            "played": played_craft,
+                            "enemy": enemy_craft,
+                            "win": win,
+                            "brick": brick
+                        })
+                        set_streak_state(user_id, server_id, streak_data)
+                        # Update streak dashboard
+                        if streak_msg_id:
+                            try:
+                                msg = await message.channel.fetch_message(streak_msg_id)
+                                total = len(streak_data)
+                                wins = sum(1 for m in streak_data if m["win"])
+                                losses = total - wins
+                                bricks = sum(1 for m in streak_data if m.get("brick"))
+                                winrate = (wins / total * 100) if total > 0 else 0
+                                desc = f"**Streak:** {wins}W / {losses}L / Win rate: {winrate:.1f}% / {BRICK_EMOJI}: {bricks}\n"
+                                desc += "---\n"
+                                for i, match in enumerate(streak_data, 1):
+                                    desc += (
+                                        f"{i}. {match['played']} vs {match['enemy']} — {'Win' if match['win'] else 'Loss'}"
+                                        + (f" {BRICK_EMOJI}" if match.get("brick") else "") + "\n"
+                                    )
+                                embed = Embed(title=f"{message.author.display_name}'s Streak", description=desc, color=0xf1c40f)
+                                await msg.edit(embed=embed)
+                            except Exception:
+                                pass
+                        else:
+                            # Create streak dashboard if missing
+                            streak_msg_id = await update_streak_dashboard(message.author, message.channel, streak_data)
+                            set_dashboard_message_id(server_id, f"streak_{user_id}", streak_msg_id)
+                    # Continue with normal winrate logging
                     if not remove:
-                        record_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win, brick)
+                        record_match(user_id, server_id, played_craft, enemy_craft, win, brick)
                     else:
-                        removed = remove_match(str(message.author.id), str(message.guild.id), played_craft, enemy_craft, win, brick)
+                        removed = remove_match(user_id, server_id, played_craft, enemy_craft, win, brick)
                         if not removed:
                             await message.author.send(
                                 f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}{' (Brick)' if brick else ''}"
@@ -391,7 +534,7 @@ async def shadowverse_on_message(message):
             return True  # handled
     except Exception as e:
         print(f"[Shadowverse] Unexpected error in on_message: {e}")
-    return False
+    return False  # not handled
 
 @bot.command(name="shadowverse")
 @commands.has_permissions(manage_channels=True)
@@ -423,6 +566,7 @@ async def shadowverse(ctx, channel_id: int = None):
         "Accepted abbreviations: `F`/`Forest`, `S`/`Sword`, `R`/`Rune`, `D`/`Dragon`, `A`/`Abyss`, `H`/`Haven`, `P`/`Portal`.\n"
         "Accepted results: `Win`/`W`, `Lose`/`L`.\n"
         "Add `B` for brick, `R` to remove, in any order.\n"
+        "If you want to start a streak, type `streak start`, and to end it, type 'streak end'.\n"
         "Your message will be deleted and your dashboard will be updated automatically."
     )
     await channel.send(instruction)
