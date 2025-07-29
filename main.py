@@ -421,7 +421,7 @@ async def on_message(message):
         return
 
     if "good girl" in message.content.lower():
-        emoji = "<:KanamiHeart:1374409597628186624>"  # Custom emoji with the given ID
+        emoji = "<:KanamiHeart:1374409597628186624>"
         await message.channel.send(emoji)
 
     if "good boy" in message.content.lower():
