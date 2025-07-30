@@ -9,6 +9,14 @@ WISHLIST_USER_ID = 1008040282501152869
 OWNER_ID = 680653908259110914
 DB_PATH = "wishlist_data.db"
 
+def init_wishlist_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS wishlist (item TEXT PRIMARY KEY)")
+    c.execute("CREATE TABLE IF NOT EXISTS wishlist_msg (user_id TEXT PRIMARY KEY, message_id TEXT)")
+    conn.commit()
+    conn.close()
+
 def get_wishlist():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -78,6 +86,8 @@ async def send_wishlist_dashboard(bot):
     # Always send a copy to the owner (new message)
     owner = await bot.fetch_user(OWNER_ID)
     await owner.send(embed=embed)
+
+init_wishlist_db()
 
 
 @bot.command()
