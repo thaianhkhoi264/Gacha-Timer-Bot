@@ -3,7 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import modules
 import sqlite3
-import bot
+from bot import bot
 
 WISHLIST_USER_ID = 1008040282501152869
 OWNER_ID = 680653908259110914
