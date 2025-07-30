@@ -1,6 +1,9 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
+import modules
 import sqlite3
+import bot
 
 WISHLIST_USER_ID = 1008040282501152869
 OWNER_ID = 680653908259110914
@@ -76,33 +79,33 @@ async def send_wishlist_dashboard(bot):
     owner = await bot.fetch_user(OWNER_ID)
     await owner.send(embed=embed)
 
-def setup(bot):
-    @bot.command()
-    @commands.is_owner()
-    async def wishlist_add(ctx, *, item: str):
-        """Owner: Add an item to the wishlist."""
-        success = add_wishlist_item(item)
-        if success:
-            await ctx.send(f"Added `{item}` to the wishlist.")
-            await send_wishlist_dashboard(ctx.bot)
-        else:
-            await ctx.send(f"`{item}` is already in the wishlist.")
 
-    @bot.command()
-    @commands.is_owner()
-    async def wishlist_remove(ctx, *, item: str):
-        """Owner: Remove an item from the wishlist."""
-        remove_wishlist_item(item)
-        await ctx.send(f"Removed `{item}` from the wishlist.")
+@bot.command()
+@commands.is_owner()
+async def wishlist_add(ctx, *, item: str):
+    """Owner: Add an item to the wishlist."""
+    success = add_wishlist_item(item)
+    if success:
+        await ctx.send(f"Added `{item}` to the wishlist.")
         await send_wishlist_dashboard(ctx.bot)
+    else:
+        await ctx.send(f"`{item}` is already in the wishlist.")
 
-    @bot.command()
-    @commands.is_owner()
-    async def wishlist_show(ctx):
-        """Owner: Show the current wishlist."""
-        items = get_wishlist()
-        if items:
-            msg = "**Current Wishlist:**\n" + "\n".join([f"• {item}" for item in items])
-        else:
-            msg = "The wishlist is empty."
-        await ctx.send(msg)
+@bot.command()
+@commands.is_owner()
+async def wishlist_remove(ctx, *, item: str):
+    """Owner: Remove an item from the wishlist."""
+    remove_wishlist_item(item)
+    await ctx.send(f"Removed `{item}` from the wishlist.")
+    await send_wishlist_dashboard(ctx.bot)
+
+@bot.command()
+@commands.is_owner()
+async def wishlist_show(ctx):
+    """Owner: Show the current wishlist."""
+    items = get_wishlist()
+    if items:
+        msg = "**Current Wishlist:**\n" + "\n".join([f"• {item}" for item in items])
+    else:
+        msg = "The wishlist is empty."
+    await ctx.send(msg)
