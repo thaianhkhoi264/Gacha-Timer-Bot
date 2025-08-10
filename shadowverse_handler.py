@@ -3,6 +3,8 @@ from discord.ext import commands
 from discord import ui, ButtonStyle, Embed, Interaction
 from bot import bot
 import json
+import discord
+import io
 
 CRAFTS = [
     "Forestcraft",
@@ -289,6 +291,51 @@ async def delete_streak_dashboard(channel, message_id):
         await msg.delete()
     except Exception:
         pass
+
+async def export_sv_db_command(message):
+    """
+    Exports the current Shadowverse database to a readable .txt file and sends it to the user.
+    Usage: Type 'exportdb' in the Shadowverse channel.
+    """
+    sv_channel_id = get_sv_channel_id(message.guild.id)
+    if sv_channel_id and message.channel.id == sv_channel_id:
+        if message.author.bot:
+            return
+        # Only allow server admins to export
+        if not message.author.guild_permissions.administrator:
+            await message.channel.send(f"{message.author.mention} You need administrator permissions to export the database.", delete_after=5)
+            return
+
+        conn = sqlite3.connect('shadowverse_data.db')
+        c = conn.cursor()
+        output = io.StringIO()
+
+        # Export channel assignments
+        output.write("# channel_assignments\n")
+        for row in c.execute('SELECT server_id, channel_id FROM channel_assignments'):
+            output.write(f"{row[0]}\t{row[1]}\n")
+
+        # Export winrates
+        output.write("\n# winrates\n")
+        for row in c.execute('SELECT user_id, server_id, played_craft, opponent_craft, wins, losses, bricks FROM winrates'):
+            output.write("\t".join(map(str, row)) + "\n")
+
+        # Export dashboard messages
+        output.write("\n# dashboard_messages\n")
+        for row in c.execute('SELECT server_id, user_id, message_id FROM dashboard_messages'):
+            output.write("\t".join(map(str, row)) + "\n")
+
+        # Export streaks
+        output.write("\n# streaks\n")
+        for row in c.execute('SELECT user_id, server_id, streak_data FROM streaks'):
+            output.write("\t".join(map(str, row)) + "\n")
+
+        conn.close()
+        output.seek(0)
+        file = discord.File(fp=io.BytesIO(output.getvalue().encode()), filename="shadowverse_export.txt")
+        await message.author.send("Here is your exported Shadowverse database:", file=file)
+        await message.channel.send(f"{message.author.mention} Exported database sent via DM.", delete_after=5)
+
 class CraftDashboardView(ui.View):
     def __init__(self, user, server_id, crafts, page=0):
         super().__init__(timeout=180)
@@ -471,6 +518,14 @@ async def shadowverse_on_message(message):
                     await message.channel.send(f"{message.author.mention} No active streak to end.", delete_after=10)
                 return True
 
+            # --- Export database command ---
+            sv_channel_id = get_sv_channel_id(message.guild.id)
+            if sv_channel_id and message.channel.id == sv_channel_id:
+                content = message.content.strip().lower()
+                # --- Export DB command ---
+                if content == "exportdb":
+                    await export_sv_db_command(message)
+                    return True
             # --- Normal match logging ---
             parsed = None
             try:
