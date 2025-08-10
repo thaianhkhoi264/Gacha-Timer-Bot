@@ -138,10 +138,13 @@ def get_sv_channel_id(server_id):
 def set_dashboard_message_id(server_id, user_id, message_id):
     conn = sqlite3.connect('shadowverse_data.db')
     c = conn.cursor()
-    c.execute('''
-        INSERT OR REPLACE INTO dashboard_messages (server_id, user_id, message_id)
-        VALUES (?, ?, ?)
-    ''', (str(server_id), str(user_id), str(message_id)))
+    if message_id is not None:
+        c.execute('''
+            INSERT OR REPLACE INTO dashboard_messages (server_id, user_id, message_id)
+            VALUES (?, ?, ?)
+        ''', (str(server_id), str(user_id), str(message_id)))
+    else:
+        c.execute('DELETE FROM dashboard_messages WHERE server_id=? AND user_id=?', (str(server_id), str(user_id)))
     conn.commit()
     conn.close()
 
@@ -159,7 +162,9 @@ def get_dashboard_message_id(server_id, user_id):
     c.execute('SELECT message_id FROM dashboard_messages WHERE server_id=? AND user_id=?', (str(server_id), str(user_id)))
     row = c.fetchone()
     conn.close()
-    return int(row[0]) if row else None
+    if row and row[0] and row[0].isdigit():
+        return int(row[0])
+    return None
 
 async def update_dashboard_message(member, channel):
     crafts = get_user_played_crafts(str(member.id), str(channel.guild.id))
