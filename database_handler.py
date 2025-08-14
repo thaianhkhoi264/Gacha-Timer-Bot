@@ -5,6 +5,9 @@ from modules import *
 from bot import bot
 import asyncio
 
+import dateparser
+import re
+
 # Initialize the database
 def init_db():
     conn = sqlite3.connect('kanami_data.db')
@@ -372,28 +375,82 @@ def convert_to_unix_tz(date: str, time: str, timezone_str: str = "UTC"):
 
 
 @bot.command()
-async def add(ctx, title: str, start: str, end: str, image: str = None, profile: str = None, category: str = None, timezone_str: str = "UTC"):
+async def add(ctx, *, args: str):
     """
-    Adds a new entry to the database.
-    For HSR/ZZZ, prompts for all three region times in server time.
+    Adds a new event using fuzzy date/time parsing.
+    Usage: Kanami add <title> <start> <end> [image] [profile] [category] [timezone]
+    Example: Kanami add "Shadowverse Battle Fest Vol. 1" 2025-08-14 13:00 2025-08-17 13:00 https://image.url AK Event PT Asia/Tokyo
     """
-    import sqlite3
-    import asyncio
-    from notification_handler import schedule_notifications_for_event, remove_duplicate_pending_notifications
+    def extract_quoted(text):
+        return re.findall(r'"([^"]+)"', text)
 
-    def parse_time(val, tz):
+    # Extract quoted title
+    quoted = extract_quoted(args)
+    title = quoted[0] if quoted else None
+    rest = args
+    if title:
+        rest = rest.replace(f'"{title}"', '').strip()
+
+    # Find all date-like patterns
+    date_patterns = re.findall(
+        r'(\d{4}[-/]\d{2}[-/]\d{2} \d{1,2}:\d{2}(?:\s*\([^)]+\))?|'
+        r'\d{1,2}[-/]\d{1,2}(?:[-/]\d{2,4})? \d{1,2}:\d{2}(?:\s*\([^)]+\))?|'
+        r'\d{1,2}:\d{2}(?:\s*\([^)]+\))?)',
+        rest
+    )
+    # Remove duplicates, preserve order
+    seen = set()
+    dates = []
+    for d in date_patterns:
+        if d not in seen:
+            seen.add(d)
+            dates.append(d)
+    # Try to parse with dateparser
+    parsed = []
+    for d in dates:
+        dt = dateparser.parse(d, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+        if dt:
+            parsed.append((d, dt))
+    # If less than 2, try to find more with dateparser.search
+    if len(parsed) < 2:
         try:
-            return int(val)
-        except ValueError:
-            pass
-        try:
-            if len(val) == 10:
-                val += " 00:00"
-            return convert_to_unix_tz(val.split()[0], val.split()[1], tz)
+            results = dateparser.search.search_dates(rest, settings={'RETURN_AS_TIMEZONE_AWARE': True}) or []
+            for result in results:
+                d, dt = result
+                if dt and (d, dt) not in parsed:
+                    parsed.append((d, dt))
         except Exception:
-            raise ValueError("Invalid date/time format. Use YYYY-MM-DD HH:MM or unix timestamp.")
+            pass
 
+    # Find timezone (must be present or prompt)
+    tz_match = re.search(r'([A-Za-z_]+/[A-Za-z_]+|UTC[+-]?\d{0,2}|GMT[+-]?\d{0,2})', rest)
+    timezone_str = tz_match.group(1) if tz_match else None
+    if not timezone_str:
+        await ctx.send("No timezone detected. Please enter the timezone for this event (e.g. `Asia/Tokyo`, `UTC+8`, etc.):")
+        def check(m): return m.author == ctx.author and m.channel == ctx.channel
+        try:
+            msg = await bot.wait_for("message", timeout=60.0, check=check)
+            timezone_str = msg.content.strip()
+        except Exception:
+            await ctx.send("No timezone provided. Cancelling.")
+            return
+
+    # Try to extract image, profile, category (optional, after timezone)
+    after_tz = rest.split(timezone_str, 1)[-1].strip() if timezone_str in rest else rest
+    image = None
+    profile = None
+    category = None
+    extras = after_tz.split()
     valid_profiles = ["HSR", "ZZZ", "AK", "STRI", "WUWA", "ALL"]
+    for extra in extras:
+        if extra.startswith("http://") or extra.startswith("https://"):
+            image = extra
+        elif extra.upper() in valid_profiles:
+            profile = extra.upper()
+        else:
+            category = extra
+
+    # Prompt for missing profile/category if needed
     if not profile:
         await ctx.send(f"Which profile is this event for? (Type one of: {', '.join(valid_profiles)})")
         def profile_check(m):
@@ -404,13 +461,7 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
         except Exception:
             await ctx.send("No valid profile provided. Event not added.")
             return
-    else:
-        profile = profile.upper()
-        if profile not in valid_profiles:
-            await ctx.send(f"Invalid profile `{profile}`. Must be one of: {', '.join(valid_profiles)}.")
-            return
 
-    # Prompt for category if not provided
     if not category:
         await ctx.send("What category is this event? (e.g. Banner, Event, EX, etc.)")
         def cat_check(m):
@@ -422,129 +473,51 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
             await ctx.send("No category provided. Event not added.")
             return
 
-    # For HYV games, prompt for all three region times
-    if profile in ("HSR", "ZZZ"):
-        await ctx.send("Enter **Asia server** start date/time (YYYY-MM-DD HH:MM, server time):")
-        def check(m): return m.author == ctx.author and m.channel == ctx.channel
-        try:
-            asia_start_msg = await bot.wait_for("message", timeout=60.0, check=check)
-            asia_start = parse_time(asia_start_msg.content, "Asia/Shanghai")
-        except Exception:
-            await ctx.send("No valid Asia start time provided. Event not added.")
-            return
-
-        await ctx.send("Enter **Asia server** end date/time (YYYY-MM-DD HH:MM, server time):")
-        try:
-            asia_end_msg = await bot.wait_for("message", timeout=60.0, check=check)
-            asia_end = parse_time(asia_end_msg.content, "Asia/Shanghai")
-        except Exception:
-            await ctx.send("No valid Asia end time provided. Event not added.")
-            return
-
-        await ctx.send("Enter **America server** start date/time (YYYY-MM-DD HH:MM, server time):")
-        try:
-            america_start_msg = await bot.wait_for("message", timeout=60.0, check=check)
-            america_start = parse_time(america_start_msg.content, "America/New_York")
-        except Exception:
-            await ctx.send("No valid America start time provided. Event not added.")
-            return
-
-        await ctx.send("Enter **America server** end date/time (YYYY-MM-DD HH:MM, server time):")
-        try:
-            america_end_msg = await bot.wait_for("message", timeout=60.0, check=check)
-            america_end = parse_time(america_end_msg.content, "America/New_York")
-        except Exception:
-            await ctx.send("No valid America end time provided. Event not added.")
-            return
-
-        await ctx.send("Enter **Europe server** start date/time (YYYY-MM-DD HH:MM, server time):")
-        try:
-            europe_start_msg = await bot.wait_for("message", timeout=60.0, check=check)
-            europe_start = parse_time(europe_start_msg.content, "Europe/Berlin")
-        except Exception:
-            await ctx.send("No valid Europe start time provided. Event not added.")
-            return
-
-        await ctx.send("Enter **Europe server** end date/time (YYYY-MM-DD HH:MM, server time):")
-        try:
-            europe_end_msg = await bot.wait_for("message", timeout=60.0, check=check)
-            europe_end = parse_time(europe_end_msg.content, "Europe/Berlin")
-        except Exception:
-            await ctx.send("No valid Europe end time provided. Event not added.")
-            return
-
-        # Use Asia server as the global start/end
-        start_unix = asia_start
-        end_unix = asia_end
-
-        # Insert into DB
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        base_title = title
-        suffix = 1
-        new_title = base_title
-        while True:
-            c.execute(
-                "SELECT COUNT(*) FROM user_data WHERE server_id=? AND title=?",
-                (str(ctx.guild.id), new_title)
-            )
-            count = c.fetchone()[0]
-            if count == 0:
-                break
-            suffix += 1
-            new_title = f"{base_title} {suffix}"
-
-        c.execute(
-            "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(ctx.author.id), str(ctx.guild.id), new_title, str(start_unix), str(end_unix), image, category, 1,
-             str(asia_start), str(asia_end), str(america_start), str(america_end), str(europe_start), str(europe_end), profile)
-        )
-        conn.commit()
-        conn.close()
-
-        await ctx.send(
-            f"Added `{new_title}` as **{category}** for **{profile}** with region times to the database!"
-        )
-
-        # Update timer channels and schedule notifications for all regions
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
-        profiles = [row[0] for row in c.fetchall()]
-        conn.close()
-        for prof in profiles:
-            await update_timer_channel(ctx.guild, bot, profile=prof)
-
-        # Schedule notifications for each region
-        for region, region_start, region_end in [
-            ("NA", america_start, america_end),
-            ("EU", europe_start, europe_end),
-            ("ASIA", asia_start, asia_end)
-        ]:
-            event = {
-                'server_id': str(ctx.guild.id),
-                'category': category,
-                'profile': profile,
-                'title': new_title,
-                'start_date': str(region_start),
-                'end_date': str(region_end),
-                'region': region
-            }
-            asyncio.create_task(schedule_notifications_for_event(event))
-        return
-
-    # --- Non-HYV logic below (unchanged) ---
+    # Parse start/end times
+    now = datetime.now()
+    year = now.year
     try:
-        start_unix = parse_time(start, timezone_str)
-        end_unix = parse_time(end, timezone_str)
+        if len(parsed) >= 2:
+            start_dt = parsed[0][1]
+            end_dt = parsed[1][1]
+        elif len(parsed) == 1:
+            start_dt = parsed[0][1]
+            await ctx.send("Only one date found. How many days does this event last? (Enter a number, e.g. `14`)")
+            def dur_check(m): return m.author == ctx.author and m.channel == ctx.channel
+            try:
+                msg = await bot.wait_for("message", timeout=60.0, check=dur_check)
+                days = int(msg.content.strip())
+            except Exception:
+                await ctx.send("No valid duration provided. Cancelling.")
+                return
+            end_dt = start_dt + timedelta(days=days)
+        else:
+            await ctx.send("Could not find valid date/time in your message. Please provide start and end times.")
+            return
     except Exception as e:
-        await ctx.send(f"Error parsing date/time: {e}")
+        await ctx.send(f"Error parsing times: {e}")
         return
 
-    # Insert into DB for non-HYV
+    # Convert to UTC unix timestamps
+    try:
+        if start_dt.tzinfo is None:
+            import pytz
+            tz = pytz.timezone(timezone_str)
+            start_dt = tz.localize(start_dt)
+        start_unix = int(start_dt.astimezone(datetime.timezone.utc).timestamp())
+        if end_dt.tzinfo is None:
+            import pytz
+            tz = pytz.timezone(timezone_str)
+            end_dt = tz.localize(end_dt)
+        end_unix = int(end_dt.astimezone(datetime.timezone.utc).timestamp())
+    except Exception as e:
+        await ctx.send(f"Error converting times to UTC: {e}")
+        return
+
+    # Insert into DB
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
-    base_title = title
+    base_title = title if title else "Untitled Event"
     suffix = 1
     new_title = base_title
     while True:
@@ -566,7 +539,8 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
     conn.close()
 
     await ctx.send(
-        f"Added `{new_title}` as **{category}** for **{profile}** to the database!"
+        f"Added `{new_title}` as **{category}** for **{profile}** to the database!\n"
+        f"Start: <t:{start_unix}:F>\nEnd: <t:{end_unix}:F>\nTimezone: {timezone_str}"
     )
 
     # Update timer channels and schedule notifications
@@ -586,6 +560,8 @@ async def add(ctx, title: str, start: str, end: str, image: str = None, profile:
         'start_date': str(start_unix),
         'end_date': str(end_unix)
     }
+    from notification_handler import schedule_notifications_for_event, remove_duplicate_pending_notifications
+    import asyncio
     asyncio.create_task(schedule_notifications_for_event(event))
     remove_duplicate_pending_notifications()
 
