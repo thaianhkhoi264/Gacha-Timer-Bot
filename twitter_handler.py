@@ -44,17 +44,15 @@ def normalize_profile(profile):
         return "ALL"
     return PROFILE_NORMALIZATION.get(profile.lower(), profile.upper())
 
-def get_version_start_dynamic(profile, version_str, default_base_version, default_base_date):
+async def get_version_start_dynamic(profile, version_str, default_base_version, default_base_date):
     """
     Looks up the latest known version and start date for the profile.
     If the requested version is newer, calculates its start date as 6 weeks after the last known.
     If not found, uses the default base.
     """
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT version, start_date FROM version_tracker WHERE profile=?", (profile,))
-    row = c.fetchone()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT version, start_date FROM version_tracker WHERE profile=?", (profile,)) as cursor:
+            row = await cursor.fetchone()
 
     # Parse version numbers
     def parse_version(v):
@@ -80,15 +78,16 @@ def get_version_start_dynamic(profile, version_str, default_base_version, defaul
     start_date = base_date + timedelta(weeks=6 * delta_versions)
     return start_date
 
-def update_version_tracker(profile, version_str, start_date):
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute(
-        "INSERT OR REPLACE INTO version_tracker (profile, version, start_date) VALUES (?, ?, ?)",
-        (profile, version_str, start_date.isoformat())
-    )
-    conn.commit()
-    conn.close()
+async def update_version_tracker(profile, version_str, start_date):
+    """
+    Updates the version tracker table with the given profile, version, and start date.
+    """
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        await conn.execute(
+            "INSERT OR REPLACE INTO version_tracker (profile, version, start_date) VALUES (?, ?, ?)",
+            (profile, version_str, start_date.isoformat())
+        )
+        await conn.commit()
 
 # General date parsing function
 async def parse_dates(text):
@@ -873,7 +872,7 @@ HYV_TIMEZONES = {
 # Set of poster usernames that use triple timezone display
 HYV_ACCOUNTS = {"honkaistarrail", "zzz_en"}
 
-def prepare_hyv_event_entries(ctx, base_event, start_times, end_times, image, category, event_profile, title):
+async def prepare_hyv_event_entries(ctx, base_event, start_times, end_times, image, category, event_profile, title):
     """
     Returns a list of event dicts, one for each HYV region, ready for notification scheduling.
     Also inserts the event into the database with all regional times.
@@ -893,31 +892,29 @@ def prepare_hyv_event_entries(ctx, base_event, start_times, end_times, image, ca
     europe_end = str(end_times["Europe"][1])
 
     # Insert into DB (single row with all regional times)
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    base_title = title
-    suffix = 1
-    new_title = base_title
-    while True:
-        c.execute(
-            "SELECT COUNT(*) FROM user_data WHERE server_id=? AND title=?",
-            (str(ctx.guild.id), new_title)
-        )
-        count = c.fetchone()[0]
-        if count == 0:
-            break
-        suffix += 1
-        new_title = f"{base_title} {suffix}"
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        base_title = title
+        suffix = 1
+        new_title = base_title
+        while True:
+            async with conn.execute(
+                "SELECT COUNT(*) FROM user_data WHERE server_id=? AND title=?",
+                (str(ctx.guild.id), new_title)
+            ) as cursor:
+                count = (await cursor.fetchone())[0]
+            if count == 0:
+                break
+            suffix += 1
+            new_title = f"{base_title} {suffix}"
 
-    c.execute(
-         "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-         (
-             str(ctx.author.id), str(ctx.guild.id), new_title, "", "", image, category, 1,
-              asia_start, asia_end, america_start, america_end, europe_start, europe_end, event_profile
-          )
-    )
-    conn.commit()
-    conn.close()
+        await conn.execute(
+            "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(ctx.author.id), str(ctx.guild.id), new_title, "", "", image, category, 1,
+                asia_start, asia_end, america_start, america_end, europe_start, europe_end, event_profile
+            )
+        )
+        await conn.commit()
 
     # Prepare event dicts for notification scheduling (one per region)
     event_entries = []
@@ -1071,7 +1068,11 @@ async def prompt_for_missing_dates(ctx, start, end, is_hyv=False):
     return start, end
 
 # Function to convert a date string to all three Hoyoverse timezones
-def convert_to_all_timezones(dt_str):
+async def convert_to_all_timezones(dt_str):
+    """
+    Converts a date string to all three Hoyoverse timezones and returns a dict of region: (datetime, unix).
+    Checks version tracker for known version start dates.
+    """
     import dateparser
     import pytz
     import re
@@ -1083,40 +1084,34 @@ def convert_to_all_timezones(dt_str):
             return None
 
     # Check if dt matches any known version start (ZZZ or HSR)
-    def is_version_start(dt):
+    async def is_version_start(dt):
         # ZZZ
         zzz_base_version = "2.0"
         zzz_base_date = datetime(2025, 6, 6, 11, 0, tzinfo=timezone(timedelta(hours=8)))
         # HSR
         hsr_base_version = "3.3"
         hsr_base_date = datetime(2025, 5, 21, 11, 0, tzinfo=timezone(timedelta(hours=8)))
-        # Check all known versions in tracker for both games
-        import sqlite3
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        for profile, base_version, base_date in [
-            ("ZZZ", zzz_base_version, zzz_base_date),
-            ("HSR", hsr_base_version, hsr_base_date)
-        ]:
-            c.execute("SELECT version, start_date FROM version_tracker WHERE profile=?", (profile,))
-            rows = c.fetchall()
-            for version, start_date in rows:
-                try:
-                    ver_dt = datetime.fromisoformat(start_date)
-                    if abs((dt - ver_dt).total_seconds()) < 60:
-                        conn.close()
-                        return True
-                except Exception:
-                    continue
-            # Also check the base date
-            if abs((dt - base_date).total_seconds()) < 60:
-                conn.close()
-                return True
-        conn.close()
+        async with aiosqlite.connect('kanami_data.db') as conn:
+            for profile, base_version, base_date in [
+                ("ZZZ", zzz_base_version, zzz_base_date),
+                ("HSR", hsr_base_version, hsr_base_date)
+            ]:
+                async with conn.execute("SELECT version, start_date FROM version_tracker WHERE profile=?", (profile,)) as cursor:
+                    rows = await cursor.fetchall()
+                for version, start_date in rows:
+                    try:
+                        ver_dt = datetime.fromisoformat(start_date)
+                        if abs((dt - ver_dt).total_seconds()) < 60:
+                            return True
+                    except Exception:
+                        continue
+                # Also check the base date
+                if abs((dt - base_date).total_seconds()) < 60:
+                    return True
         return False
 
     if dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None:
-        if is_version_start(dt):
+        if await is_version_start(dt):
             unix = int(dt.timestamp())
             return {region: (dt, unix) for region in HYV_TIMEZONES}
         # Otherwise, just use the same time for all regions
@@ -1230,6 +1225,8 @@ async def read(ctx, link: str):
     import traceback
     from database_handler import update_timer_channel
     from notification_handler import schedule_notifications_for_event, remove_duplicate_pending_notifications
+    import aiosqlite
+
     assumed_end = False
 
     print("[DEBUG] read: Starting command")
@@ -1332,22 +1329,14 @@ async def read(ctx, link: str):
                     print(f"[DEBUG] read: Exception autofilling end date: {e}")
                     return
 
-        """   # --- Autofill for missing dates ---
-        if not start:
-            start = "2001/01/01 00:00"
-            print("[DEBUG] read: Autofilled start date.")
-        if not end:
-            end = "2001/01/01 00:00"
-            print("[DEBUG] read: Autofilled end date.")"""
-
         is_hyv = username in HYV_ACCOUNTS
         print(f"[DEBUG] read: is_hyv={is_hyv}")
 
         # --- Hoyoverse logic below ---
         if is_hyv:
             print("[DEBUG] read: Converting to all timezones...")
-            start_times = convert_to_all_timezones(start)
-            end_times = convert_to_all_timezones(end)
+            start_times = await convert_to_all_timezones(start)
+            end_times = await convert_to_all_timezones(end)
             print(f"[DEBUG] read: start_times={start_times}, end_times={end_times}")
             if not (start_times and end_times):
                 await ctx.send("Could not parse start or end time for all regions. Cancelling.")
@@ -1361,7 +1350,7 @@ async def read(ctx, link: str):
                     print("[DEBUG] read: No category selected, aborting.")
                     return
 
-            event_entries, new_title = prepare_hyv_event_entries(
+            event_entries, new_title = await prepare_hyv_event_entries(
                 ctx, {}, start_times, end_times, image, category, event_profile, title
             )
             print(f"[DEBUG] read: Prepared HYV event entries.")
@@ -1372,11 +1361,10 @@ async def read(ctx, link: str):
             await update_timer_channel(ctx.guild, bot, profile=event_profile)
             print("[DEBUG] read: Updated timer channel for HYV.")
 
-            conn = sqlite3.connect('kanami_data.db')
-            c = conn.cursor()
-            c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
-            profiles = [row[0] for row in c.fetchall()]
-            conn.close()
+            # Update all timer channels for HYV profiles
+            async with aiosqlite.connect('kanami_data.db') as conn:
+                async with conn.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),)) as cursor:
+                    profiles = [row[0] async for row in cursor]
             for profile in profiles:
                 await update_timer_channel(ctx.guild, bot, profile=profile)
             print("[DEBUG] read: Updated all timer channels for HYV.")
@@ -1415,30 +1403,28 @@ async def read(ctx, link: str):
             return
 
         # Ensure unique title
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        base_title = title
-        suffix = 1
-        new_title = base_title
-        while True:
-            c.execute(
-                "SELECT COUNT(*) FROM user_data WHERE server_id=? AND title=?",
-                (str(ctx.guild.id), new_title)
-            )
-            count = c.fetchone()[0]
-            if count == 0:
-                break
-            suffix += 1
-            new_title = f"{base_title} {suffix}"
-        print(f"[DEBUG] read: Final event title: {new_title}")
+        async with aiosqlite.connect('kanami_data.db') as conn:
+            base_title = title
+            suffix = 1
+            new_title = base_title
+            while True:
+                async with conn.execute(
+                    "SELECT COUNT(*) FROM user_data WHERE server_id=? AND title=?",
+                    (str(ctx.guild.id), new_title)
+                ) as cursor:
+                    count = (await cursor.fetchone())[0]
+                if count == 0:
+                    break
+                suffix += 1
+                new_title = f"{base_title} {suffix}"
+            print(f"[DEBUG] read: Final event title: {new_title}")
 
-        c.execute(
-            "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (str(ctx.author.id), str(ctx.guild.id), new_title, str(start_unix), str(end_unix), image, category, event_profile)
-        )
-        conn.commit()
-        conn.close()
-        print("[DEBUG] read: Inserted event into database.")
+            await conn.execute(
+                "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (str(ctx.author.id), str(ctx.guild.id), new_title, str(start_unix), str(end_unix), image, category, event_profile)
+            )
+            await conn.commit()
+            print("[DEBUG] read: Inserted event into database.")
 
         if not assumed_end:
             await ctx.send(
@@ -1452,11 +1438,10 @@ async def read(ctx, link: str):
         await update_timer_channel(ctx.guild, bot, profile=event_profile)
         print("[DEBUG] read: Updated timer channel for non-HYV.")
 
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
-        profiles = [row[0] for row in c.fetchall()]
-        conn.close()
+        # Update all timer channels for non-HYV profiles
+        async with aiosqlite.connect('kanami_data.db') as conn:
+            async with conn.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),)) as cursor:
+                profiles = [row[0] async for row in cursor]
         unique_profiles = set(profiles)
         unique_profiles.add("ALL")
         for profile in unique_profiles:

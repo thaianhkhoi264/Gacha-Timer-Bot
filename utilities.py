@@ -216,22 +216,20 @@ async def export_pending_notifications_core(ctx):
         await ctx.send("You are not authorized to use this command.")
         return
 
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region
-        FROM pending_notifications
-        ORDER BY profile, server_id, notify_unix ASC
-    """)
-    rows = c.fetchall()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("""
+            SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region
+            FROM pending_notifications
+            ORDER BY profile, server_id, notify_unix ASC
+        """) as cursor:
+            rows = await cursor.fetchall()
 
     if not rows:
         await ctx.author.send("There are no pending notifications in the database.")
         await ctx.send("Exported: No pending notifications.")
         return
 
-    from collections import defaultdict, OrderedDict
+    from collections import defaultdict
 
     # Group notifications by profile, then by (title, category)
     grouped = defaultdict(lambda: defaultdict(list))

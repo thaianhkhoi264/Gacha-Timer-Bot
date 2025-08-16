@@ -4,7 +4,7 @@ import logging
 from dotenv import load_dotenv
 import os
 
-import sqlite3
+import aiosqlite
 
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo

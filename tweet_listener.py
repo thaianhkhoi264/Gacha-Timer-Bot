@@ -1,5 +1,5 @@
 from twitter_handler import *
-import sqlite3
+import aiosqlite
 import re
 
 PROFILE_KEYWORDS = {
@@ -60,11 +60,12 @@ PROFILE_KEYWORDS = {
 }
 
 async def get_announce_channel(guild):
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT announce_channel_id FROM announce_config WHERE server_id=?", (str(guild.id),))
-    row = c.fetchone()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute(
+            "SELECT announce_channel_id FROM announce_config WHERE server_id=?",
+            (str(guild.id),)
+        ) as cursor:
+            row = await cursor.fetchone()
     if row and row[0]:
         return guild.get_channel(int(row[0]))
     return None
@@ -88,14 +89,12 @@ async def tweet_listener_on_message(message):
         return False
 
     # Query the database for this channel in this server
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute(
-        "SELECT profile, required_keywords, ignored_keywords FROM listener_channels WHERE server_id=? AND channel_id=?",
-        (str(message.guild.id), str(message.channel.id))
-    )
-    row = c.fetchone()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute(
+            "SELECT profile, required_keywords, ignored_keywords FROM listener_channels WHERE server_id=? AND channel_id=?",
+            (str(message.guild.id), str(message.channel.id))
+        ) as cursor:
+            row = await cursor.fetchone()
     print(f"[DEBUG] listener_channels DB row: {row}")
     if not row:
         print("[DEBUG] Channel is not a listener channel, ignoring.")
