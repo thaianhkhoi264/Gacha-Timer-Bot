@@ -306,10 +306,10 @@ async def epn(ctx):
 @bot.command()
 async def getlog(ctx):
     """
-    Owner-only: Sends the discord.log file to your DMs.
+    Owner-only: Sends the discord.log file to the owner's DMs.
     Usage: Kanami getlog
     """
-    OWNER_ID = 680653908259110914  # Found in your code
+    OWNER_ID = 680653908259110914
     if ctx.author.id != OWNER_ID:
         await ctx.send("Only the bot owner can use this command.")
         return
