@@ -323,10 +323,20 @@ async def update_timer_channel(guild, bot, profile="ALL"):
         await upsert_event_message(guild, channel, event_row, event_id)
     
     try:
-        emoji = "<:KanamiHeart:1374409597628186624>"
-        await channel.send(f"Timer channel updates are complete. {emoji}")
+        # Fetch the announcement channel ID from the database
+        conn = sqlite3.connect('kanami_data.db')
+        c = conn.cursor()
+        c.execute("SELECT announce_channel_id FROM announce_config WHERE server_id=?", (str(guild.id),))
+        row = c.fetchone()
+        conn.close()
+        if row and row[0]:
+            announce_channel_id = int(row[0])
+            announce_channel = guild.get_channel(announce_channel_id)
+            if announce_channel:
+                emoji = "<:KanamiHeart:1374409597628186624>"
+                await announce_channel.send(f"Timer channel updates are complete. {emoji}")
     except Exception as e:
-        logging.error(f"[TimerChannel] Error sending completion message: {e}", exc_info=True)
+        logging.error(f"[TimerChannel] Error sending completion message to announcement channel: {e}", exc_info=True)
         pass
 
 async def get_valid_categories(server_id):
