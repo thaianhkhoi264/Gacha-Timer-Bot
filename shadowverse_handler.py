@@ -5,6 +5,7 @@ from bot import bot
 import json
 import discord
 import io
+import logging
 
 CRAFTS = [
     "Forestcraft",
@@ -381,29 +382,55 @@ class CraftDashboardView(ui.View):
 
     def make_craft_callback(self, craft):
         async def callback(interaction: Interaction):
-            if interaction.user.id != self.user.id:
-                await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
-                return
-            winrate_dict = get_winrate(str(self.user.id), str(self.server_id), craft)
-            title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
-            embed = Embed(title=title, description=desc, color=0x3498db)
-            await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page))
+            try:
+                if interaction.user.id != self.user.id:
+                    await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
+                    return
+                winrate_dict = get_winrate(str(self.user.id), str(self.server_id), craft)
+                title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
+                embed = Embed(title=title, description=desc, color=0x3498db)
+                await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page))
+            except Exception as e:
+                logging.error(f"[CraftDashboardView] Error in craft callback for {craft}: {e}", exc_info=True)
+                try:
+                    await interaction.response.send_message("An error occurred while updating the dashboard.", ephemeral=True)
+                except Exception:
+                    pass
         return callback
 
     async def next_page_callback(self, interaction: Interaction):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
-            return
-        await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1))
+        try:
+            if interaction.user.id != self.user.id:
+                await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
+                return
+            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1))
+        except Exception as e:
+            logging.error(f"[CraftDashboardView] Error in next_page_callback: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("An error occurred while changing pages.", ephemeral=True)
+            except Exception:
+                pass
 
     async def prev_page_callback(self, interaction: Interaction):
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
-            return
-        await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1))
+        try:
+            if interaction.user.id != self.user.id:
+                await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
+                return
+            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1))
+        except Exception as e:
+            logging.error(f"[CraftDashboardView] Error in prev_page_callback: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message("An error occurred while changing pages.", ephemeral=True)
+            except Exception:
+                pass
 
     async def on_error(self, interaction: Interaction, error: Exception, item, /):
-        await interaction.response.send_message("An error occurred.", ephemeral=True)
+        # Log the error with details
+        logging.error(f"[CraftDashboardView] Unhandled error in interaction: {error}", exc_info=True)
+        try:
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
+        except Exception:
+            pass
 
     async def on_timeout(self):
         for item in self.children:
