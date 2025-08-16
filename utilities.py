@@ -302,3 +302,20 @@ async def export_pending_notifications(ctx):
 async def epn(ctx):
     """Shortened command for exporting the pending notifications table as a DM to the user (owner only)."""
     await export_pending_notifications_core(ctx)
+
+@bot.command()
+async def getlog(ctx):
+    """
+    Owner-only: Sends the discord.log file to your DMs.
+    Usage: Kanami getlog
+    """
+    OWNER_ID = 680653908259110914  # Found in your code
+    if ctx.author.id != OWNER_ID:
+        await ctx.send("Only the bot owner can use this command.")
+        return
+    try:
+        file = discord.File("discord.log")
+        await ctx.author.send("Here is the latest discord.log file:", file=file)
+        await ctx.send("Log file sent to your DMs.")
+    except Exception as e:
+        await ctx.send(f"Failed to send log file: {e}")
