@@ -3,7 +3,6 @@ import database_handler
 import utilities
 import notification_handler
 import shadowverse_handler
-import wishlist_handler
 from bot import bot, bot_version, token, handler, logging
 from database_handler import init_db
 from discord.ui import View, Select
@@ -11,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 from tweet_listener import tweet_listener_on_message
 
-import sqlite3
+import aiosqlite
 import discord
 import signal
 import asyncio
@@ -22,11 +21,9 @@ init_db()
 
 # Shutdown message
 async def shutdown_message():
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT server_id, announce_channel_id FROM announce_config")
-    rows = c.fetchall()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT server_id, announce_channel_id FROM announce_config") as cursor:
+            rows = await cursor.fetchall()
     for server_id, channel_id in rows:
         guild = bot.get_guild(int(server_id))
         if guild:
@@ -200,61 +197,58 @@ async def set_channel_slash(interaction: discord.Interaction):
         await interaction.followup.send("No assignments made or timed out.", ephemeral=True)
         return
 
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    results = []
-    for assignment in view.assignments:
-        assignment_type = assignment[0]
-        selected_profile = assignment[1]
-        selected_channel = assignment[2]
-        if assignment_type == "timer":
-            c.execute(
-                "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
-                (str(interaction.guild.id), selected_profile, str(selected_channel))
-            )
-            results.append(f"<#{selected_channel}> set for timer updates for **{selected_profile}**.")
-        elif assignment_type == "announce":
-            c.execute(
-                "REPLACE INTO announce_config (server_id, announce_channel_id) VALUES (?, ?)",
-                (str(interaction.guild.id), str(selected_channel))
-            )
-            results.append(f"<#{selected_channel}> set as the **announcement channel**.")
-        elif assignment_type == "notification":
-            c.execute(
-                "REPLACE INTO notification_channel (server_id, channel_id) VALUES (?, ?)",
-                (str(interaction.guild.id), str(selected_channel))
-            )
-            results.append(f"<#{selected_channel}> set as the **notification channel**.")
-        elif assignment_type == "notif_timing":
-            c.execute(
-                "REPLACE INTO notification_timing_channel (server_id, channel_id) VALUES (?, ?)",
-                (str(interaction.guild.id), str(selected_channel))
-            )
-            results.append(f"<#{selected_channel}> set as the **notification timing channel**.")
-        elif assignment_type == "listener":
-            required_keywords = assignment[3]
-            ignored_keywords = assignment[4]
-            # Create table if not exists
-            c.execute('''CREATE TABLE IF NOT EXISTS listener_channels (
-                server_id TEXT,
-                profile TEXT,
-                channel_id TEXT,
-                required_keywords TEXT,
-                ignored_keywords TEXT,
-                PRIMARY KEY (server_id, profile)
-            )''')
-            c.execute(
-                '''REPLACE INTO listener_channels
-                   (server_id, profile, channel_id, required_keywords, ignored_keywords)
-                   VALUES (?, ?, ?, ?, ?)''',
-                (str(interaction.guild.id), selected_profile, str(selected_channel), required_keywords, ignored_keywords)
-            )
-            results.append(
-                f"<#{selected_channel}> set as **listener channel** for **{selected_profile}**.\n"
-                f"Required: `{required_keywords or 'None'}` | Ignored: `{ignored_keywords or 'None'}`"
-            )
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        results = []
+        for assignment in view.assignments:
+            assignment_type = assignment[0]
+            selected_profile = assignment[1]
+            selected_channel = assignment[2]
+            if assignment_type == "timer":
+                await conn.execute(
+                    "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
+                    (str(interaction.guild.id), selected_profile, str(selected_channel))
+                )
+                results.append(f"<#{selected_channel}> set for timer updates for **{selected_profile}**.")
+            elif assignment_type == "announce":
+                await conn.execute(
+                    "REPLACE INTO announce_config (server_id, announce_channel_id) VALUES (?, ?)",
+                    (str(interaction.guild.id), str(selected_channel))
+                )
+                results.append(f"<#{selected_channel}> set as the **announcement channel**.")
+            elif assignment_type == "notification":
+                await conn.execute(
+                    "REPLACE INTO notification_channel (server_id, channel_id) VALUES (?, ?)",
+                    (str(interaction.guild.id), str(selected_channel))
+                )
+                results.append(f"<#{selected_channel}> set as the **notification channel**.")
+            elif assignment_type == "notif_timing":
+                await conn.execute(
+                    "REPLACE INTO notification_timing_channel (server_id, channel_id) VALUES (?, ?)",
+                    (str(interaction.guild.id), str(selected_channel))
+                )
+                results.append(f"<#{selected_channel}> set as the **notification timing channel**.")
+            elif assignment_type == "listener":
+                required_keywords = assignment[3]
+                ignored_keywords = assignment[4]
+                await conn.execute('''CREATE TABLE IF NOT EXISTS listener_channels (
+                    server_id TEXT,
+                    profile TEXT,
+                    channel_id TEXT,
+                    required_keywords TEXT,
+                    ignored_keywords TEXT,
+                    PRIMARY KEY (server_id, profile)
+                )''')
+                await conn.execute(
+                    '''REPLACE INTO listener_channels
+                    (server_id, profile, channel_id, required_keywords, ignored_keywords)
+                    VALUES (?, ?, ?, ?, ?)''',
+                    (str(interaction.guild.id), selected_profile, str(selected_channel), required_keywords, ignored_keywords)
+                )
+                results.append(
+                    f"<#{selected_channel}> set as **listener channel** for **{selected_profile}**.\n"
+                    f"Required: `{required_keywords or 'None'}` | Ignored: `{ignored_keywords or 'None'}`"
+                )
+        await conn.commit()
     await interaction.followup.send("\n".join(results), ephemeral=True)
 
 # Daily report task to send a summary of today's notifications
@@ -264,29 +258,25 @@ async def send_daily_report():
     tz = pytz.timezone("Asia/Bangkok")  # GMT+7
     while not bot.is_closed():
         now = datetime.now(tz)
-        # Calculate next 9am
         next_run = now.replace(hour=9, minute=0, second=0, microsecond=0)
         if now >= next_run:
             next_run += timedelta(days=1)
         wait_seconds = (next_run - now).total_seconds()
         await asyncio.sleep(wait_seconds)
 
-        # Fetch today's notifications
         today_start = next_run.replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = today_start + timedelta(days=1)
         unix_start = int(today_start.timestamp())
         unix_end = int(today_end.timestamp())
 
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        c.execute("""
-            SELECT category, profile, title, timing_type, notify_unix, event_time_unix, region
-            FROM pending_notifications
-            WHERE notify_unix >= ? AND notify_unix < ? AND sent=0
-            ORDER BY notify_unix ASC
-        """, (unix_start, unix_end))
-        rows = c.fetchall()
-        conn.close()
+        async with aiosqlite.connect('kanami_data.db') as conn:
+            async with conn.execute("""
+                SELECT category, profile, title, timing_type, notify_unix, event_time_unix, region
+                FROM pending_notifications
+                WHERE notify_unix >= ? AND notify_unix < ? AND sent=0
+                ORDER BY notify_unix ASC
+            """, (unix_start, unix_end)) as cursor:
+                rows = await cursor.fetchall()
 
         if not rows:
             report = "No notifications scheduled for today."
@@ -309,54 +299,40 @@ async def send_daily_report():
 
 # Task to periodically clean up expired events
 async def expired_event_cleanup_task():
-    """
-    Periodically deletes expired events (where end_date < now) from the database,
-    updates timer channels, and cleans up notifications.
-    """
     while True:
         now = int(datetime.now().timestamp())
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        # Find expired events for all servers
-        c.execute("SELECT server_id, id, title FROM user_data WHERE end_date != '' AND CAST(end_date AS INTEGER) < ?", (now,))
-        expired = c.fetchall()
-        # Remove expired events and their notifications/messages
-        for server_id, event_id, title in expired:
-            # Remove from user_data
-            c.execute("DELETE FROM user_data WHERE id=?", (event_id,))
-            # Remove pending notifications for this event
-            c.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, title))
-            # Remove event messages
-            c.execute("SELECT channel_id, message_id FROM event_messages WHERE event_id=?", (event_id,))
-            msg_rows = c.fetchall()
-            for channel_id, message_id in msg_rows:
-                guild = bot.get_guild(int(server_id))
-                if guild:
-                    channel = guild.get_channel(int(channel_id))
-                    if channel:
-                        try:
-                            msg = await channel.fetch_message(int(message_id))
-                            await msg.delete()
-                        except Exception:
-                            pass
-            c.execute("DELETE FROM event_messages WHERE event_id=?", (event_id,))
-        conn.commit()
-        # Update timer channels for all affected servers/profiles
-        c.execute("SELECT DISTINCT server_id FROM user_data")
-        server_ids = [row[0] for row in c.fetchall()]
-        conn.close()
+        async with aiosqlite.connect('kanami_data.db') as conn:
+            async with conn.execute("SELECT server_id, id, title FROM user_data WHERE end_date != '' AND CAST(end_date AS INTEGER) < ?", (now,)) as cursor:
+                expired = await cursor.fetchall()
+            for server_id, event_id, title in expired:
+                await conn.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+                await conn.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, title))
+                async with conn.execute("SELECT channel_id, message_id FROM event_messages WHERE event_id=?", (event_id,)) as msg_cursor:
+                    msg_rows = await msg_cursor.fetchall()
+                for channel_id, message_id in msg_rows:
+                    guild = bot.get_guild(int(server_id))
+                    if guild:
+                        channel = guild.get_channel(int(channel_id))
+                        if channel:
+                            try:
+                                msg = await channel.fetch_message(int(message_id))
+                                await msg.delete()
+                            except Exception:
+                                pass
+                await conn.execute("DELETE FROM event_messages WHERE event_id=?", (event_id,))
+            await conn.commit()
+            async with conn.execute("SELECT DISTINCT server_id FROM user_data") as cursor:
+                server_ids = [row[0] async for row in cursor]
         for server_id in server_ids:
             guild = bot.get_guild(int(server_id))
             if not guild:
                 continue
-            conn2 = sqlite3.connect('kanami_data.db')
-            c2 = conn2.cursor()
-            c2.execute("SELECT profile FROM config WHERE server_id=?", (server_id,))
-            profiles = [row[0] for row in c2.fetchall()]
-            conn2.close()
+            async with aiosqlite.connect('kanami_data.db') as conn2:
+                async with conn2.execute("SELECT profile FROM config WHERE server_id=?", (server_id,)) as cursor:
+                    profiles = [row[0] async for row in cursor]
             for profile in profiles:
                 await database_handler.update_timer_channel(guild, bot, profile=profile)
-        await asyncio.sleep(3600)  # Run every hour
+        await asyncio.sleep(43200)
 
 # Notification loop function to load and schedule pending notifications
 async def notification_loop():
@@ -368,19 +344,15 @@ async def notification_loop():
 async def on_ready():
     print(f"Kanami is ready to go!")
 
-    # Sync slash commands
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands.")
     except Exception as e:
         print(f"Failed to sync slash commands: {e}")
 
-    # Announce in all assigned announcement channels
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT server_id, announce_channel_id FROM announce_config")
-    rows = c.fetchall()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT server_id, announce_channel_id FROM announce_config") as cursor:
+            rows = await cursor.fetchall()
     for server_id, channel_id in rows:
         guild = bot.get_guild(int(server_id))
         if guild:
@@ -391,19 +363,15 @@ async def on_ready():
                 except Exception:
                     pass
 
-    # Update all timer channels for all servers
     for guild in bot.guilds:
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        c.execute("SELECT profile FROM config WHERE server_id=?", (str(guild.id),))
-        profiles = [row[0] for row in c.fetchall()]
-        conn.close()
+        async with aiosqlite.connect('kanami_data.db') as conn:
+            async with conn.execute("SELECT profile FROM config WHERE server_id=?", (str(guild.id),)) as cursor:
+                profiles = [row[0] async for row in cursor]
         if not profiles:
-            continue  # No timer channels set for this server
+            continue
         for profile in profiles:
             await database_handler.update_timer_channel(guild, bot, profile=profile)
-    
-    # load and schedule various tasks
+
     bot.loop.create_task(notification_loop())
     bot.loop.create_task(send_daily_report())
     bot.loop.create_task(expired_event_cleanup_task())
@@ -433,55 +401,38 @@ async def on_message(message):
 @bot.command() # "assign" command to assign the bot to announce its readiness in this channel
 @commands.has_permissions(manage_channels=True)
 async def assign(ctx):
-    """
-    Assigns the bot to announce its readiness in this channel on startup.
-    Usage: Kanami assign
-    """
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("REPLACE INTO announce_config (server_id, announce_channel_id) VALUES (?, ?)", (str(ctx.guild.id), str(ctx.channel.id)))
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        await conn.execute(
+            "REPLACE INTO announce_config (server_id, announce_channel_id) VALUES (?, ?)",
+            (str(ctx.guild.id), str(ctx.channel.id))
+        )
+        await conn.commit()
     await ctx.send("This channel has been assigned for bot announcements.")
 
 @bot.command()  # "checkchannels" command to show all assigned channels
 async def check_channels(ctx):
-    """
-    Shows all channels set for announcements, timer updates, listeners, and notifications in this server.
-    Usage: Kanami check_channels
-    """
     guild_id = str(ctx.guild.id)
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT announce_channel_id FROM announce_config WHERE server_id=?", (guild_id,)) as cursor:
+            announce_row = await cursor.fetchone()
+        announce_channel = ctx.guild.get_channel(int(announce_row[0])) if announce_row and announce_row[0] else None
 
-    # Announcement channel
-    c.execute("SELECT announce_channel_id FROM announce_config WHERE server_id=?", (guild_id,))
-    announce_row = c.fetchone()
-    announce_channel = ctx.guild.get_channel(int(announce_row[0])) if announce_row and announce_row[0] else None
+        async with conn.execute("SELECT profile, timer_channel_id FROM config WHERE server_id=?", (guild_id,)) as cursor:
+            timer_rows = await cursor.fetchall()
 
-    # Timer channels (per profile)
-    c.execute("SELECT profile, timer_channel_id FROM config WHERE server_id=?", (guild_id,))
-    timer_rows = c.fetchall()
+        async with conn.execute("SELECT profile, channel_id, required_keywords, ignored_keywords FROM listener_channels WHERE server_id=?", (guild_id,)) as cursor:
+            listener_rows = await cursor.fetchall()
 
-    # Listener channels (per profile)
-    c.execute("SELECT profile, channel_id, required_keywords, ignored_keywords FROM listener_channels WHERE server_id=?", (guild_id,))
-    listener_rows = c.fetchall()
+        async with conn.execute("SELECT channel_id FROM notification_channel WHERE server_id=?", (guild_id,)) as cursor:
+            notif_row = await cursor.fetchone()
+        notif_channel = ctx.guild.get_channel(int(notif_row[0])) if notif_row and notif_row[0] else None
 
-    # Notification channel
-    c.execute("SELECT channel_id FROM notification_channel WHERE server_id=?", (guild_id,))
-    notif_row = c.fetchone()
-    notif_channel = ctx.guild.get_channel(int(notif_row[0])) if notif_row and notif_row[0] else None
+        async with conn.execute("SELECT channel_id FROM notification_timing_channel WHERE server_id=?", (guild_id,)) as cursor:
+            notif_timing_row = await cursor.fetchone()
+        notif_timing_channel = ctx.guild.get_channel(int(notif_timing_row[0])) if notif_timing_row and notif_timing_row[0] else None
 
-    # Notification timing channel
-    c.execute("SELECT channel_id FROM notification_timing_channel WHERE server_id=?", (guild_id,))
-    notif_timing_row = c.fetchone()
-    notif_timing_channel = ctx.guild.get_channel(int(notif_timing_row[0])) if notif_timing_row and notif_timing_row[0] else None
-
-    # Pending notifications channel (per profile)
-    c.execute("SELECT profile, channel_id FROM pending_notifications_channel WHERE server_id=?", (guild_id,))
-    pending_rows = c.fetchall()
-
-    conn.close()
+        async with conn.execute("SELECT profile, channel_id FROM pending_notifications_channel WHERE server_id=?", (guild_id,)) as cursor:
+            pending_rows = await cursor.fetchall()
 
     msg = "**Assigned Channels:**\n"
     msg += f"**Announcement Channel:** {announce_channel.mention if announce_channel else 'Not set'}\n"
@@ -569,13 +520,9 @@ async def converttz(ctx, time: str, date: str = None, timezone_str: str = "UTC")
 
 @bot.command() # "update" command to manually update all timer channels for all profiles
 async def update(ctx):
-    """Manually update all timer channels for all profiles in this server."""
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    # Get all profiles set for this server
-    c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
-    profiles = [row[0] for row in c.fetchall()]
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),)) as cursor:
+            profiles = [row[0] async for row in cursor]
     if not profiles:
         await ctx.send("No timer channels are set for this server.")
         return
@@ -604,16 +551,13 @@ async def set_timer_channel(ctx, channel: discord.TextChannel, profile: str = No
     if profile not in valid_profiles:
         await ctx.send(f"Unknown profile `{profile}`. Valid options: {', '.join(valid_profiles.keys())}")
         return
-
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute(
-        "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
-        (str(ctx.guild.id), profile, str(channel.id))
-    )
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        await conn.execute(
+            "REPLACE INTO config (server_id, profile, timer_channel_id) VALUES (?, ?, ?)",
+            (str(ctx.guild.id), profile, str(channel.id))
+        )
+        await conn.commit()
     await ctx.send(f"{channel.mention} is now set for timer updates for **{profile}**.")
-    conn.commit()
-    conn.close()
 
 def handle_shutdown(*args):
     loop = asyncio.get_event_loop()

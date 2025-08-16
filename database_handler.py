@@ -4,13 +4,14 @@ from discord.ext import commands
 from modules import *
 from bot import bot
 import asyncio
-
+import logging
 import dateparser
 import re
 from datetime import datetime, timedelta, timezone
 
 # Initialize the database
 def init_db():
+    import sqlite3
     conn = sqlite3.connect('kanami_data.db')
     c = conn.cursor()
     # Event data
@@ -103,6 +104,15 @@ def init_db():
 
 init_db()
 
+async def mark_ended_events(guild):
+    now = int(datetime.now().timestamp())
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        await conn.execute(
+            "UPDATE user_data SET category='Ended' WHERE server_id=? AND category != 'Ended' AND end_date != '' AND CAST(end_date AS INTEGER) < ?",
+            (str(guild.id), now)
+        )
+        await conn.commit()
+
 async def upsert_event_message(guild, channel, event_row, event_id):
     """
     Edits the event message in the channel if it exists, otherwise sends a new one.
@@ -141,93 +151,78 @@ async def upsert_event_message(guild, channel, event_row, event_id):
     if image and (image.startswith("http://") or image.startswith("https://")):
         embed.set_image(url=image)
 
-    # Check if message exists
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT message_id FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
-    row = c.fetchone()
-    msg = None
-    if row and row[0]:
-        try:
-            msg = await channel.fetch_message(int(row[0]))
-            await msg.edit(embed=embed)
-            conn.close()
-            return
-        except Exception:
-            pass  # If message not found, fall through to send new
+    # Check if message exists and edit if possible
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT message_id FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id))) as cursor:
+            row = await cursor.fetchone()
+        msg = None
+        if row and row[0]:
+            try:
+                msg = await channel.fetch_message(int(row[0]))
+                await msg.edit(embed=embed)
+                return
+            except Exception:
+                pass  # If message not found, fall through to send new
 
-    # Send new message
-    msg = await channel.send(embed=embed)
-    c.execute("REPLACE INTO event_messages (event_id, server_id, channel_id, message_id) VALUES (?, ?, ?, ?)",
-              (event_id, str(guild.id), str(channel.id), str(msg.id)))
-    conn.commit()
-    conn.close()
-
-# Function to mark ended events in the database
-async def mark_ended_events(guild):
-    now = int(datetime.now().timestamp())
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    # Only update events that are not already marked as Ended
-    c.execute(
-        "UPDATE user_data SET category='Ended' WHERE server_id=? AND category != 'Ended' AND end_date != '' AND CAST(end_date AS INTEGER) < ?",
-        (str(guild.id), now)
-    )
-    conn.commit()
-    conn.close()
+        # Send new message and update DB
+        msg = await channel.send(embed=embed)
+        await conn.execute(
+            "REPLACE INTO event_messages (event_id, server_id, channel_id, message_id) VALUES (?, ?, ?, ?)",
+            (event_id, str(guild.id), str(channel.id), str(msg.id))
+        )
+        await conn.commit()
 
 # Function to update the timer channel with the latest events for a given profile
 async def update_timer_channel(guild, bot, profile="ALL"):
     # Mark ended events before fetching
     await mark_ended_events(guild)
 
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile=?", (str(guild.id), profile))
-    row = c.fetchone()
+    # Start the SQLite connection
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile=?", (str(guild.id), profile)) as cursor:
+            row = await cursor.fetchone()
     if not row:
-        c.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),))
-        row = c.fetchone()
+        async with conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),)) as cursor:
+            row = await cursor.fetchone()
     if not row:
-        conn.close()
         return
     channel_id = int(row[0])
 
+    # Fetch all previous event data for this server and channel
+    await conn.execute(
+        "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=?",
+        (str(guild.id),)
+    )
+    prev_events = {row[0]: row[1:] for row in await conn.fetchall()}
+
     # Fetch events for this profile only, or all if profile is "ALL"
     if profile == "ALL":
-        c.execute(
+        await conn.execute(
             "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? ORDER BY id DESC",
             (str(guild.id),)
         )
     else:
-        c.execute(
+        await conn.execute(
             "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? AND profile=? ORDER BY id DESC",
             (str(guild.id), profile)
         )
-    rows = c.fetchall()
-    conn.close()
+    rows = await cursor.fetchall()
 
     channel = guild.get_channel(channel_id)
     if not channel:
         return
 
     # Get all event_ids currently in the channel
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT event_id, message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(guild.id), str(channel.id)))
-    existing_msgs = {row[0]: row[1] for row in c.fetchall()}
-    conn.close()
+    await conn.execute("SELECT event_id, message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(guild.id), str(channel.id)))
+    existing_msgs = {row[0]: row[1] for row in await conn.fetchall()}
 
     # Build a set of current event_ids
     current_event_ids = set(row[0] for row in rows)
 
     # Delete messages for events that no longer exist or are marked as Ended
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
     # Find all events marked as Ended
-    c.execute("SELECT id FROM user_data WHERE server_id=? AND category='Ended'", (str(guild.id),))
-    ended_event_ids = set(row[0] for row in c.fetchall())
-    conn.close()
+    await conn.execute("SELECT id FROM user_data WHERE server_id=? AND category='Ended'", (str(guild.id),))
+    ended_event_ids = set(row[0] for row in await conn.fetchall())
 
     # Delete messages for events that are either not in the DB anymore or are marked as Ended
     for event_id in set(existing_msgs.keys()) | ended_event_ids:
@@ -238,66 +233,55 @@ async def update_timer_channel(guild, bot, profile="ALL"):
             except Exception:
                 pass
             # Remove from DB
-            conn = sqlite3.connect('kanami_data.db')
-            c = conn.cursor()
-            c.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
-            conn.commit()
-            conn.close()
+            await conn.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
+            await conn.commit()
         # Also, if marked as Ended, remove from user_data
         if event_id in ended_event_ids:
-            conn = sqlite3.connect('kanami_data.db')
-            c = conn.cursor()
-            c.execute("DELETE FROM user_data WHERE id=?", (event_id,))
-            conn.commit()
-            conn.close()
+            await conn.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+            await conn.commit()
 
-    # Upsert (edit or create) messages for current events (that are not ended)
+    # Only update events that are new or have changed
     for row in rows:
         event_id = row[0]
         category = row[5]
         if category == "Ended":
             continue  # Skip ended events
         event_row = row[1:]  # skip id
-        await upsert_event_message(guild, channel, event_row, event_id)
-    # Mark ended events before fetching
-    await mark_ended_events(guild)
 
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile=?", (str(guild.id), profile))
-    row = c.fetchone()
+        prev_row = prev_events.get(event_id)
+        if prev_row is None or tuple(event_row) != prev_row:
+            await upsert_event_message(guild, channel, event_row, event_id)
+            await asyncio.sleep(0.5)  # Avoid rate limits
+
+    await conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile=?", (str(guild.id), profile))
+    row = await cursor.fetchone()
     if not row:
-        c.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),))
-        row = c.fetchone()
+        await conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),))
+        row = await cursor.fetchone()
     if not row:
-        conn.close()
         return
     channel_id = int(row[0])
 
     # Fetch events for this profile only, or all if profile is "ALL"
     if profile == "ALL":
-        c.execute(
+        await conn.execute(
             "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? ORDER BY id DESC",
             (str(guild.id),)
         )
     else:
-        c.execute(
+        await conn.execute(
             "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? AND profile=? ORDER BY id DESC",
             (str(guild.id), profile)
         )
-    rows = c.fetchall()
-    conn.close()
+    rows = await conn.fetchall()
 
     channel = guild.get_channel(channel_id)
     if not channel:
         return
 
     # Get all event_ids currently in the channel
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT event_id, message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(guild.id), str(channel.id)))
-    existing_msgs = {row[0]: row[1] for row in c.fetchall()}
-    conn.close()
+    await conn.execute("SELECT event_id, message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(guild.id), str(channel.id)))
+    existing_msgs = {row[0]: row[1] for row in await conn.fetchall()}
 
     # Build a set of current event_ids
     current_event_ids = set(row[0] for row in rows)
@@ -310,44 +294,24 @@ async def update_timer_channel(guild, bot, profile="ALL"):
         except Exception:
             pass
         # Remove from DB
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        c.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
-        conn.commit()
-        conn.close()
+        await conn.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
+        await conn.commit()
 
     # Upsert (edit or create) messages for current events
     for row in rows:
         event_id = row[0]
         event_row = row[1:]  # skip id
         await upsert_event_message(guild, channel, event_row, event_id)
+        await asyncio.sleep(0.5)  # Avoid rate limits
     
-    try:
-        # Fetch the announcement channel ID from the database
-        conn = sqlite3.connect('kanami_data.db')
-        c = conn.cursor()
-        c.execute("SELECT announce_channel_id FROM announce_config WHERE server_id=?", (str(guild.id),))
-        row = c.fetchone()
-        conn.close()
-        if row and row[0]:
-            announce_channel_id = int(row[0])
-            announce_channel = guild.get_channel(announce_channel_id)
-            if announce_channel:
-                emoji = "<:KanamiHeart:1374409597628186624>"
-                await announce_channel.send(f"Timer channel updates are complete. {emoji}")
-    except Exception as e:
-        logging.error(f"[TimerChannel] Error sending completion message to announcement channel: {e}", exc_info=True)
-        pass
 
 async def get_valid_categories(server_id):
     # Built-in categories
     categories = {"Banner", "Event", "Maintenance", "Offer"}
     # Add custom categories from DB
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT category FROM custom_categories WHERE server_id=?", (server_id,))
-    custom = {row[0] for row in c.fetchall()}
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT category FROM custom_categories WHERE server_id=?", (server_id,)) as cursor:
+            custom = {row[0] async for row in cursor}
     categories.update(custom)
     return categories
 
@@ -533,28 +497,26 @@ async def add(ctx, *, args: str):
         return
 
     # Insert into DB
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    base_title = title if title else "Untitled Event"
-    suffix = 1
-    new_title = base_title
-    while True:
-        c.execute(
-            "SELECT COUNT(*) FROM user_data WHERE server_id=? AND title=?",
-            (str(ctx.guild.id), new_title)
-        )
-        count = c.fetchone()[0]
-        if count == 0:
-            break
-        suffix += 1
-        new_title = f"{base_title} {suffix}"
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        base_title = title if title else "Untitled Event"
+        suffix = 1
+        new_title = base_title
+        while True:
+            async with conn.execute(
+                "SELECT COUNT(*) FROM user_data WHERE server_id=? AND title=?",
+                (str(ctx.guild.id), new_title)
+            ) as cursor:
+                count = (await cursor.fetchone())[0]
+            if count == 0:
+                break
+            suffix += 1
+            new_title = f"{base_title} {suffix}"
 
-    c.execute(
-        "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (str(ctx.author.id), str(ctx.guild.id), new_title, str(start_unix), str(end_unix), image, category, 0, profile)
-    )
-    conn.commit()
-    conn.close()
+        await conn.execute(
+            "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, is_hyv, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (str(ctx.author.id), str(ctx.guild.id), new_title, str(start_unix), str(end_unix), image, category, 0, profile)
+        )
+        await conn.commit()
 
     await ctx.send(
         f"Added `{new_title}` as **{category}** for **{profile}** to the database!\n"
@@ -562,11 +524,9 @@ async def add(ctx, *, args: str):
     )
 
     # Update timer channels and schedule notifications
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),))
-    profiles = [row[0] for row in c.fetchall()]
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT profile FROM config WHERE server_id=?", (str(ctx.guild.id),)) as cursor:
+            profiles = [row[0] async for row in cursor]
     for prof in profiles:
         await update_timer_channel(ctx.guild, bot, profile=prof)
 
@@ -583,62 +543,47 @@ async def add(ctx, *, args: str):
     asyncio.create_task(schedule_notifications_for_event(event))
     remove_duplicate_pending_notifications()
 
-@bot.command()  # "remove" command to remove an event from the database
+@bot.command()
 async def remove(ctx, *, title: str):
-    """
-    Removes an event by title (case-insensitive) from the current server, along with its notifications and messages.
-    Usage: Kanami remove <event title>
-    """
     from notification_handler import remove_duplicate_pending_notifications
 
     server_id = str(ctx.guild.id)
     # Case-insensitive search for the event title
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT id, title, start_date, end_date FROM user_data WHERE server_id=? COLLATE NOCASE AND LOWER(title)=LOWER(?)", (server_id, title))
-    row = c.fetchone()
-    if not row:
-        await ctx.send(f"No event found with the title `{title}`.")
-        conn.close()
-        return
-    event_id, found_title, start, end = row
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT id, title, start_date, end_date FROM user_data WHERE server_id=? COLLATE NOCASE AND LOWER(title)=LOWER(?)", (server_id, title)) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            await ctx.send(f"No event found with the title `{title}`.")
+            return
+        event_id, found_title, start, end = row
 
-    # Remove the event
-    c.execute("DELETE FROM user_data WHERE id=?", (event_id,))
-    # Remove all pending notifications for this event (case-insensitive)
-    c.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, found_title))
-    conn.commit()
-    conn.close()
+        # Remove the event
+        await conn.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+        # Remove all pending notifications for this event (case-insensitive)
+        await conn.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, found_title))
+        await conn.commit()
 
-    # Delete all event messages for this event
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT channel_id, message_id FROM event_messages WHERE event_id=?", (event_id,))
-    msg_rows = c.fetchall()
-    conn.close()
-    for channel_id, message_id in msg_rows:
-        channel = ctx.guild.get_channel(int(channel_id))
-        if channel:
-            try:
-                msg = await channel.fetch_message(int(message_id))
-                await msg.delete()
-            except Exception:
-                pass
-    # Remove from DB
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("DELETE FROM event_messages WHERE event_id=?", (event_id,))
-    conn.commit()
-    conn.close()
+        # Delete all event messages for this event
+        async with conn.execute("SELECT channel_id, message_id FROM event_messages WHERE event_id=?", (event_id,)) as cursor:
+            msg_rows = await cursor.fetchall()
+        for channel_id, message_id in msg_rows:
+            channel = ctx.guild.get_channel(int(channel_id))
+            if channel:
+                try:
+                    msg = await channel.fetch_message(int(message_id))
+                    await msg.delete()
+                except Exception:
+                    pass
+        # Remove from DB
+        await conn.execute("DELETE FROM event_messages WHERE event_id=?", (event_id,))
+        await conn.commit()
 
     await ctx.send(f"Removed event `{found_title}` (Start: <t:{start}:F>, End: <t:{end}:F>) from the database and cleared its notifications.")
 
     # Update all timer channels for all profiles in this server
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT profile FROM config WHERE server_id=?", (server_id,))
-    profiles = [row[0] for row in c.fetchall()]
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT profile FROM config WHERE server_id=?", (server_id,)) as cursor:
+            profiles = [row[0] async for row in cursor]
     for profile in profiles:
         await update_timer_channel(ctx.guild, bot, profile=profile)
     remove_duplicate_pending_notifications()
@@ -651,70 +596,101 @@ async def edit(ctx, title: str, item: str, value: str):
     For HSR/ZZZ, allows editing region-specific times.
     Now supports editing the event title.
     """
-    import sqlite3
+    from twitter_handler import convert_to_all_timezones
     from notification_handler import remove_duplicate_pending_notifications
 
-    def parse_time(val, tz):
-        try:
-            return int(val)
-        except ValueError:
-            pass
-        try:
-            if len(val) == 10:
-                val += " 00:00"
-            return convert_to_unix_tz(val.split()[0], val.split()[1], tz)
-        except Exception:
-            raise ValueError("Invalid date/time format. Use YYYY-MM-DD HH:MM or unix timestamp.")
-
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT id, profile FROM user_data WHERE server_id=? AND LOWER(title)=?", (str(ctx.guild.id), title.lower()))
-    row = c.fetchone()
-    if not row:
-        await ctx.send(f"No event found with the title `{title}`.")
-        conn.close()
-        return
-    event_id, profile = row
-    profile = profile.upper()
-
-    # For HYV games, allow editing region-specific times
-    if profile in ("HSR", "ZZZ") and item.lower() in ("start", "end"):
-        # ...existing region time edit logic...
-        # (unchanged, omitted for brevity)
-        # ...existing code...
-        return
-
-    # --- Non-HYV logic below (unchanged except for allowed_items) ---
-    # Only allow editing start, end, category, profile, image, title
     allowed_items = ["start", "end", "category", "profile", "image", "title"]
-    if item.lower() not in allowed_items:
-        await ctx.send(f"Cannot edit `{item}`. Only {', '.join(allowed_items)} can be edited.")
-        conn.close()
-        return
 
-    if item.lower() in ("start", "end"):
-        # ...existing start/end edit logic...
-        # (unchanged, omitted for brevity)
-        # ...existing code...
-        return
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT id, profile, is_hyv FROM user_data WHERE server_id=? AND LOWER(title)=?", (str(ctx.guild.id), title.lower())) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            await ctx.send(f"No event found with the title `{title}`.")
+            return
+        event_id, profile, is_hyv = row
+        profile = profile.upper()
 
-    # Edit other fields
-    if item.lower() == "category":
-        c.execute("UPDATE user_data SET category=? WHERE id=?", (value, event_id))
-    elif item.lower() == "profile":
-        c.execute("UPDATE user_data SET profile=? WHERE id=?", (value.upper(), event_id))
-    elif item.lower() == "image":
-        c.execute("UPDATE user_data SET image=? WHERE id=?", (value, event_id))
-    elif item.lower() == "title":
-        # Update the title in user_data
-        c.execute("UPDATE user_data SET title=? WHERE id=?", (value, event_id))
-        # Also update pending_notifications and event_messages for consistency
-        c.execute("UPDATE pending_notifications SET title=? WHERE server_id=? AND LOWER(title)=LOWER(?)", (value, str(ctx.guild.id), title))
-        c.execute("UPDATE event_messages SET event_id=(SELECT id FROM user_data WHERE server_id=? AND title=?) WHERE server_id=? AND event_id=?", (str(ctx.guild.id), value, str(ctx.guild.id), event_id))
-    conn.commit()
-    await ctx.send(f"Updated `{item}` for `{title}` to `{value}`.")
-    conn.close()
-    remove_duplicate_pending_notifications()
+        # For HYV games (HSR/ZZZ), allow editing region-specific times
+        if profile in ("HSR", "ZZZ") and item.lower() in ("start", "end"):
+            # Value should be in "server time" format (e.g. "2025-08-20 13:00")
+            try:
+                region_times = convert_to_all_timezones(value)
+            except Exception as e:
+                await ctx.send(f"Error converting server time to all regions: {e}")
+                return
+
+            # Update all three region times
+            if item.lower() == "start":
+                await conn.execute("UPDATE user_data SET asia_start=?, america_start=?, europe_start=? WHERE id=?",
+                    (str(region_times["Asia"][1]), str(region_times["America"][1]), str(region_times["Europe"][1]), event_id))
+            elif item.lower() == "end":
+                await conn.execute("UPDATE user_data SET asia_end=?, america_end=?, europe_end=? WHERE id=?",
+                    (str(region_times["Asia"][1]), str(region_times["America"][1]), str(region_times["Europe"][1]), event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `{item}` time for `{title}` to `{value}` (all regions updated).")
+            remove_duplicate_pending_notifications()
+            return
+
+        # --- Non-HYV logic below ---
+        if item.lower() not in allowed_items:
+            await ctx.send(f"Cannot edit `{item}`. Only {', '.join(allowed_items)} can be edited.")
+            return
+
+        # Edit start/end times (non-HYV)
+        if item.lower() in ("start", "end"):
+            # Try to parse as unix timestamp, else as date string
+            try:
+                unix_time = int(value)
+            except ValueError:
+                from database_handler import convert_to_unix_tz
+                # Prompt for timezone if not present
+                import re
+                tz_match = re.search(r'(UTC[+-]\d+|GMT[+-]\d+|[A-Za-z]+/[A-Za-z_]+)', value)
+                if tz_match:
+                    timezone_str = tz_match.group(1)
+                else:
+                    await ctx.send("No timezone detected. Please enter the timezone for this event (e.g. `Asia/Tokyo`, `UTC+8`, etc.):")
+                    def check(m): return m.author == ctx.author and m.channel == ctx.channel
+                    try:
+                        msg = await bot.wait_for("message", timeout=60.0, check=check)
+                        timezone_str = msg.content.strip()
+                    except Exception:
+                        await ctx.send("No timezone provided. Cancelling.")
+                        return
+                # Split date/time from value
+                date_time = value.split()
+                if len(date_time) == 2:
+                    date, time = date_time
+                else:
+                    await ctx.send("Invalid date/time format. Use `YYYY-MM-DD HH:MM`.")
+                    return
+                unix_time = convert_to_unix_tz(date, time, timezone_str)
+            # Update start or end
+            if item.lower() == "start":
+                await conn.execute("UPDATE user_data SET start_date=? WHERE id=?", (str(unix_time), event_id))
+            else:
+                await conn.execute("UPDATE user_data SET end_date=? WHERE id=?", (str(unix_time), event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `{item}` for `{title}` to `{value}`.")
+            remove_duplicate_pending_notifications()
+            return
+
+        # Edit other fields
+        if item.lower() == "category":
+            await conn.execute("UPDATE user_data SET category=? WHERE id=?", (value, event_id))
+        elif item.lower() == "profile":
+            await conn.execute("UPDATE user_data SET profile=? WHERE id=?", (value.upper(), event_id))
+        elif item.lower() == "image":
+            await conn.execute("UPDATE user_data SET image=? WHERE id=?", (value, event_id))
+        elif item.lower() == "title":
+            # Update the title in user_data
+            await conn.execute("UPDATE user_data SET title=? WHERE id=?", (value, event_id))
+            # Also update pending_notifications and event_messages for consistency
+            await conn.execute("UPDATE pending_notifications SET title=? WHERE server_id=? AND LOWER(title)=LOWER(?)", (value, str(ctx.guild.id), title))
+            await conn.execute("UPDATE event_messages SET event_id=(SELECT id FROM user_data WHERE server_id=? AND title=?) WHERE server_id=? AND event_id=?", (str(ctx.guild.id), value, str(ctx.guild.id), event_id))
+        await conn.commit()
+        await ctx.send(f"Updated `{item}` for `{title}` to `{value}`.")
+        remove_duplicate_pending_notifications()
 
 @bot.command()
 @commands.has_permissions(manage_guild=True)
@@ -729,16 +705,14 @@ async def add_custom_category(ctx, *, category: str):
         await ctx.send("Please provide a category name.")
         return
 
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS custom_categories (
-        server_id TEXT,
-        category TEXT,
-        PRIMARY KEY (server_id, category)
-    )''')
-    c.execute("INSERT OR IGNORE INTO custom_categories (server_id, category) VALUES (?, ?)", (server_id, category))
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        await conn.execute('''CREATE TABLE IF NOT EXISTS custom_categories (
+            server_id TEXT,
+            category TEXT,
+            PRIMARY KEY (server_id, category)
+        )''')
+        await conn.execute("INSERT OR IGNORE INTO custom_categories (server_id, category) VALUES (?, ?)", (server_id, category))
+        await conn.commit()
     await ctx.send(f"Custom category `{category}` added for this server!")
 
 @bot.command()
@@ -754,11 +728,9 @@ async def remove_custom_category(ctx, *, category: str):
         await ctx.send("Please provide a category name.")
         return
 
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("DELETE FROM custom_categories WHERE server_id=? AND category=?", (server_id, category))
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        await conn.execute("DELETE FROM custom_categories WHERE server_id=? AND category=?", (server_id, category))
+        await conn.commit()
     await ctx.send(f"Custom category `{category}` removed for this server!")
 
 @bot.command(name="refresh_all")
@@ -770,7 +742,6 @@ async def refresh_all(ctx):
     - Clears and updates all timer channels (removes ended/expired events)
     - Clears and recreates all pending notifications
     """
-    import sqlite3
     from datetime import datetime
     from notification_handler import remove_duplicate_pending_notifications, refresh_pending_notifications
     from database_handler import update_timer_channel
@@ -780,40 +751,66 @@ async def refresh_all(ctx):
 
     await ctx.send("Refreshing all event data. This may take a moment...")
 
-    # 1. Delete expired events and their notifications/messages
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT id, title FROM user_data WHERE server_id=? AND end_date != '' AND CAST(end_date AS INTEGER) < ?", (server_id, now))
-    expired = c.fetchall()
-    expired_titles = [row[1] for row in expired]
-    for event_id, title in expired:
-        # Remove from user_data
-        c.execute("DELETE FROM user_data WHERE id=?", (event_id,))
-        # Remove pending notifications for this event
-        c.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, title))
-        # Remove event messages
-        c.execute("SELECT channel_id, message_id FROM event_messages WHERE event_id=?", (event_id,))
-        msg_rows = c.fetchall()
-        for channel_id, message_id in msg_rows:
-            channel = ctx.guild.get_channel(int(channel_id))
-            if channel:
-                try:
-                    msg = await channel.fetch_message(int(message_id))
-                    await msg.delete()
-                except Exception:
-                    pass
-        c.execute("DELETE FROM event_messages WHERE event_id=?", (event_id,))
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        # 1. Delete expired events and their notifications/messages
+        async with conn.execute("SELECT id, title FROM user_data WHERE server_id=? AND end_date != '' AND CAST(end_date AS INTEGER) < ?", (server_id, now)) as cursor:
+            expired = await cursor.fetchall()
+        expired_titles = [row[1] for row in expired]
+        for event_id, title in expired:
+            await conn.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+            await conn.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, title))
+            async with conn.execute("SELECT channel_id, message_id FROM event_messages WHERE event_id=?", (event_id,)) as msg_cursor:
+                msg_rows = await msg_cursor.fetchall()
+            for channel_id, message_id in msg_rows:
+                channel = ctx.guild.get_channel(int(channel_id))
+                if channel:
+                    try:
+                        msg = await channel.fetch_message(int(message_id))
+                        await msg.delete()
+                    except Exception as e:
+                        logging.warning(f"Failed to delete message {message_id} in channel {channel_id}: {e}")
+            await conn.execute("DELETE FROM event_messages WHERE event_id=?", (event_id,))
+        await conn.commit()
 
-    # 2. Update all timer channels for all profiles in this server
-    conn = sqlite3.connect('kanami_data.db')
-    c = conn.cursor()
-    c.execute("SELECT profile FROM config WHERE server_id=?", (server_id,))
-    profiles = [row[0] for row in c.fetchall()]
-    conn.close()
-    for profile in profiles:
-        await update_timer_channel(ctx.guild, bot, profile=profile)
+        # 2. Fetch all profiles and their timer channel IDs once
+        async with conn.execute("SELECT profile, timer_channel_id FROM config WHERE server_id=?", (server_id,)) as cursor:
+            profile_channel_map = {row[0]: int(row[1]) for row in await cursor.fetchall()}
+
+        for profile, channel_id in profile_channel_map.items():
+            await update_timer_channel(ctx.guild, bot, profile=profile)
+
+            # --- Orphaned message cleanup for this timer channel ---
+            channel = ctx.guild.get_channel(channel_id)
+            if not channel:
+                continue
+
+            try:
+                messages = [msg async for msg in channel.history(limit=500)]
+            except Exception as e:
+                logging.warning(f"Failed to fetch history for channel {channel_id}: {e}")
+                continue
+
+            async with conn.execute("SELECT message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(ctx.guild.id), str(channel_id))) as cursor:
+                db_msg_ids = {str(row[0]) async for row in cursor}
+
+            for msg in messages:
+                if str(msg.id) not in db_msg_ids and msg.author == ctx.guild.me:
+                    for attempt in range(3):
+                        try:
+                            await msg.delete()
+                            break
+                        except Exception as e:
+                            logging.warning(f"Attempt {attempt+1}: Failed to delete orphaned message {msg.id} in channel {channel_id}: {e}")
+                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
+
+        # Send completion message to announcement channel
+        async with conn.execute("SELECT announce_channel_id FROM announce_config WHERE server_id=?", (server_id,)) as cursor:
+            row = await cursor.fetchone()
+        if row and row[0]:
+            announce_channel = ctx.guild.get_channel(int(row[0]))
+            if announce_channel:
+                emoji = "<:KanamiHeart:1374409597628186624>"
+                await announce_channel.send(f"Timer channel updates are complete. {emoji}")
 
     # 3. Clear and recreate all pending notifications for this server
     await ctx.invoke(bot.get_command("refresh_pending_notifications"))
@@ -822,4 +819,4 @@ async def refresh_all(ctx):
         f"Refreshed all event data!\n"
         f"Deleted expired events: {', '.join(expired_titles) if expired_titles else 'None'}\n"
         f"Timer channels and pending notifications have been updated."
-    )    
+    )

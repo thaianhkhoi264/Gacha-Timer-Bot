@@ -1,4 +1,5 @@
-import sqlite3
+import aiosqlite
+import asyncio
 from discord.ext import commands
 from discord import ui, ButtonStyle, Embed, Interaction
 from bot import bot
@@ -38,74 +39,71 @@ CRAFT_ALIASES = {
     "portal": "Portalcraft", "p": "Portalcraft"
 }
 
-def init_sv_db():
+async def init_sv_db():
     """
     Initializes the Shadowverse database with tables for channel assignment and winrate tracking.
+    Adds 'bricks' column if missing.
     """
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    # Channel assignment table
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS channel_assignments (
-            server_id TEXT PRIMARY KEY,
-            channel_id TEXT
-        )
-    ''')
-    # Winrate tracking table (add bricks column)
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS winrates (
-            user_id TEXT,
-            server_id TEXT,
-            played_craft TEXT,
-            opponent_craft TEXT,
-            wins INTEGER DEFAULT 0,
-            losses INTEGER DEFAULT 0,
-            bricks INTEGER DEFAULT 0,
-            PRIMARY KEY (user_id, server_id, played_craft, opponent_craft)
-        )
-    ''')
-    # Add bricks column if missing (for upgrades)
-    try:
-        c.execute('ALTER TABLE winrates ADD COLUMN bricks INTEGER DEFAULT 0')
-    except sqlite3.OperationalError:
-        pass  # Already exists
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS channel_assignments (
+                server_id TEXT PRIMARY KEY,
+                channel_id TEXT
+            )
+        ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS winrates (
+                user_id TEXT,
+                server_id TEXT,
+                played_craft TEXT,
+                opponent_craft TEXT,
+                wins INTEGER DEFAULT 0,
+                losses INTEGER DEFAULT 0,
+                bricks INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, server_id, played_craft, opponent_craft)
+            )
+        ''')
+        # Try to add bricks column if missing (for upgrades)
+        try:
+            await conn.execute('ALTER TABLE winrates ADD COLUMN bricks INTEGER DEFAULT 0')
+        except Exception:
+            pass  # Already exists
+        await conn.commit()
+
+asyncio.create_task(init_sv_db())
 
 BRICK_EMOJI = "<a:golden_brick:1397960479971741747>"
 
-def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
+async def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
     """
     Records a match result for a user.
     :param brick: True if the match was a brick, False otherwise
     """
     if played_craft not in CRAFTS or opponent_craft not in CRAFTS:
         raise ValueError("Invalid craft name.")
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    # Ensure row exists
-    c.execute('''
-        INSERT OR IGNORE INTO winrates (user_id, server_id, played_craft, opponent_craft, wins, losses, bricks)
-        VALUES (?, ?, ?, ?, 0, 0, 0)
-    ''', (user_id, server_id, played_craft, opponent_craft))
-    # Update win/loss/brick
-    if win:
-        c.execute('''
-            UPDATE winrates SET wins = wins + 1
-            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        # Ensure row exists
+        await conn.execute('''
+            INSERT OR IGNORE INTO winrates (user_id, server_id, played_craft, opponent_craft, wins, losses, bricks)
+            VALUES (?, ?, ?, ?, 0, 0, 0)
         ''', (user_id, server_id, played_craft, opponent_craft))
-    else:
-        c.execute('''
-            UPDATE winrates SET losses = losses + 1
-            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
-        ''', (user_id, server_id, played_craft, opponent_craft))
-    if brick:
-        c.execute('''
-            UPDATE winrates SET bricks = bricks + 1
-            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
-        ''', (user_id, server_id, played_craft, opponent_craft))
-    conn.commit()
-    conn.close()
+        # Update win/loss/brick
+        if win:
+            await conn.execute('''
+                UPDATE winrates SET wins = wins + 1
+                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+            ''', (user_id, server_id, played_craft, opponent_craft))
+        else:
+            await conn.execute('''
+                UPDATE winrates SET losses = losses + 1
+                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+            ''', (user_id, server_id, played_craft, opponent_craft))
+        if brick:
+            await conn.execute('''
+                UPDATE winrates SET bricks = bricks + 1
+                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+            ''', (user_id, server_id, played_craft, opponent_craft))
+        await conn.commit()
 
 def parse_sv_input(text):
     parts = text.strip().lower().split()
@@ -128,55 +126,59 @@ def parse_sv_input(text):
         return played_craft, enemy_craft, win, brick, remove
     return None
 
-def get_sv_channel_id(server_id):
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    c.execute('SELECT channel_id FROM channel_assignments WHERE server_id=?', (str(server_id),))
-    row = c.fetchone()
-    conn.close()
+async def get_sv_channel_id(server_id):
+    """
+    Returns the channel ID assigned for Shadowverse logging in this server, or None if not set.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('SELECT channel_id FROM channel_assignments WHERE server_id=?', (str(server_id),)) as cursor:
+            row = await cursor.fetchone()
     return int(row[0]) if row else None
 
-def set_dashboard_message_id(server_id, user_id, message_id):
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    if message_id is not None:
-        c.execute('''
-            INSERT OR REPLACE INTO dashboard_messages (server_id, user_id, message_id)
-            VALUES (?, ?, ?)
-        ''', (str(server_id), str(user_id), str(message_id)))
-    else:
-        c.execute('DELETE FROM dashboard_messages WHERE server_id=? AND user_id=?', (str(server_id), str(user_id)))
-    conn.commit()
-    conn.close()
+async def set_dashboard_message_id(server_id, user_id, message_id):
+    """
+    Sets or removes the dashboard message ID for a user in a server.
+    If message_id is None, removes the entry.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        if message_id is not None:
+            await conn.execute('''
+                INSERT OR REPLACE INTO dashboard_messages (server_id, user_id, message_id)
+                VALUES (?, ?, ?)
+            ''', (str(server_id), str(user_id), str(message_id)))
+        else:
+            await conn.execute('DELETE FROM dashboard_messages WHERE server_id=? AND user_id=?', (str(server_id), str(user_id)))
+        await conn.commit()
 
-def get_dashboard_message_id(server_id, user_id):
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS dashboard_messages (
-            server_id TEXT,
-            user_id TEXT,
-            message_id TEXT,
-            PRIMARY KEY (server_id, user_id)
-        )
-    ''')
-    c.execute('SELECT message_id FROM dashboard_messages WHERE server_id=? AND user_id=?', (str(server_id), str(user_id)))
-    row = c.fetchone()
-    conn.close()
+async def get_dashboard_message_id(server_id, user_id):
+    """
+    Returns the dashboard message ID for a user in a server, or None if not set.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS dashboard_messages (
+                server_id TEXT,
+                user_id TEXT,
+                message_id TEXT,
+                PRIMARY KEY (server_id, user_id)
+            )
+        ''')
+        async with conn.execute('SELECT message_id FROM dashboard_messages WHERE server_id=? AND user_id=?', (str(server_id), str(user_id))) as cursor:
+            row = await cursor.fetchone()
     if row and row[0] and row[0].isdigit():
         return int(row[0])
     return None
 
 async def update_dashboard_message(member, channel):
-    crafts = get_user_played_crafts(str(member.id), str(channel.guild.id))
+    crafts = await get_user_played_crafts(str(member.id), str(channel.guild.id))
     if not crafts:
         return
     craft = crafts[0]
-    winrate_dict = get_winrate(str(member.id), str(channel.guild.id), craft)
+    winrate_dict = await get_winrate(str(member.id), str(channel.guild.id), craft)
     title, desc = craft_winrate_summary(member, craft, winrate_dict)
     embed = Embed(title=title, description=desc, color=0x3498db)
     view = CraftDashboardView(member, channel.guild.id, crafts)
-    msg_id = get_dashboard_message_id(channel.guild.id, member.id)
+    msg_id = await get_dashboard_message_id(channel.guild.id, member.id)
     if msg_id:
         try:
             msg = await channel.fetch_message(msg_id)
@@ -185,36 +187,32 @@ async def update_dashboard_message(member, channel):
         except Exception:
             pass
     msg = await channel.send(embed=embed, view=view)
-    set_dashboard_message_id(channel.guild.id, member.id, msg.id)
+    await set_dashboard_message_id(channel.guild.id, member.id, msg.id)
 
-def get_user_played_crafts(user_id, server_id):
+async def get_user_played_crafts(user_id, server_id):
     """
     Returns a list of crafts the user has recorded matches for (as played_craft).
     """
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    c.execute('''
-        SELECT DISTINCT played_craft FROM winrates
-        WHERE user_id=? AND server_id=? AND (wins > 0 OR losses > 0)
-    ''', (str(user_id), str(server_id)))
-    crafts = [row[0] for row in c.fetchall()]
-    conn.close()
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('''
+            SELECT DISTINCT played_craft FROM winrates
+            WHERE user_id=? AND server_id=? AND (wins > 0 OR losses > 0)
+        ''', (str(user_id), str(server_id))) as cursor:
+            crafts = [row[0] async for row in cursor]
     return crafts
 
-def get_winrate(user_id, server_id, played_craft):
+async def get_winrate(user_id, server_id, played_craft):
     """
     Returns a dict of win/loss/brick stats for the user's played_craft against each opponent craft.
     """
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    c.execute('''
-        SELECT opponent_craft, wins, losses, bricks FROM winrates
-        WHERE user_id=? AND server_id=? AND played_craft=?
-    ''', (str(user_id), str(server_id), played_craft))
-    results = {craft: {"wins": 0, "losses": 0, "bricks": 0} for craft in CRAFTS}
-    for opponent_craft, wins, losses, bricks in c.fetchall():
-        results[opponent_craft] = {"wins": wins, "losses": losses, "bricks": bricks}
-    conn.close()
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('''
+            SELECT opponent_craft, wins, losses, bricks FROM winrates
+            WHERE user_id=? AND server_id=? AND played_craft=?
+        ''', (str(user_id), str(server_id), played_craft)) as cursor:
+            results = {craft: {"wins": 0, "losses": 0, "bricks": 0} for craft in CRAFTS}
+            async for opponent_craft, wins, losses, bricks in cursor:
+                results[opponent_craft] = {"wins": wins, "losses": losses, "bricks": bricks}
     return results
 
 def craft_winrate_summary(user, played_craft, winrate_dict):
@@ -237,40 +235,43 @@ def craft_winrate_summary(user, played_craft, winrate_dict):
     return title, desc
 
 # --- Streak DB helpers ---
-def get_streak_state(user_id, server_id):
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS streaks (
-            user_id TEXT,
-            server_id TEXT,
-            streak_data TEXT,
-            PRIMARY KEY (user_id, server_id)
-        )
-    ''')
-    c.execute('SELECT streak_data FROM streaks WHERE user_id=? AND server_id=?', (str(user_id), str(server_id)))
-    row = c.fetchone()
-    conn.close()
+async def get_streak_state(user_id, server_id):
+    """
+    Returns the streak data for a user in a server, or None if not set.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS streaks (
+                user_id TEXT,
+                server_id TEXT,
+                streak_data TEXT,
+                PRIMARY KEY (user_id, server_id)
+            )
+        ''')
+        async with conn.execute('SELECT streak_data FROM streaks WHERE user_id=? AND server_id=?', (str(user_id), str(server_id))) as cursor:
+            row = await cursor.fetchone()
     if row:
         return json.loads(row[0])
     return None
 
-def set_streak_state(user_id, server_id, streak_data):
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    c.execute('''
-        INSERT OR REPLACE INTO streaks (user_id, server_id, streak_data)
-        VALUES (?, ?, ?)
-    ''', (str(user_id), str(server_id), json.dumps(streak_data)))
-    conn.commit()
-    conn.close()
+async def set_streak_state(user_id, server_id, streak_data):
+    """
+    Sets the streak data for a user in a server.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        await conn.execute('''
+            INSERT OR REPLACE INTO streaks (user_id, server_id, streak_data)
+            VALUES (?, ?, ?)
+        ''', (str(user_id), str(server_id), json.dumps(streak_data)))
+        await conn.commit()
 
-def clear_streak_state(user_id, server_id):
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    c.execute('DELETE FROM streaks WHERE user_id=? AND server_id=?', (str(user_id), str(server_id)))
-    conn.commit()
-    conn.close()
+async def clear_streak_state(user_id, server_id):
+    """
+    Removes the streak data for a user in a server.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        await conn.execute('DELETE FROM streaks WHERE user_id=? AND server_id=?', (str(user_id), str(server_id)))
+        await conn.commit()
 
 async def update_streak_dashboard(member, channel, streak_data):
     # streak_data: list of dicts: [{"played":..., "enemy":..., "win":..., "brick":...}, ...]
@@ -302,8 +303,9 @@ async def export_sv_db_command(message):
     """
     Exports the current Shadowverse database to a readable .txt file and sends it to the user.
     Usage: Type 'exportdb' in the Shadowverse channel.
+    Only server admins can export.
     """
-    sv_channel_id = get_sv_channel_id(message.guild.id)
+    sv_channel_id = await get_sv_channel_id(message.guild.id)
     if sv_channel_id and message.channel.id == sv_channel_id:
         if message.author.bot:
             return
@@ -312,35 +314,32 @@ async def export_sv_db_command(message):
             await message.channel.send(f"{message.author.mention} You need administrator permissions to export the database.", delete_after=5)
             return
 
-        conn = sqlite3.connect('shadowverse_data.db')
-        c = conn.cursor()
-        output = io.StringIO()
-
-        # Export channel assignments
-        output.write("# channel_assignments\n")
-        for row in c.execute('SELECT server_id, channel_id FROM channel_assignments'):
-            output.write(f"{row[0]}\t{row[1]}\n")
-
-        # Export winrates
-        output.write("\n# winrates\n")
-        for row in c.execute('SELECT user_id, server_id, played_craft, opponent_craft, wins, losses, bricks FROM winrates'):
-            output.write("\t".join(map(str, row)) + "\n")
-
-        # Export dashboard messages
-        output.write("\n# dashboard_messages\n")
-        for row in c.execute('SELECT server_id, user_id, message_id FROM dashboard_messages'):
-            output.write("\t".join(map(str, row)) + "\n")
-
-        # Export streaks
-        output.write("\n# streaks\n")
-        for row in c.execute('SELECT user_id, server_id, streak_data FROM streaks'):
-            output.write("\t".join(map(str, row)) + "\n")
-
-        conn.close()
-        output.seek(0)
-        file = discord.File(fp=io.BytesIO(output.getvalue().encode()), filename="shadowverse_export.txt")
-        await message.author.send("Here is your exported Shadowverse database:", file=file)
-        await message.channel.send(f"{message.author.mention} Exported database sent via DM.", delete_after=5)
+        async with aiosqlite.connect('shadowverse_data.db') as conn:
+            output = io.StringIO()
+            # Export channel assignments
+            output.write("# channel_assignments\n")
+            async with conn.execute('SELECT server_id, channel_id FROM channel_assignments') as cursor:
+                async for row in cursor:
+                    output.write(f"{row[0]}\t{row[1]}\n")
+            # Export winrates
+            output.write("\n# winrates\n")
+            async with conn.execute('SELECT user_id, server_id, played_craft, opponent_craft, wins, losses, bricks FROM winrates') as cursor:
+                async for row in cursor:
+                    output.write("\t".join(map(str, row)) + "\n")
+            # Export dashboard messages
+            output.write("\n# dashboard_messages\n")
+            async with conn.execute('SELECT server_id, user_id, message_id FROM dashboard_messages') as cursor:
+                async for row in cursor:
+                    output.write("\t".join(map(str, row)) + "\n")
+            # Export streaks
+            output.write("\n# streaks\n")
+            async with conn.execute('SELECT user_id, server_id, streak_data FROM streaks') as cursor:
+                async for row in cursor:
+                    output.write("\t".join(map(str, row)) + "\n")
+            output.seek(0)
+            file = discord.File(fp=io.BytesIO(output.getvalue().encode()), filename="shadowverse_export.txt")
+            await message.author.send("Here is your exported Shadowverse database:", file=file)
+            await message.channel.send(f"{message.author.mention} Exported database sent via DM.", delete_after=5)
 
 class CraftDashboardView(ui.View):
     def __init__(self, user, server_id, crafts, page=0):
@@ -386,7 +385,7 @@ class CraftDashboardView(ui.View):
                 if interaction.user.id != self.user.id:
                     await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
                     return
-                winrate_dict = get_winrate(str(self.user.id), str(self.server_id), craft)
+                winrate_dict = await get_winrate(str(self.user.id), str(self.server_id), craft)
                 title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
                 embed = Embed(title=title, description=desc, color=0x3498db)
                 await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page))
@@ -445,52 +444,50 @@ class CraftDashboardView(ui.View):
         for item in self.children:
             item.disabled = True
 
-def remove_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
+async def remove_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
     """
     Removes one win/loss/brick record for a user if it exists.
+    Returns True if a record was removed, False otherwise.
     """
     if played_craft not in CRAFTS or opponent_craft not in CRAFTS:
         raise ValueError("Invalid craft name.")
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    c.execute('''
-        SELECT wins, losses, bricks FROM winrates
-        WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
-    ''', (user_id, server_id, played_craft, opponent_craft))
-    row = c.fetchone()
-    if not row:
-        conn.close()
-        return False
-    wins, losses, bricks = row
-    updated = False
-    if win and wins > 0:
-        c.execute('''
-            UPDATE winrates SET wins = wins - 1
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('''
+            SELECT wins, losses, bricks FROM winrates
             WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
-        ''', (user_id, server_id, played_craft, opponent_craft))
-        updated = True
-    elif not win and losses > 0:
-        c.execute('''
-            UPDATE winrates SET losses = losses - 1
-            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
-        ''', (user_id, server_id, played_craft, opponent_craft))
-        updated = True
-    if brick and bricks > 0:
-        c.execute('''
-            UPDATE winrates SET bricks = bricks - 1
-            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
-        ''', (user_id, server_id, played_craft, opponent_craft))
-        updated = True
-    conn.commit()
-    conn.close()
-    return updated
+        ''', (user_id, server_id, played_craft, opponent_craft)) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return False
+        wins, losses, bricks = row
+        updated = False
+        if win and wins > 0:
+            await conn.execute('''
+                UPDATE winrates SET wins = wins - 1
+                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+            ''', (user_id, server_id, played_craft, opponent_craft))
+            updated = True
+        elif not win and losses > 0:
+            await conn.execute('''
+                UPDATE winrates SET losses = losses - 1
+                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+            ''', (user_id, server_id, played_craft, opponent_craft))
+            updated = True
+        if brick and bricks > 0:
+            await conn.execute('''
+                UPDATE winrates SET bricks = bricks - 1
+                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+            ''', (user_id, server_id, played_craft, opponent_craft))
+            updated = True
+        await conn.commit()
+        return updated
 
 # --- Update shadowverse_on_message ---
 async def shadowverse_on_message(message):
     if message.author.bot:
         return False
     try:
-        sv_channel_id = get_sv_channel_id(message.guild.id)
+        sv_channel_id = await get_sv_channel_id(message.guild.id)
         if sv_channel_id and message.channel.id == sv_channel_id:
             content = message.content.strip().lower()
             user_id = str(message.author.id)
@@ -519,18 +516,18 @@ async def shadowverse_on_message(message):
             # --- Streak start ---
             if content == "streak start":
                 await message.delete()
-                set_streak_state(user_id, server_id, [])
+                await set_streak_state(user_id, server_id, [])
                 streak_msg_id = await update_streak_dashboard(message.author, message.channel, [])
                 # Save streak dashboard message id
-                set_dashboard_message_id(server_id, f"streak_{user_id}", streak_msg_id)
+                await set_dashboard_message_id(server_id, f"streak_{user_id}", streak_msg_id)
                 await message.channel.send(f"{message.author.mention} Streak started! All matches will be tracked until you type `streak end`.", delete_after=10)
                 return True
 
             # --- Streak end ---
             if content == "streak end":
                 await message.delete()
-                streak_data = get_streak_state(user_id, server_id)
-                streak_msg_id = get_dashboard_message_id(server_id, f"streak_{user_id}")
+                streak_data = await get_streak_state(user_id, server_id)
+                streak_msg_id = await get_dashboard_message_id(server_id, f"streak_{user_id}")
                 if streak_data and streak_msg_id:
                     # Prepare streak summary
                     total = len(streak_data)
@@ -551,9 +548,9 @@ async def shadowverse_on_message(message):
                     except Exception:
                         pass
                     await delete_streak_dashboard(message.channel, streak_msg_id)
-                    clear_streak_state(user_id, server_id)
+                    await clear_streak_state(user_id, server_id)
                     # Remove streak dashboard message id
-                    set_dashboard_message_id(server_id, f"streak_{user_id}", None)
+                    await set_dashboard_message_id(server_id, f"streak_{user_id}", None)
                     await message.channel.send(f"{message.author.mention} Streak ended! Summary sent via DM.", delete_after=10)
                 else:
                     await message.channel.send(f"{message.author.mention} No active streak to end.", delete_after=10)
@@ -578,8 +575,8 @@ async def shadowverse_on_message(message):
                 played_craft, enemy_craft, win, brick, remove = parsed
                 try:
                     # If streak is active, log to streak
-                    streak_data = get_streak_state(user_id, server_id)
-                    streak_msg_id = get_dashboard_message_id(server_id, f"streak_{user_id}")
+                    streak_data = await get_streak_state(user_id, server_id)
+                    streak_msg_id = await get_dashboard_message_id(server_id, f"streak_{user_id}")
                     if streak_data is not None:
                         streak_data.append({
                             "played": played_craft,
@@ -587,7 +584,7 @@ async def shadowverse_on_message(message):
                             "win": win,
                             "brick": brick
                         })
-                        set_streak_state(user_id, server_id, streak_data)
+                        await set_streak_state(user_id, server_id, streak_data)
                         # Update streak dashboard
                         if streak_msg_id:
                             try:
@@ -607,16 +604,16 @@ async def shadowverse_on_message(message):
                                 embed = Embed(title=f"{message.author.display_name}'s Streak", description=desc, color=0xf1c40f)
                                 await msg.edit(embed=embed)
                             except Exception:
-                                pass
+                                logging.warning(f"Failed to edit dashboard message: {e}")
                         else:
                             # Create streak dashboard if missing
                             streak_msg_id = await update_streak_dashboard(message.author, message.channel, streak_data)
-                            set_dashboard_message_id(server_id, f"streak_{user_id}", streak_msg_id)
+                            await set_dashboard_message_id(server_id, f"streak_{user_id}", streak_msg_id)
                     # Continue with normal winrate logging
                     if not remove:
-                        record_match(user_id, server_id, played_craft, enemy_craft, win, brick)
+                        await record_match(user_id, server_id, played_craft, enemy_craft, win, brick)
                     else:
-                        removed = remove_match(user_id, server_id, played_craft, enemy_craft, win, brick)
+                        removed = await remove_match(user_id, server_id, played_craft, enemy_craft, win, brick)
                         if not removed:
                             await message.author.send(
                                 f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}{' (Brick)' if brick else ''}"
@@ -652,19 +649,17 @@ async def shadowverse(ctx, channel_id: int = None):
     Usage: Kanami shadowverse [channel_id]
     If no channel_id is provided, uses the current channel.
     """
-    init_sv_db()
+    await init_sv_db()
     channel = ctx.guild.get_channel(channel_id) if channel_id else ctx.channel
     if not channel:
         await ctx.send("Invalid channel ID.")
         return
-    conn = sqlite3.connect('shadowverse_data.db')
-    c = conn.cursor()
-    c.execute('''
-        INSERT OR REPLACE INTO channel_assignments (server_id, channel_id)
-        VALUES (?, ?)
-    ''', (str(ctx.guild.id), str(channel.id)))
-    conn.commit()
-    conn.close()
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        await conn.execute('''
+            INSERT OR REPLACE INTO channel_assignments (server_id, channel_id)
+            VALUES (?, ?)
+        ''', (str(ctx.guild.id), str(channel.id)))
+        await conn.commit()
     # Instruction message at the top
     instruction = (
         "**Shadowverse Winrate Tracker**\n"
@@ -683,6 +678,3 @@ async def shadowverse(ctx, channel_id: int = None):
     for member in ctx.guild.members:
         if not member.bot:
             await update_dashboard_message(member, channel)
-
-# Initialize the database
-init_sv_db()
