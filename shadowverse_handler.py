@@ -390,6 +390,15 @@ class CraftDashboardView(ui.View):
                 title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
                 embed = Embed(title=title, description=desc, color=0x3498db)
                 await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page))
+            except discord.errors.HTTPException as e:
+                if e.status == 429:
+                    await interaction.response.send_message("Bot is being rate limited. Please try again in a few seconds.", ephemeral=True)
+                else:
+                    logging.error(f"[CraftDashboardView] Error in craft callback for {craft}: {e}", exc_info=True)
+                    try:
+                        await interaction.response.send_message("An error occurred while updating the dashboard.", ephemeral=True)
+                    except Exception:
+                        pass
             except Exception as e:
                 logging.error(f"[CraftDashboardView] Error in craft callback for {craft}: {e}", exc_info=True)
                 try:
