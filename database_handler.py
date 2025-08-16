@@ -104,6 +104,16 @@ def init_db():
 
 init_db()
 
+# Create a custom logger for timer channel updates
+timer_logger = logging.getLogger("timer_channel")
+timer_logger.setLevel(logging.INFO)
+
+# Console handler for timer channel logs only
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+timer_logger.addHandler(console_handler)
+
 async def mark_ended_events(guild):
     now = int(datetime.now().timestamp())
     async with aiosqlite.connect('kanami_data.db') as conn:
@@ -174,7 +184,7 @@ async def upsert_event_message(guild, channel, event_row, event_id):
 
 # Function to update the timer channel with the latest events for a given profile
 async def update_timer_channel(guild, bot, profile="ALL"):
-    logging.info(f"[update_timer_channel] Updating timer channel for guild {guild.id}, profile {profile}")
+    timer_logger.info(f"[update_timer_channel] Updating timer channel for guild {guild.id}, profile {profile}")
 
     await mark_ended_events(guild)
 
@@ -186,7 +196,7 @@ async def update_timer_channel(guild, bot, profile="ALL"):
             async with conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),)) as cursor:
                 row = await cursor.fetchone()
         if not row:
-            logging.warning(f"[update_timer_channel] No timer channel found for guild {guild.id}, profile {profile}")
+            timer_logger.warning(f"[update_timer_channel] No timer channel found for guild {guild.id}, profile {profile}")
             return
         channel_id = int(row[0])
 
@@ -206,7 +216,7 @@ async def update_timer_channel(guild, bot, profile="ALL"):
 
         channel = guild.get_channel(channel_id)
         if not channel:
-            logging.warning(f"[update_timer_channel] Channel {channel_id} not found in guild {guild.id}")
+            timer_logger.warning(f"[update_timer_channel] Channel {channel_id} not found in guild {guild.id}")
             return
 
         # Get all event_ids currently in the channel
@@ -228,31 +238,104 @@ async def update_timer_channel(guild, bot, profile="ALL"):
                 try:
                     msg = await channel.fetch_message(int(existing_msgs.get(event_id)))
                     await msg.delete()
-                    logging.info(f"[update_timer_channel] Deleted message for event_id {event_id} (profile {profile})")
+                    timer_logger.info(f"[update_timer_channel] Deleted message for event_id {event_id} (profile {profile})")
                 except Exception as e:
-                    logging.warning(f"[update_timer_channel] Failed to delete message for event_id {event_id} (profile {profile}): {e}")
+                    timer_logger.warning(f"[update_timer_channel] Failed to delete message for event_id {event_id} (profile {profile}): {e}")
                 await conn.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
                 await conn.commit()
             if event_id in ended_event_ids:
                 await conn.execute("DELETE FROM user_data WHERE id=?", (event_id,))
                 await conn.commit()
-                logging.info(f"[update_timer_channel] Deleted ended event_id {event_id} from user_data (profile {profile})")
+                timer_logger.info(f"[update_timer_channel] Deleted ended event_id {event_id} from user_data (profile {profile})")
 
         # Upsert (edit or create) messages for current events
         for row in rows:
             event_id = row[0]
+            title = row[1]
+            start_date = row[2]
+            end_date = row[3]
+            image = row[4]
             category = row[5]
+            is_hyv = int(row[6])
+            asia_start = row[7]
+            asia_end = row[8]
+            america_start = row[9]
+            america_end = row[10]
+            europe_start = row[11]
+            europe_end = row[12]
+            event_profile = row[13]
+
             if category == "Ended":
                 continue  # Skip ended events
+
+            # Compare with previous message data
+            msg_id = existing_msgs.get(event_id)
+            needs_update = True
+
+            if msg_id:
+                # Fetch previous event data from DB for comparison
+                async with conn.execute(
+                    "SELECT title, start_date, end_date, asia_start, asia_end, america_start, america_end, europe_start, europe_end FROM user_data WHERE id=?",
+                    (event_id,)
+                ) as cursor:
+                    prev = await cursor.fetchone()
+                if prev:
+                    prev_title, prev_start, prev_end, prev_asia_start, prev_asia_end, prev_america_start, prev_america_end, prev_europe_start, prev_europe_end = prev
+                    # For HYV events, compare all region times
+                    if is_hyv:
+                        if (
+                            title == prev_title and
+                            asia_start == prev_asia_start and
+                            asia_end == prev_asia_end and
+                            america_start == prev_america_start and
+                            america_end == prev_america_end and
+                            europe_start == prev_europe_start and
+                            europe_end == prev_europe_end
+                        ):
+                            needs_update = False
+                    else:
+                        if (
+                            title == prev_title and
+                            start_date == prev_start and
+                            end_date == prev_end
+                        ):
+                            needs_update = False
+
+            if not needs_update:
+                timer_logger.info(f"[update_timer_channel] No update needed for event_id {event_id} (profile {profile})")
+                continue
+
             event_row = row[1:]  # skip id
             try:
                 await upsert_event_message(guild, channel, event_row, event_id)
-                logging.info(f"[update_timer_channel] Upserted event_id {event_id} (profile {profile})")
+                timer_logger.info(f"[update_timer_channel] Upserted event_id {event_id} (profile {profile})")
             except Exception as e:
-                logging.warning(f"[update_timer_channel] Failed to upsert event_id {event_id} (profile {profile}): {e}")
-            await asyncio.sleep(0.5)  # Avoid rate limits
+                timer_logger.warning(f"[update_timer_channel] Failed to upsert event_id {event_id} (profile {profile}): {e}")
+            await asyncio.sleep(1)  # Avoid rate limits
 
-    logging.info(f"[update_timer_channel] Finished updating for guild {guild.id}, profile {profile}")
+        # Orphaned message cleanup: remove messages in the channel not tracked in the DB
+        try:
+            messages = [msg async for msg in channel.history(limit=500)]
+        except Exception as e:
+            timer_logger.warning(f"[update_timer_channel] Failed to fetch history for channel {channel_id}: {e}")
+            messages = []
+
+        async with aiosqlite.connect('kanami_data.db') as conn:
+            async with conn.execute("SELECT message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(guild.id), str(channel.id))) as cursor:
+                db_msg_ids = {str(row[0]) async for row in cursor}
+
+        for msg in messages:
+            if str(msg.id) not in db_msg_ids and msg.author == guild.me:
+                for attempt in range(3):
+                    try:
+                        await msg.delete()
+                        timer_logger.info(f"[update_timer_channel] Deleted orphaned message {msg.id} in channel {channel_id} (profile {profile})")
+                        break
+                    except Exception as e:
+                        timer_logger.warning(f"[update_timer_channel] Attempt {attempt+1}: Failed to delete orphaned message {msg.id} in channel {channel_id}: {e}")
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+
+    timer_logger.info(f"[update_timer_channel] Finished updating for guild {guild.id}, profile {profile}")
     
 
 async def get_valid_categories(server_id):

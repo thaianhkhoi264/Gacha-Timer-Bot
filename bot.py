@@ -17,3 +17,15 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix='Kanami ', intents=intents, help_command=None)
+
+# Remove all handlers from the root logger
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
+# Set up logging to file only
+logging.basicConfig(
+    level=logging.DEBUG,  # or INFO
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    filename="discord.log",
+    filemode="a"
+)
