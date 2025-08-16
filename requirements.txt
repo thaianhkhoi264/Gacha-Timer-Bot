@@ -4,3 +4,4 @@ tzdata
 playwright
 dateparser
 pytz
+aiosqlite
