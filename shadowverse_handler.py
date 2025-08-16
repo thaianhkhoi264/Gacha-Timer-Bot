@@ -70,8 +70,6 @@ async def init_sv_db():
             pass  # Already exists
         await conn.commit()
 
-init_sv_db()
-
 BRICK_EMOJI = "<a:golden_brick:1397960479971741747>"
 
 async def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):

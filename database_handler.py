@@ -174,135 +174,83 @@ async def upsert_event_message(guild, channel, event_row, event_id):
 
 # Function to update the timer channel with the latest events for a given profile
 async def update_timer_channel(guild, bot, profile="ALL"):
-    # Mark ended events before fetching
+    logging.info(f"[update_timer_channel] Updating timer channel for guild {guild.id}, profile {profile}")
+
     await mark_ended_events(guild)
 
     # Start the SQLite connection
     async with aiosqlite.connect('kanami_data.db') as conn:
         async with conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile=?", (str(guild.id), profile)) as cursor:
             row = await cursor.fetchone()
-    if not row:
-        async with conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),)) as cursor:
-            row = await cursor.fetchone()
-    if not row:
-        return
-    channel_id = int(row[0])
+        if not row:
+            async with conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),)) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            logging.warning(f"[update_timer_channel] No timer channel found for guild {guild.id}, profile {profile}")
+            return
+        channel_id = int(row[0])
 
-    # Fetch all previous event data for this server and channel
-    await conn.execute(
-        "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=?",
-        (str(guild.id),)
-    )
-    prev_events = {row[0]: row[1:] for row in await conn.fetchall()}
+        # Fetch events for this profile
+        if profile == "ALL":
+            async with conn.execute(
+                "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? ORDER BY id DESC",
+                (str(guild.id),)
+            ) as cursor:
+                rows = await cursor.fetchall()
+        else:
+            async with conn.execute(
+                "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? AND profile=? ORDER BY id DESC",
+                (str(guild.id), profile)
+            ) as cursor:
+                rows = await cursor.fetchall()
 
-    # Fetch events for this profile only, or all if profile is "ALL"
-    if profile == "ALL":
-        await conn.execute(
-            "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? ORDER BY id DESC",
-            (str(guild.id),)
-        )
-    else:
-        await conn.execute(
-            "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? AND profile=? ORDER BY id DESC",
-            (str(guild.id), profile)
-        )
-    rows = await cursor.fetchall()
+        channel = guild.get_channel(channel_id)
+        if not channel:
+            logging.warning(f"[update_timer_channel] Channel {channel_id} not found in guild {guild.id}")
+            return
 
-    channel = guild.get_channel(channel_id)
-    if not channel:
-        return
+        # Get all event_ids currently in the channel
+        async with conn.execute("SELECT event_id, message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(guild.id), str(channel.id))) as cursor:
+            existing_msgs = {row[0]: row[1] async for row in cursor}
 
-    # Get all event_ids currently in the channel
-    await conn.execute("SELECT event_id, message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(guild.id), str(channel.id)))
-    existing_msgs = {row[0]: row[1] for row in await conn.fetchall()}
+        # Build a set of current event_ids
+        current_event_ids = set(row[0] for row in rows)
 
-    # Build a set of current event_ids
-    current_event_ids = set(row[0] for row in rows)
+        # Find all events marked as Ended
+        async with conn.execute("SELECT id FROM user_data WHERE server_id=? AND category='Ended'", (str(guild.id),)) as cursor:
+            ended_event_ids = set(row[0] async for row in cursor)
 
-    # Delete messages for events that no longer exist or are marked as Ended
-    # Find all events marked as Ended
-    await conn.execute("SELECT id FROM user_data WHERE server_id=? AND category='Ended'", (str(guild.id),))
-    ended_event_ids = set(row[0] for row in await conn.fetchall())
+        # Delete messages for events that are either not in the DB anymore or are marked as Ended
+        for event_id in set(existing_msgs.keys()) | ended_event_ids:
+            if event_id not in current_event_ids or event_id in ended_event_ids:
+                try:
+                    msg = await channel.fetch_message(int(existing_msgs.get(event_id)))
+                    await msg.delete()
+                    logging.info(f"[update_timer_channel] Deleted message for event_id {event_id} (profile {profile})")
+                except Exception as e:
+                    logging.warning(f"[update_timer_channel] Failed to delete message for event_id {event_id} (profile {profile}): {e}")
+                await conn.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
+                await conn.commit()
+            if event_id in ended_event_ids:
+                await conn.execute("DELETE FROM user_data WHERE id=?", (event_id,))
+                await conn.commit()
+                logging.info(f"[update_timer_channel] Deleted ended event_id {event_id} from user_data (profile {profile})")
 
-    # Delete messages for events that are either not in the DB anymore or are marked as Ended
-    for event_id in set(existing_msgs.keys()) | ended_event_ids:
-        if event_id not in current_event_ids or event_id in ended_event_ids:
+        # Upsert (edit or create) messages for current events
+        for row in rows:
+            event_id = row[0]
+            category = row[5]
+            if category == "Ended":
+                continue  # Skip ended events
+            event_row = row[1:]  # skip id
             try:
-                msg = await channel.fetch_message(int(existing_msgs.get(event_id)))
-                await msg.delete()
-            except Exception:
-                pass
-            # Remove from DB
-            await conn.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
-            await conn.commit()
-        # Also, if marked as Ended, remove from user_data
-        if event_id in ended_event_ids:
-            await conn.execute("DELETE FROM user_data WHERE id=?", (event_id,))
-            await conn.commit()
-
-    # Only update events that are new or have changed
-    for row in rows:
-        event_id = row[0]
-        category = row[5]
-        if category == "Ended":
-            continue  # Skip ended events
-        event_row = row[1:]  # skip id
-
-        prev_row = prev_events.get(event_id)
-        if prev_row is None or tuple(event_row) != prev_row:
-            await upsert_event_message(guild, channel, event_row, event_id)
+                await upsert_event_message(guild, channel, event_row, event_id)
+                logging.info(f"[update_timer_channel] Upserted event_id {event_id} (profile {profile})")
+            except Exception as e:
+                logging.warning(f"[update_timer_channel] Failed to upsert event_id {event_id} (profile {profile}): {e}")
             await asyncio.sleep(0.5)  # Avoid rate limits
 
-    await conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile=?", (str(guild.id), profile))
-    row = await cursor.fetchone()
-    if not row:
-        await conn.execute("SELECT timer_channel_id FROM config WHERE server_id=? AND profile='ALL'", (str(guild.id),))
-        row = await cursor.fetchone()
-    if not row:
-        return
-    channel_id = int(row[0])
-
-    # Fetch events for this profile only, or all if profile is "ALL"
-    if profile == "ALL":
-        await conn.execute(
-            "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? ORDER BY id DESC",
-            (str(guild.id),)
-        )
-    else:
-        await conn.execute(
-            "SELECT id, title, start_date, end_date, image, category, is_hyv, asia_start, asia_end, america_start, america_end, europe_start, europe_end, profile FROM user_data WHERE server_id=? AND profile=? ORDER BY id DESC",
-            (str(guild.id), profile)
-        )
-    rows = await conn.fetchall()
-
-    channel = guild.get_channel(channel_id)
-    if not channel:
-        return
-
-    # Get all event_ids currently in the channel
-    await conn.execute("SELECT event_id, message_id FROM event_messages WHERE server_id=? AND channel_id=?", (str(guild.id), str(channel.id)))
-    existing_msgs = {row[0]: row[1] for row in await conn.fetchall()}
-
-    # Build a set of current event_ids
-    current_event_ids = set(row[0] for row in rows)
-
-    # Delete messages for events that no longer exist
-    for event_id in set(existing_msgs.keys()) - current_event_ids:
-        try:
-            msg = await channel.fetch_message(int(existing_msgs[event_id]))
-            await msg.delete()
-        except Exception:
-            pass
-        # Remove from DB
-        await conn.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, str(channel.id)))
-        await conn.commit()
-
-    # Upsert (edit or create) messages for current events
-    for row in rows:
-        event_id = row[0]
-        event_row = row[1:]  # skip id
-        await upsert_event_message(guild, channel, event_row, event_id)
-        await asyncio.sleep(0.5)  # Avoid rate limits
+    logging.info(f"[update_timer_channel] Finished updating for guild {guild.id}, profile {profile}")
     
 
 async def get_valid_categories(server_id):
