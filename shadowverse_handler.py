@@ -70,7 +70,7 @@ async def init_sv_db():
             pass  # Already exists
         await conn.commit()
 
-asyncio.create_task(init_sv_db())
+init_sv_db()
 
 BRICK_EMOJI = "<a:golden_brick:1397960479971741747>"
 
