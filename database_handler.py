@@ -321,6 +321,13 @@ async def update_timer_channel(guild, bot, profile="ALL"):
         event_id = row[0]
         event_row = row[1:]  # skip id
         await upsert_event_message(guild, channel, event_row, event_id)
+    
+    try:
+        emoji = "<:KanamiHeart:1374409597628186624>"
+        await channel.send(f"Timer channel updates are complete. {emoji}")
+    except Exception as e:
+        logging.error(f"[TimerChannel] Error sending completion message: {e}", exc_info=True)
+        pass
 
 async def get_valid_categories(server_id):
     # Built-in categories
