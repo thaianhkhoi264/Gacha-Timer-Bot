@@ -218,7 +218,9 @@ async def update_timer_channel(guild, bot, profile="ALL"):
 
         # Find all events marked as Ended
         async with conn.execute("SELECT id FROM user_data WHERE server_id=? AND category='Ended'", (str(guild.id),)) as cursor:
-            ended_event_ids = set(row[0] async for row in cursor)
+            ended_event_ids = set()
+            async for row in cursor:
+                ended_event_ids.add(row[0])
 
         # Delete messages for events that are either not in the DB anymore or are marked as Ended
         for event_id in set(existing_msgs.keys()) | ended_event_ids:
