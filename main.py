@@ -372,6 +372,23 @@ async def on_ready():
         for profile in profiles:
             await database_handler.update_timer_channel(guild, bot, profile=profile)
 
+    # After updating all timer channels for all profiles in all guilds
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        async with conn.execute("SELECT server_id, announce_channel_id FROM announce_config") as cursor:
+            rows = await cursor.fetchall()
+    for server_id, channel_id in rows:
+        guild = bot.get_guild(int(server_id))
+        if guild:
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                emoji = "<:KanamiHeart:1374409597628186624>"
+                try:
+                    await channel.send(f"Timer channel updates are complete. {emoji}")
+                except Exception:
+                    pass
+
+    await shadowverse_handler.init_sv_db()
+
     bot.loop.create_task(notification_loop())
     bot.loop.create_task(send_daily_report())
     bot.loop.create_task(expired_event_cleanup_task())
