@@ -581,7 +581,7 @@ async def shadowverse_on_message(message):
                 parsed = parse_sv_input(message.content)
             except Exception as e:
                 print(f"[Shadowverse] Parse error: {e}")
-            await message.delete()
+
             if parsed:
                 played_craft, enemy_craft, win, brick, remove = parsed
                 try:
@@ -622,49 +622,54 @@ async def shadowverse_on_message(message):
                     # Continue with normal winrate logging
                     if not remove:
                         await record_match(user_id, server_id, played_craft, enemy_craft, win, brick)
-                        try:
-                            await message.reply(
-                                "✅ Your match has been recorded! (This dashboard is only for you.)",
-                                mention_author=False,
-                                delete_after=5
-                            )
-                        except Exception as e:
-                            print(f"[Shadowverse] Reply error: {e}")
+                        reply_msg = await message.reply(
+                            "✅ Your match has been recorded! (This dashboard is only for you.)",
+                            mention_author=False
+                        )
                     else:
                         removed = await remove_match(user_id, server_id, played_craft, enemy_craft, win, brick)
                         if removed:
-                            try:
-                                await message.reply(
-                                    "✅ Your match record has been removed! (This dashboard is only for you.)",
-                                    mention_author=False,
-                                    delete_after=5
-                                )
-                            except Exception as e:
-                                print(f"[Shadowverse] Reply error: {e}")
+                            reply_msg = await message.reply(
+                                "✅ Your match record has been removed! (This dashboard is only for you.)",
+                                mention_author=False
+                            )
                         else:
-                            await message.reply(
+                            reply_msg = await message.reply(
                                 f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}{' (Brick)' if brick else ''}\n(This dashboard is only for you.)",
-                                mention_author=False,
-                                delete_after=5
+                                mention_author=False
                             )
                     await update_dashboard_message(message.author, message.channel)
+                    # Delete both messages after 5 seconds
+                    await asyncio.sleep(5)
+                    try:
+                        await reply_msg.delete()
+                    except Exception:
+                        pass
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
                 except Exception as e:
                     print(f"[Shadowverse] Record error: {e}")
                     try:
-                        await message.reply(
+                        reply_msg = await message.reply(
                             "An error occurred while recording your match. Please try again.\n(This dashboard is only for you.)",
-                            mention_author=False,
-                            delete_after=5
+                            mention_author=False
                         )
+                        await asyncio.sleep(5)
+                        await reply_msg.delete()
+                        await message.delete()
                     except Exception:
                         pass
             else:
                 try:
-                    await message.reply(
+                    reply_msg = await message.reply(
                         "Invalid format. Use `[Your Deck] [Enemy Deck] [Win/Lose]` (e.g., `Sword Dragon Win` or `S D W`). Add `B` for brick, `R` to remove, in any order.\n(This dashboard is only for you.)",
-                        mention_author=False,
-                        delete_after=5
+                        mention_author=False
                     )
+                    await asyncio.sleep(5)
+                    await reply_msg.delete()
+                    await message.delete()
                 except Exception:
                     pass
             return True  # handled
