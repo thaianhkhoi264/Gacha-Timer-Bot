@@ -5,7 +5,7 @@ import logging
 import os
 from dotenv import load_dotenv
 
-bot_version = "2.0.1"
+bot_version = "2.0.2"
 assigned_channels = {}
 
 load_dotenv()
