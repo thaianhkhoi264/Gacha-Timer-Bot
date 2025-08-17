@@ -622,19 +622,25 @@ async def shadowverse_on_message(message):
                     # Continue with normal winrate logging
                     if not remove:
                         await record_match(user_id, server_id, played_craft, enemy_craft, win, brick)
-                        await message.reply(
-                            "✅ Your match has been recorded! (This dashboard is only for you.)",
-                            mention_author=False,
-                            delete_after=5
-                        )
-                    else:
-                        removed = await remove_match(user_id, server_id, played_craft, enemy_craft, win, brick)
-                        if removed:
+                        try:
                             await message.reply(
-                                "✅ Your match record has been removed! (This dashboard is only for you.)",
+                                "✅ Your match has been recorded! (This dashboard is only for you.)",
                                 mention_author=False,
                                 delete_after=5
                             )
+                        except Exception as e:
+                            print(f"[Shadowverse] Reply error: {e}")
+                    else:
+                        removed = await remove_match(user_id, server_id, played_craft, enemy_craft, win, brick)
+                        if removed:
+                            try:
+                                await message.reply(
+                                    "✅ Your match record has been removed! (This dashboard is only for you.)",
+                                    mention_author=False,
+                                    delete_after=5
+                                )
+                            except Exception as e:
+                                print(f"[Shadowverse] Reply error: {e}")
                         else:
                             await message.reply(
                                 f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}{' (Brick)' if brick else ''}\n(This dashboard is only for you.)",
