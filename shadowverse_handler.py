@@ -381,7 +381,8 @@ class CraftDashboardView(ui.View):
         async def callback(interaction: Interaction):
             try:
                 if interaction.user.id != self.user.id:
-                    await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
+                    kanami_anger = "<:KanamiAnger:1406653154111524924>"
+                    await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                     return
                 winrate_dict = await get_winrate(str(self.user.id), str(self.server_id), craft)
                 title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
@@ -407,7 +408,8 @@ class CraftDashboardView(ui.View):
     async def next_page_callback(self, interaction: Interaction):
         try:
             if interaction.user.id != self.user.id:
-                await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
+                kanami_anger = "<:KanamiAnger:1406653154111524924>"
+                await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                 return
             await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1))
         except Exception as e:
@@ -420,7 +422,8 @@ class CraftDashboardView(ui.View):
     async def prev_page_callback(self, interaction: Interaction):
         try:
             if interaction.user.id != self.user.id:
-                await interaction.response.send_message("This dashboard is only for you.", ephemeral=True)
+                kanami_anger = "<:KanamiAnger:1406653154111524924>"
+                await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                 return
             await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1))
         except Exception as e:
@@ -516,9 +519,12 @@ async def shadowverse_on_message(message):
                 await message.delete()
                 await set_streak_state(user_id, server_id, [])
                 streak_msg_id = await update_streak_dashboard(message.author, message.channel, [])
-                # Save streak dashboard message id
                 await set_dashboard_message_id(server_id, f"streak_{user_id}", streak_msg_id)
-                await message.channel.send(f"{message.author.mention} Streak started! All matches will be tracked until you type `streak end`.", delete_after=10)
+                await message.reply(
+                    "Streak started! All matches will be tracked until you type `streak end`.\n(This dashboard is only for you.)",
+                    mention_author=False,
+                    delete_after=5
+                )
                 return True
 
             # --- Streak end ---
@@ -547,21 +553,28 @@ async def shadowverse_on_message(message):
                         pass
                     await delete_streak_dashboard(message.channel, streak_msg_id)
                     await clear_streak_state(user_id, server_id)
-                    # Remove streak dashboard message id
                     await set_dashboard_message_id(server_id, f"streak_{user_id}", None)
-                    await message.channel.send(f"{message.author.mention} Streak ended! Summary sent via DM.", delete_after=10)
+                    await message.reply(
+                        "Streak ended! Summary sent via DM.\n(This dashboard is only for you.)",
+                        mention_author=False,
+                        delete_after=5
+                    )
                 else:
-                    await message.channel.send(f"{message.author.mention} No active streak to end.", delete_after=10)
+                    await message.reply(
+                        "No active streak to end.\n(This dashboard is only for you.)",
+                        mention_author=False,
+                        delete_after=5
+                    )
                 return True
 
             # --- Export database command ---
-            sv_channel_id = get_sv_channel_id(message.guild.id)
+            sv_channel_id = await get_sv_channel_id(message.guild.id)
             if sv_channel_id and message.channel.id == sv_channel_id:
                 content = message.content.strip().lower()
-                # --- Export DB command ---
                 if content == "exportdb":
                     await export_sv_db_command(message)
                     return True
+
             # --- Normal match logging ---
             parsed = None
             try:
@@ -601,35 +614,49 @@ async def shadowverse_on_message(message):
                                     )
                                 embed = Embed(title=f"{message.author.display_name}'s Streak", description=desc, color=0xf1c40f)
                                 await msg.edit(embed=embed)
-                            except Exception:
+                            except Exception as e:
                                 logging.warning(f"Failed to edit dashboard message: {e}")
                         else:
-                            # Create streak dashboard if missing
                             streak_msg_id = await update_streak_dashboard(message.author, message.channel, streak_data)
                             await set_dashboard_message_id(server_id, f"streak_{user_id}", streak_msg_id)
                     # Continue with normal winrate logging
                     if not remove:
                         await record_match(user_id, server_id, played_craft, enemy_craft, win, brick)
+                        await message.reply(
+                            "✅ Your match has been recorded! (This dashboard is only for you.)",
+                            mention_author=False,
+                            delete_after=5
+                        )
                     else:
                         removed = await remove_match(user_id, server_id, played_craft, enemy_craft, win, brick)
-                        if not removed:
-                            await message.author.send(
-                                f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}{' (Brick)' if brick else ''}"
+                        if removed:
+                            await message.reply(
+                                "✅ Your match record has been removed! (This dashboard is only for you.)",
+                                mention_author=False,
+                                delete_after=5
+                            )
+                        else:
+                            await message.reply(
+                                f"⚠️ No record found to remove for: **{played_craft}** vs **{enemy_craft}** — {'Win' if win else 'Loss'}{' (Brick)' if brick else ''}\n(This dashboard is only for you.)",
+                                mention_author=False,
+                                delete_after=5
                             )
                     await update_dashboard_message(message.author, message.channel)
                 except Exception as e:
                     print(f"[Shadowverse] Record error: {e}")
                     try:
-                        await message.channel.send(
-                            f"{message.author.mention} An error occurred while recording your match. Please try again.",
+                        await message.reply(
+                            "An error occurred while recording your match. Please try again.\n(This dashboard is only for you.)",
+                            mention_author=False,
                             delete_after=5
                         )
                     except Exception:
                         pass
             else:
                 try:
-                    await message.channel.send(
-                        f"{message.author.mention} Invalid format. Use `[Your Deck] [Enemy Deck] [Win/Lose]` (e.g., `Sword Dragon Win` or `S D W`). Add `B` for brick, `R` to remove, in any order.",
+                    await message.reply(
+                        "Invalid format. Use `[Your Deck] [Enemy Deck] [Win/Lose]` (e.g., `Sword Dragon Win` or `S D W`). Add `B` for brick, `R` to remove, in any order.\n(This dashboard is only for you.)",
+                        mention_author=False,
                         delete_after=5
                     )
                 except Exception:
