@@ -485,6 +485,7 @@ async def remove_match(user_id: str, server_id: str, played_craft: str, opponent
 
 # --- Update shadowverse_on_message ---
 async def shadowverse_on_message(message):
+    kanami_emoji = "<:KanamiHeart:1374409597628186624>"
     if message.author.bot:
         return False
     try:
@@ -622,15 +623,33 @@ async def shadowverse_on_message(message):
                     # Continue with normal winrate logging
                     if not remove:
                         await record_match(user_id, server_id, played_craft, enemy_craft, win, brick)
-                        reply_msg = await message.reply(
-                            "✅ Your match has been recorded! (This dashboard is only for you.)",
-                            mention_author=False
-                        )
+                        LOSS_MESSAGES = {
+                            "Forestcraft": "The Roach came too early 😔",
+                            "Swordcraft": "Should've had more than 12 hp 😔",
+                            "Runecraft": "Kuon this Dclimb that, THE POPULARITY VOTE DIDN'T MATTER, IT'S ALL RIGGED AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                            "Dragoncraft": "Haha chicken go brrrr <:filenefeet:1396066558819696691>",
+                            "Abysscraft": "Did it even take more than 5 turns 😔",
+                            "Havencraft": "Should've Odin'd their Wilbert 😔",
+                            "Portalcraft": "It's either Orchis or Beta and both of them can eat my ass 😔"
+                        }
+                        if not win:
+                            reply_text = LOSS_MESSAGES.get(enemy_craft)
+                            if brick:
+                                reply_text += ", and also you should've drawn better 😔"
+                            reply_msg = await message.reply(
+                                f"Kanami recorded your match {kanami_emoji},{reply_text}",
+                                mention_author=False
+                            )
+                        else:
+                            reply_msg = await message.reply(
+                                f"Kanami recorded your match, nice win! {kanami_emoji}",
+                                mention_author=False
+                            )
                     else:
                         removed = await remove_match(user_id, server_id, played_craft, enemy_craft, win, brick)
                         if removed:
                             reply_msg = await message.reply(
-                                "✅ Your match record has been removed! (This dashboard is only for you.)",
+                                f"Kanami removed your match {kanami_emoji}",
                                 mention_author=False
                             )
                         else:
