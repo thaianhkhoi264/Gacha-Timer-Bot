@@ -637,7 +637,7 @@ async def shadowverse_on_message(message):
                             if brick:
                                 reply_text += ", and also you should've drawn better 😔"
                             reply_msg = await message.reply(
-                                f"Kanami recorded your match {kanami_emoji},{reply_text}",
+                                f"Kanami recorded your match {kanami_emoji}, {reply_text}",
                                 mention_author=False
                             )
                         else:
