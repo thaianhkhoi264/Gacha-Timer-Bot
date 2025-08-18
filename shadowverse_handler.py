@@ -632,18 +632,27 @@ async def shadowverse_on_message(message):
                             "Havencraft": "Should've Odin'd their Wilbert 😔",
                             "Portalcraft": "It's either Orchis or Beta and both of them can eat my ass 😔"
                         }
+                        # Sends attachment images if played craft is Dragoncraft
+                        files = []
+                        if played_craft == "Dragoncraft":
+                            if win:
+                                files.append(discord.File("dragon_win.png"))
+                            else:
+                                files.append(discord.File("dragon_loss.png"))
                         if not win:
                             reply_text = LOSS_MESSAGES.get(enemy_craft)
                             if brick:
                                 reply_text += ", and also you should've drawn better 😔"
                             reply_msg = await message.reply(
                                 f"Kanami recorded your match {kanami_emoji}, {reply_text}",
-                                mention_author=False
+                                mention_author=False,
+                                files = files if files else None
                             )
                         else:
                             reply_msg = await message.reply(
                                 f"Kanami recorded your match, nice win! {kanami_emoji}",
-                                mention_author=False
+                                mention_author=False,
+                                files = files if files else None
                             )
                     else:
                         removed = await remove_match(user_id, server_id, played_craft, enemy_craft, win, brick)
