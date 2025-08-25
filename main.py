@@ -388,6 +388,7 @@ async def on_ready():
                     pass
 
     await shadowverse_handler.init_sv_db()
+    await shadowverse_handler.shadowverse_startup_scan()
 
     bot.loop.create_task(notification_loop())
     bot.loop.create_task(send_daily_report())
