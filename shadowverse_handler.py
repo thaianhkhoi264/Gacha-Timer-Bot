@@ -115,7 +115,7 @@ async def shadowverse_startup_scan():
     owner = bot.get_user(owner_id)
     if owner:
         try:
-            if report:
+            if len(report_logged) > 0 or len(report_skipped) > 0:
                 await owner.send(report if len(report) < 1900 else report[:1900] + "\n...(truncated)")
         except Exception:
             pass
