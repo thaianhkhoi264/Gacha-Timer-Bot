@@ -72,7 +72,7 @@ async def init_sv_db():
 
 # Scans for messages in the Shadowverse channel and processes them when the bot starts
 async def shadowverse_startup_scan():
-    owner_id = 680653908259110914  # Replace with your Discord user ID if needed
+    owner_id = 680653908259110914  # Owner ID
     report_logged = []
     report_skipped = []
 
