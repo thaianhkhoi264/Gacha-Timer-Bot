@@ -5,3 +5,8 @@ playwright
 dateparser
 pytz
 aiosqlite
+
+transformers
+optimum
+onnx
+onnxruntime
