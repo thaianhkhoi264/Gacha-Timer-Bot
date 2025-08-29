@@ -70,56 +70,6 @@ async def init_sv_db():
             pass  # Already exists
         await conn.commit()
 
-# Scans for messages in the Shadowverse channel and processes them when the bot starts
-async def shadowverse_startup_scan():
-    owner_id = 680653908259110914  # Owner ID
-    report_logged = []
-    report_skipped = []
-
-    for guild in bot.guilds:
-        sv_channel_id = await get_sv_channel_id(guild.id)
-        if not sv_channel_id:
-            continue
-        channel = guild.get_channel(sv_channel_id)
-        if not channel:
-            continue
-
-        try:
-            async for message in channel.history(limit=500):
-                if message.author.bot:
-                    continue
-                parsed = None
-                try:
-                    parsed = parse_sv_input(message.content)
-                except Exception as e:
-                    report_skipped.append(f"[{guild.name}] {message.author.display_name}: {message.content} (parse error: {e})")
-                    continue
-                if parsed:
-                    played_craft, enemy_craft, win, brick, remove = parsed
-                    try:
-                        await record_match(str(message.author.id), str(guild.id), played_craft, enemy_craft, win, brick)
-                        report_logged.append(f"[{guild.name}] {message.author.display_name}: {message.content} (logged)")
-                    except Exception as e:
-                        report_skipped.append(f"[{guild.name}] {message.author.display_name}: {message.content} (record error: {e})")
-                else:
-                    report_skipped.append(f"[{guild.name}] {message.author.display_name}: {message.content} (skipped: invalid format)")
-        except Exception as e:
-            report_skipped.append(f"[{guild.name}] Error fetching history: {e}")
-
-    # Prepare report
-    report = "**Shadowverse Startup Scan Report**\n\n"
-    report += f"**Logged Matches ({len(report_logged)}):**\n" + "\n".join(report_logged) + "\n\n"
-    report += f"**Skipped Messages ({len(report_skipped)}):**\n" + "\n".join(report_skipped)
-
-    # Send report to owner
-    owner = bot.get_user(owner_id)
-    if owner:
-        try:
-            if len(report_logged) > 0 or len(report_skipped) > 0:
-                await owner.send(report if len(report) < 1900 else report[:1900] + "\n...(truncated)")
-        except Exception:
-            pass
-
 BRICK_EMOJI = "<a:golden_brick:1397960479971741747>"
 
 async def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
@@ -563,6 +513,52 @@ async def shadowverse_on_message(message):
                     if not member.bot:
                         await update_dashboard_message(member, message.channel)
                 return True
+
+            # --- Backread command ---
+            if content == "backread":
+                owner_id = 680653908259110914
+                if message.author.id != owner_id and not message.author.guild_permissions.administrator:
+                    await message.reply("Only the bot owner or server admins can use this command.", mention_author=False, delete_after=5)
+                    return True
+                await message.reply("Starting backread scan...", mention_author=False, delete_after=5)
+                # Run the scan for this channel only
+                report_logged = []
+                report_skipped = []
+                try:
+                    async for msg in message.channel.history(limit=500):
+                        if msg.author.bot:
+                            continue
+                        parsed = None
+                        try:
+                            parsed = parse_sv_input(msg.content)
+                        except Exception as e:
+                            report_skipped.append(f"[{message.guild.name}] {msg.author.display_name}: {msg.content} (parse error: {e})")
+                            continue
+                        if parsed:
+                            played_craft, enemy_craft, win, brick, remove = parsed
+                            try:
+                                await record_match(str(msg.author.id), str(message.guild.id), played_craft, enemy_craft, win, brick)
+                                report_logged.append(f"[{message.guild.name}] {msg.author.display_name}: {msg.content} (logged)")
+                            except Exception as e:
+                                report_skipped.append(f"[{message.guild.name}] {msg.author.display_name}: {msg.content} (record error: {e})")
+                        else:
+                            report_skipped.append(f"[{message.guild.name}] {msg.author.display_name}: {msg.content} (skipped: invalid format)")
+                except Exception as e:
+                    report_skipped.append(f"[{message.guild.name}] Error fetching history: {e}")
+
+                # Prepare report
+                report = "**Shadowverse Backread Scan Report**\n\n"
+                report += f"**Logged Matches ({len(report_logged)}):**\n" + "\n".join(report_logged) + "\n\n"
+                report += f"**Skipped Messages ({len(report_skipped)}):**\n" + "\n".join(report_skipped)
+
+                # Send report to the user who requested
+                try:
+                    if len(report_logged) > 0 or len(report_skipped) > 0:
+                        await message.author.send(report if len(report) < 1900 else report[:1900] + "\n...(truncated)")
+                except Exception:
+                    pass
+                return True
+
 
             # --- Streak start ---
             if content == "streak start":
