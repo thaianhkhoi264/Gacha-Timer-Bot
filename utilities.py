@@ -165,29 +165,24 @@ async def purge(ctx, amount: int = 50):
 
 @bot.command()
 async def restart(ctx):
-    """Calls the Cloud Run endpoint to restart the VM (and the bot)."""
-    await ctx.send("Requesting VM restart...")
-
+    """Restarts the bot process via systemd (owner only, Raspberry Pi)."""
     OWNER_ID = 680653908259110914
     if ctx.author.id != OWNER_ID:
         await ctx.send("You don't get to use this command!")
         return
 
-    url = "https://reboot-vm-218886309090.us-central1.run.app"
-    headers = {
-        # If your Cloud Run endpoint requires an API key or auth, add it here
-        # "Authorization": "Bearer YOUR_TOKEN"
-    }
+    await ctx.send("Kanami is restarting...")
 
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(url, headers=headers) as resp:
-                if resp.status == 200:
-                    await ctx.send("VM restart requested! Kanami will go offline and auto-restart soon.")
-                else:
-                    await ctx.send(f"Kanami failed to request restart. Status: {resp.status}")
-        except Exception as e:
-            await ctx.send(f"Error contacting Cloud Run: {e}")
+    # Pull from github and restart the bot
+    import subprocess
+    try:
+        subprocess.run(
+            ["git", "-C", "/home/piberry/Gacha-Timer-Bot", "pull"],
+            check=True
+        )
+        subprocess.Popen(["sudo", "systemctl", "restart", "kanami-bot"])
+    except Exception as e:
+        await ctx.send(f"Failed to restart: {e}")
 
 def convert_to_unix_tz(date: str, time: str, timezone_str: str = "UTC"):
     """
