@@ -3,6 +3,7 @@ import database_handler
 import utilities
 import notification_handler
 import shadowverse_handler
+import ml_handler
 from bot import bot, bot_version, token, handler, logging
 from database_handler import init_db
 from discord.ui import View, Select
@@ -388,6 +389,7 @@ async def on_ready():
                     pass
 
     await shadowverse_handler.init_sv_db()
+    await ml_handler.check_llm_table()  # Ensure LLM table exists
 
     bot.loop.create_task(notification_loop())
     bot.loop.create_task(send_daily_report())
@@ -404,6 +406,10 @@ async def on_message(message):
 
     # Call the shadowverse handler to process Shadowverse messages
     if await shadowverse_handler.shadowverse_on_message(message):
+        return
+
+    #Call the LLM handler to process messages with the LLM
+    if await ml_handler.ml_on_message(message):
         return
 
     if "good girl" in message.content.lower():
