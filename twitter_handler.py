@@ -8,6 +8,8 @@ import inspect
 import pytz
 import re
 
+from ml_handler import run_phi2_inference
+
 PROFILE_NORMALIZATION = {
     "arknightsen": "AK",
     "zzz_en": "ZZZ",
@@ -1127,6 +1129,32 @@ async def convert_to_all_timezones(dt_str):
         results[region] = (dt_tz, unix)
     return results
 
+# Function to extract dates using the LLM
+async def extract_dates_llm(text):
+    """
+    Uses the LLM to extract start and end dates from event text.
+    Returns (start, end) as strings, or (None, None) if not found.
+    """
+    prompt = (
+        "Extract the event start and end date from this text. "
+        "Reply in the format: Start: <date>, End: <date>. "
+        "If only one date is present, reply with Start: <date>, End: None.\n"
+        f"Text:\n{text}"
+    )
+    try:
+        llm_response = await run_phi2_inference(prompt)
+        import re
+        match = re.search(r"Start[:\-]?\s*([^\n,]+)[,\n]\s*End[:\-]?\s*([^\n,]+)", llm_response)
+        if match:
+            start = match.group(1).strip()
+            end = match.group(2).strip()
+            return start if start.lower() != "none" else None, end if end.lower() != "none" else None
+        else:
+            return None, None
+    except Exception as e:
+        print(f"[DEBUG] LLM extraction failed: {e}")
+        return None, None
+
 # Function to fetch the visible text content of a tweet using Playwright
 async def fetch_tweet_content(url: str):
     """Fetch tweet text, first image, and poster username."""
@@ -1466,4 +1494,213 @@ async def read(ctx, link: str):
         print("[DEBUG] Exception in read command:")
         print(traceback.format_exc())
 
+# Command to read events using LLM
+@bot.command()
+@bot.command()
+async def read_llm(ctx, link: str):
+    """
+    Reads a tweet using LLM-powered event extraction for all fields.
+    If LLM fails to extract required info, falls back to the standard read command.
+    Special handling for Hoyoverse games: expects region-specific times and version start logic.
+    LLM is prompted to return UNIX timestamps for all dates.
+    """
+    await ctx.send("Reading tweet with AI, please wait...")
+    link = normalize_twitter_link(link)
+    try:
+        tweet_text, tweet_image, username = await asyncio.wait_for(fetch_tweet_content(link), timeout=30.0)
+    except asyncio.TimeoutError:
+        await ctx.send("Timed out while trying to read the tweet. Twitter/X may be slow or blocking the bot.")
+        return
 
+    if not tweet_text:
+        await ctx.send("Could not read the tweet. Please check the link or try again later.")
+        return
+
+    event_profile = normalize_profile(username) if username else "ALL"
+    is_hyv = username in HYV_ACCOUNTS
+
+    if is_hyv:
+        # LLM prompt for HYV region times and version start, requesting UNIX timestamps
+        prompt = (
+            "Extract the following information from this event announcement text. "
+            "If the event has region-specific times (Asia, America, Europe), extract each region's start and end time as UNIX timestamps (seconds since epoch, UTC). "
+            "If the start time is described as 'Version Start', extract the version number and indicate it. "
+            "Reply in this exact format (one line per field):\n"
+            "Title: <title>\n"
+            "Category: <category>\n"
+            "Profile: <profile>\n"
+            "Asia Start: <UNIX timestamp or Version Start>\n"
+            "Asia End: <UNIX timestamp>\n"
+            "America Start: <UNIX timestamp or Version Start>\n"
+            "America End: <UNIX timestamp>\n"
+            "Europe Start: <UNIX timestamp or Version Start>\n"
+            "Europe End: <UNIX timestamp>\n"
+            "Timezone: <timezone>\n"
+            "If any field is missing, write None for that field.\n"
+            f"Text:\n{tweet_text}"
+        )
+        llm_response = await run_phi2_inference(prompt)
+
+        def extract_hyv_field(field, text):
+            match = re.search(rf"{field}:\s*(.+)", text)
+            return match.group(1).strip() if match else None
+
+        fields = {
+            "title": extract_hyv_field("Title", llm_response),
+            "category": extract_hyv_field("Category", llm_response),
+            "profile": extract_hyv_field("Profile", llm_response),
+            "asia_start": extract_hyv_field("Asia Start", llm_response),
+            "asia_end": extract_hyv_field("Asia End", llm_response),
+            "america_start": extract_hyv_field("America Start", llm_response),
+            "america_end": extract_hyv_field("America End", llm_response),
+            "europe_start": extract_hyv_field("Europe Start", llm_response),
+            "europe_end": extract_hyv_field("Europe End", llm_response),
+            "timezone": extract_hyv_field("Timezone", llm_response),
+        }
+
+        # Fallback to standard read if critical fields are missing
+        if not (fields["title"] and fields["category"] and fields["asia_start"]):
+            await ctx.send(
+                f"AI could not extract all required info (title/category/asia_start). Falling back to standard parser...\nAI response:\n```{llm_response}```"
+            )
+            await read(ctx, link)
+            return
+
+        # Handle "Version Start" for each region
+        for region in ["asia", "america", "europe"]:
+            start_key = f"{region}_start"
+            if fields[start_key] and "version" in fields[start_key].lower():
+                version_match = re.search(r"(\d+\.\d+)", fields[start_key])
+                if version_match:
+                    version_str = version_match.group(1)
+                    if event_profile == "HSR":
+                        start_dt = await get_version_start_hsr(version_str)
+                    elif event_profile == "ZZZ":
+                        start_dt = await get_version_start_zzz(version_str)
+                    else:
+                        start_dt = None
+                    if start_dt:
+                        unix_ts = int(start_dt.timestamp())
+                        fields[start_key] = str(unix_ts)
+                        await update_version_tracker(event_profile, version_str, start_dt)
+
+        # Convert region times to UNIX timestamps
+        start_times = {}
+        end_times = {}
+        for region in HYV_TIMEZONES:
+            start_str = fields[f"{region.lower()}_start"]
+            end_str = fields[f"{region.lower()}_end"]
+            try:
+                start_unix = int(start_str) if start_str and start_str.lower() != "none" else None
+            except Exception:
+                start_unix = None
+            try:
+                end_unix = int(end_str) if end_str and end_str.lower() != "none" else None
+            except Exception:
+                end_unix = None
+            # For notification logic, you may want to convert to datetime as well:
+            tz = pytz.timezone(HYV_TIMEZONES[region])
+            start_dt = datetime.fromtimestamp(start_unix, tz) if start_unix else None
+            end_dt = datetime.fromtimestamp(end_unix, tz) if end_unix else None
+            start_times[region] = (start_dt, start_unix)
+            end_times[region] = (end_dt, end_unix)
+
+        image = tweet_image if tweet_image else None
+        event_entries, new_title = await prepare_hyv_event_entries(
+            ctx, {}, start_times, end_times, image, fields["category"], event_profile, fields["title"]
+        )
+        await ctx.send(
+            f"Added `{new_title}` as **{fields['category']}** for all HYV server regions to the database! (via AI)"
+        )
+        from database_handler import update_timer_channel
+        await update_timer_channel(ctx.guild, bot, profile=event_profile)
+        from notification_handler import schedule_notifications_for_event, remove_duplicate_pending_notifications
+        for event in event_entries:
+            asyncio.create_task(schedule_notifications_for_event(event))
+        remove_duplicate_pending_notifications()
+        return
+
+    # Non-HYV logic (original LLM extraction, requesting UNIX timestamps)
+    prompt = (
+        "Extract the following information from this event announcement text. "
+        "Reply in this exact format (one line per field):\n"
+        "Title: <title>\n"
+        "Category: <category>\n"
+        "Profile: <profile>\n"
+        "Start: <UNIX timestamp>\n"
+        "End: <UNIX timestamp>\n"
+        "Timezone: <timezone>\n"
+        "If any field is missing, write None for that field.\n"
+        f"Text:\n{tweet_text}"
+    )
+    llm_response = await run_phi2_inference(prompt)
+
+    def extract_field(field, text):
+        match = re.search(rf"{field}:\s*(.+)", text)
+        return match.group(1).strip() if match else None
+
+    title = extract_field("Title", llm_response)
+    category = extract_field("Category", llm_response)
+    profile = extract_field("Profile", llm_response)
+    start = extract_field("Start", llm_response)
+    end = extract_field("End", llm_response)
+    timezone_str = extract_field("Timezone", llm_response)
+
+    # Fallback to standard read if critical fields are missing
+    if not (title and category and start):
+        await ctx.send(
+            f"AI could not extract all required info (title/category/start). Falling back to standard parser...\nAI response:\n```{llm_response}```"
+        )
+        await read(ctx, link)
+        return
+
+    image = tweet_image if tweet_image else None
+    event_profile = normalize_profile(profile) if profile else "ALL"
+
+    try:
+        start_unix = int(start) if start and start.lower() != "none" else None
+        end_unix = int(end) if end and end.lower() != "none" else None
+    except Exception as e:
+        await ctx.send(f"Error parsing UNIX timestamps: {e}\nAI response:\n```{llm_response}```")
+        return
+
+    # Insert event into DB
+    async with aiosqlite.connect('kanami_data.db') as conn:
+        base_title = title
+        suffix = 1
+        new_title = base_title
+        while True:
+            async with conn.execute(
+                "SELECT COUNT(*) FROM user_data WHERE server_id=? AND title=?",
+                (str(ctx.guild.id), new_title)
+            ) as cursor:
+                count = (await cursor.fetchone())[0]
+            if count == 0:
+                break
+            suffix += 1
+            new_title = f"{base_title} {suffix}"
+
+        await conn.execute(
+            "INSERT INTO user_data (user_id, server_id, title, start_date, end_date, image, category, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (str(ctx.author.id), str(ctx.guild.id), new_title, str(start_unix) if start_unix else "", str(end_unix) if end_unix else "", image, category, event_profile)
+        )
+        await conn.commit()
+
+    await ctx.send(
+        f"Added `{new_title}` as **{category}** (profile: {event_profile}) with start `<t:{start_unix}:F>`"
+        + (f" and end `<t:{end_unix}:F>`" if end_unix else "")
+        + " to the database! (via AI)"
+    )
+    from database_handler import update_timer_channel
+    await update_timer_channel(ctx.guild, bot, profile=event_profile)
+    from notification_handler import schedule_notifications_for_event, remove_duplicate_pending_notifications
+    event = {
+        'server_id': str(ctx.guild.id),
+        'category': category,
+        'profile': event_profile,
+        'title': new_title,
+        'start_date': str(start_unix) if start_unix else "",
+        'end_date': str(end_unix) if end_unix else ""
+    }
+    asyncio.create_task(schedule_notifications_for_event(event))
+    remove_duplicate_pending_notifications()
