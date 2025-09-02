@@ -1,29 +1,29 @@
 import modules
 from bot import *
 import aiosqlite
-import onnxruntime as ort
 import numpy as np
-from transformers import AutoTokenizer
 
-onnx_model_path = "./phi-2-onnx/model.onnx"
-session = ort.InferenceSession(onnx_model_path)
+def get_model_and_tokenizer():
+    import onnxruntime as ort
+    from transformers import AutoTokenizer
+    onnx_model_path = "./phi-2-onnx/model.onnx"
+    session = ort.InferenceSession(onnx_model_path)
+    tokenizer = AutoTokenizer.from_pretrained("./phi-2")
+    return session, tokenizer
 
-tokenizer = AutoTokenizer.from_pretrained("microsoft/phi-2")
-
-def tokenize(text):
-    # Tokenize and convert to numpy array for ONNX Runtime
+def tokenize(tokenizer, text):
     tokens = tokenizer(text, return_tensors="np", padding="max_length", max_length=128, truncation=True)
     return tokens["input_ids"]
 
 async def run_phi2_inference(text):
-    input_ids = tokenize(text)
-    # Run inference
+    session, tokenizer = get_model_and_tokenizer()
+    input_ids = tokenize(tokenizer, text)
     outputs = session.run(None, {"input_ids": input_ids})
-    # Assume the output is token IDs (adjust if your model outputs logits)
-    # outputs[0] is usually the output token IDs
     output_ids = outputs[0]
-    # Decode output tokens to text
     response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    # Optionally, free memory
+    del session
+    del tokenizer
     return response
 
 # Check if llm_hub_channel table exists
@@ -37,30 +37,32 @@ async def check_llm_table():
         ''')
         await conn.commit()
 
-# Message handler to be called from main.py's on_message
-async def ml_on_message(message):
-    if message.author == bot.user:
-        return
-    async with aiosqlite.connect('kanami_data.db') as conn:
-        async with conn.execute(
-            "SELECT channel_id FROM llm_hub_channel WHERE server_id=?",
-            (str(message.guild.id),)
-        ) as cursor:
-            row = await cursor.fetchone()
-    if row and str(message.channel.id) == row[0]:
-        response = await run_phi2_inference(message.content)
-        await message.channel.send(response)
-        return True
-    return False
+# Ctrl + / to un-comment the code block
 
-@bot.command()
-@commands.has_permissions(manage_channels=True)
-async def set_llm_channel(ctx, channel: discord.TextChannel):
-    """Set the LLM chat hub channel for this server."""
-    async with aiosqlite.connect('kanami_data.db') as conn:
-        await conn.execute(
-            "REPLACE INTO llm_hub_channel (server_id, channel_id) VALUES (?, ?)",
-            (str(ctx.guild.id), str(channel.id))
-        )
-        await conn.commit()
-    await ctx.send(f"{channel.mention} is now set as the LLM chat hub channel.")
+# # Message handler to be called from main.py's on_message
+# async def ml_on_message(message):
+#     if message.author == bot.user:
+#         return
+#     async with aiosqlite.connect('kanami_data.db') as conn:
+#         async with conn.execute(
+#             "SELECT channel_id FROM llm_hub_channel WHERE server_id=?",
+#             (str(message.guild.id),)
+#         ) as cursor:
+#             row = await cursor.fetchone()
+#     if row and str(message.channel.id) == row[0]:
+#         response = await run_phi2_inference(message.content)
+#         await message.channel.send(response)
+#         return True
+#     return False
+
+# @bot.command()
+# @commands.has_permissions(manage_channels=True)
+# async def set_llm_channel(ctx, channel: discord.TextChannel):
+#     """Set the LLM chat hub channel for this server."""
+#     async with aiosqlite.connect('kanami_data.db') as conn:
+#         await conn.execute(
+#             "REPLACE INTO llm_hub_channel (server_id, channel_id) VALUES (?, ?)",
+#             (str(ctx.guild.id), str(channel.id))
+#         )
+#         await conn.commit()
+#     await ctx.send(f"{channel.mention} is now set as the LLM chat hub channel.")

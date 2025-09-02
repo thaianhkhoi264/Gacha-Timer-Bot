@@ -3,6 +3,7 @@ import database_handler
 import utilities
 import notification_handler
 import shadowverse_handler
+import ml_handler
 from bot import bot, bot_version, token, handler, logging
 from database_handler import init_db
 from discord.ui import View, Select
@@ -407,9 +408,9 @@ async def on_message(message):
     if await shadowverse_handler.shadowverse_on_message(message):
         return
 
-    #Call the LLM handler to process messages with the LLM
-    if await ml_handler.ml_on_message(message):
-        return
+    # #Call the LLM handler to process messages with the LLM
+    # if await ml_handler.ml_on_message(message):
+    #     return
 
     if "good girl" in message.content.lower():
         emoji = "<:KanamiHeart:1374409597628186624>"
