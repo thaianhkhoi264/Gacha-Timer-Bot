@@ -1,41 +1,20 @@
 import modules
 from bot import *
 import aiosqlite
-import numpy as np
 
-def get_model_and_tokenizer():
-    print("[DEBUG] get_model_and_tokenizer: called")
-    import onnxruntime as ort
-    from transformers import AutoTokenizer
-    print("[DEBUG] get_model_and_tokenizer: importing done")
-    onnx_model_path = "./phi-2-onnx/model.onnx"
-    print("[DEBUG] get_model_and_tokenizer: loading session")
-    session = ort.InferenceSession(onnx_model_path)
-    print("[DEBUG] get_model_and_tokenizer: loading tokenizer")
-    tokenizer = AutoTokenizer.from_pretrained("./phi-2")
-    print("[DEBUG] get_model_and_tokenizer: loaded")
-    return session, tokenizer
+# Use llama-cpp-python for GGUF model inference
+from llama_cpp import Llama
 
-def tokenize(tokenizer, text):
-    tokens = tokenizer(text, return_tensors="np", padding="max_length", max_length=128, truncation=True)
-    return tokens["input_ids"]
+# Load the quantized model once (thread-safe, low RAM usage)
+llm = Llama(model_path="./phi-2.Q4_K_M.gguf", n_ctx=512, n_threads=4)  # Adjust n_ctx and n_threads as needed
 
 async def run_phi2_inference(text):
     print("[DEBUG] run_phi2_inference: called with text:", repr(text)[:100])
     try:
-        session, tokenizer = get_model_and_tokenizer()
-        print("[DEBUG] run_phi2_inference: model and tokenizer loaded")
-        input_ids = tokenize(tokenizer, text)
-        print("[DEBUG] run_phi2_inference: input_ids shape:", input_ids.shape)
-        outputs = session.run(None, {"input_ids": input_ids})
-        print("[DEBUG] run_phi2_inference: outputs received")
-        output_ids = outputs[0]
-        print("[DEBUG] run_phi2_inference: output_ids shape:", output_ids.shape)
-        response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        # Generate response using the quantized model
+        output = llm(text, max_tokens=128, stop=["<|endoftext|>"])
+        response = output["choices"][0]["text"].strip()
         print("[DEBUG] run_phi2_inference: decoded response:", repr(response)[:100])
-        # Optionally, free memory
-        del session
-        del tokenizer
         return response
     except Exception as e:
         print("[ERROR] run_phi2_inference exception:", e)
@@ -80,4 +59,4 @@ async def check_llm_table():
 #             (str(ctx.guild.id), str(channel.id))
 #         )
 #         await conn.commit()
-#     await ctx.send(f"{channel.mention} is now set as the LLM chat hub channel.")
+#     await ctx.send(f"{channel.mention} is now set as the
