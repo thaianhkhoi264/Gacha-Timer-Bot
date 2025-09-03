@@ -1698,6 +1698,7 @@ async def read_llm(ctx, link: str):
         f"Added `{new_title}` as **{category}** (profile: {event_profile}) with start `<t:{start_unix}:F>`"
         + (f" and end `<t:{end_unix}:F>`" if end_unix else "")
         + " to the database! (via AI)"
+        + (f"\nAI response:\n```{llm_response}```" if llm_response else "")
     )
     from database_handler import update_timer_channel
     await update_timer_channel(ctx.guild, bot, profile=event_profile)
