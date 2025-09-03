@@ -1496,7 +1496,6 @@ async def read(ctx, link: str):
 
 # Command to read events using LLM
 @bot.command()
-@bot.command()
 async def read_llm(ctx, link: str):
     """
     Reads a tweet using LLM-powered event extraction for all fields.
