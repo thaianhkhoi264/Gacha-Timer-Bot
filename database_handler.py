@@ -9,6 +9,8 @@ import dateparser
 import re
 from datetime import datetime, timedelta, timezone
 
+logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+
 # Initialize the database
 def init_db():
     import sqlite3
