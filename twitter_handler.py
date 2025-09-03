@@ -1632,7 +1632,14 @@ async def read_llm(ctx, link: str):
         "End: <UNIX timestamp>\n"
         "Timezone: <timezone>\n"
         "If any field is missing, write None for that field.\n"
-        f"Text:\n{tweet_text}"
+        "Example:\n"
+        "Title: Orienteering Headhunting\n"
+        "Category: Limited-Time Headhunting\n"
+        "Profile: Arknights_EN\n"
+        "Start: 1746330000\n"
+        "End: 1747420740\n"
+        "Timezone: UTC-7\n"
+        "Text:\n" + tweet_text
     )
     llm_response = await run_phi2_inference(prompt)
 
