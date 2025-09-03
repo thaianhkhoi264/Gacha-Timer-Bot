@@ -4,11 +4,16 @@ import aiosqlite
 import numpy as np
 
 def get_model_and_tokenizer():
+    print("[DEBUG] get_model_and_tokenizer: called")
     import onnxruntime as ort
     from transformers import AutoTokenizer
+    print("[DEBUG] get_model_and_tokenizer: importing done")
     onnx_model_path = "./phi-2-onnx/model.onnx"
+    print("[DEBUG] get_model_and_tokenizer: loading session")
     session = ort.InferenceSession(onnx_model_path)
+    print("[DEBUG] get_model_and_tokenizer: loading tokenizer")
     tokenizer = AutoTokenizer.from_pretrained("./phi-2")
+    print("[DEBUG] get_model_and_tokenizer: loaded")
     return session, tokenizer
 
 def tokenize(tokenizer, text):
