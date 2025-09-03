@@ -6,7 +6,7 @@ import aiosqlite
 from llama_cpp import Llama
 
 # Load the quantized model once (thread-safe, low RAM usage)
-llm = Llama(model_path="./phi-2.Q5_K_M.gguf", n_ctx=512, n_threads=4)  # Adjust n_ctx and n_threads as needed
+llm = Llama(model_path="./tinyllama-1.1b-chat-v1.0.Q5_K_M.gguf", n_ctx=512, n_threads=4)  # Adjust n_ctx and n_threads as needed
 
 async def run_phi2_inference(text):
     print("[DEBUG] run_phi2_inference: called with text:", repr(text)[:100])
