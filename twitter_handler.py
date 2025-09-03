@@ -1506,7 +1506,9 @@ async def read_llm(ctx, link: str):
     await ctx.send("Reading tweet with AI, please wait...")
     link = normalize_twitter_link(link)
     try:
+        print("[DEBUG] read_llm: fetching tweet content")
         tweet_text, tweet_image, username = await asyncio.wait_for(fetch_tweet_content(link), timeout=30.0)
+        print("[DEBUG] read_llm: tweet content fetched")
     except asyncio.TimeoutError:
         await ctx.send("Timed out while trying to read the tweet. Twitter/X may be slow or blocking the bot.")
         return
