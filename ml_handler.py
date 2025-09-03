@@ -16,15 +16,25 @@ def tokenize(tokenizer, text):
     return tokens["input_ids"]
 
 async def run_phi2_inference(text):
-    session, tokenizer = get_model_and_tokenizer()
-    input_ids = tokenize(tokenizer, text)
-    outputs = session.run(None, {"input_ids": input_ids})
-    output_ids = outputs[0]
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    # Optionally, free memory
-    del session
-    del tokenizer
-    return response
+    print("[DEBUG] run_phi2_inference: called with text:", repr(text)[:100])
+    try:
+        session, tokenizer = get_model_and_tokenizer()
+        print("[DEBUG] run_phi2_inference: model and tokenizer loaded")
+        input_ids = tokenize(tokenizer, text)
+        print("[DEBUG] run_phi2_inference: input_ids shape:", input_ids.shape)
+        outputs = session.run(None, {"input_ids": input_ids})
+        print("[DEBUG] run_phi2_inference: outputs received")
+        output_ids = outputs[0]
+        print("[DEBUG] run_phi2_inference: output_ids shape:", output_ids.shape)
+        response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        print("[DEBUG] run_phi2_inference: decoded response:", repr(response)[:100])
+        # Optionally, free memory
+        del session
+        del tokenizer
+        return response
+    except Exception as e:
+        print("[ERROR] run_phi2_inference exception:", e)
+        return f"[ERROR] LLM inference failed: {e}"
 
 # Check if llm_hub_channel table exists
 async def check_llm_table():
