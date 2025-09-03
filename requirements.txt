@@ -10,3 +10,4 @@ transformers
 optimum
 onnx
 onnxruntime
+llama-cpp-python
