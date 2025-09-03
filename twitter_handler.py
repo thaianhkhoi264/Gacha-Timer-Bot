@@ -1625,6 +1625,9 @@ async def read_llm(ctx, link: str):
     prompt = (
         "Extract the following information from this event announcement text. "
         "Reply in this exact format (one line per field):\n"
+        "The Profile should be one of these: [HSR, ZZZ, AK, STRI, WUWA] (It is the abbreviation of the twitter handle)\n"
+        "The Category should be one of these: [Banner, Event, Maintenance, Offer] (Anything that is a Headhunting/Gacha/Warp/Channels or has the word Limited Time is considered a Banner)\n"
+        "If the Category is a Banner, the Title should include the name of the Character in the Banner"
         "Title: <title>\n"
         "Category: <category>\n"
         "Profile: <profile>\n"
