@@ -1,4 +1,5 @@
 from twitter_handler import *
+from ml_handler import run_phi2_inference
 import aiosqlite
 import re
 
@@ -104,19 +105,19 @@ async def tweet_listener_on_message(message):
     print(f"[DEBUG] profile: {profile}, required_keywords: {required_keywords}, ignored_keywords: {ignored_keywords}")
     profile = profile.upper()
 
-    # Use DB keywords if set, otherwise fallback to PROFILE_KEYWORDS
-    if required_keywords:
-        required_keywords = [kw.strip() for kw in required_keywords.split(",") if kw.strip()]
-        print(f"[DEBUG] Using DB required_keywords: {required_keywords}")
-    else:
-        required_keywords = PROFILE_KEYWORDS.get(profile, {}).get("required", [])
-        print(f"[DEBUG] Using default required_keywords: {required_keywords}")
-    if ignored_keywords:
-        ignored_keywords = [kw.strip() for kw in ignored_keywords.split(",") if kw.strip()]
-        print(f"[DEBUG] Using DB ignored_keywords: {ignored_keywords}")
-    else:
-        ignored_keywords = PROFILE_KEYWORDS.get(profile, {}).get("ignored", [])
-        print(f"[DEBUG] Using default ignored_keywords: {ignored_keywords}")
+    # # Use DB keywords if set, otherwise fallback to PROFILE_KEYWORDS
+    # if required_keywords:
+    #     required_keywords = [kw.strip() for kw in required_keywords.split(",") if kw.strip()]
+    #     print(f"[DEBUG] Using DB required_keywords: {required_keywords}")
+    # else:
+    #     required_keywords = PROFILE_KEYWORDS.get(profile, {}).get("required", [])
+    #     print(f"[DEBUG] Using default required_keywords: {required_keywords}")
+    # if ignored_keywords:
+    #     ignored_keywords = [kw.strip() for kw in ignored_keywords.split(",") if kw.strip()]
+    #     print(f"[DEBUG] Using DB ignored_keywords: {ignored_keywords}")
+    # else:
+    #     ignored_keywords = PROFILE_KEYWORDS.get(profile, {}).get("ignored", [])
+    #     print(f"[DEBUG] Using default ignored_keywords: {ignored_keywords}")
 
     # Look for a Twitter/X link in the message
     twitter_link = None
@@ -155,32 +156,39 @@ async def tweet_listener_on_message(message):
         await message.add_reaction("❌")
         return True
 
-    # Ignore if any ignored keyword is present (word-boundary match)
-    ignored_found = []
-    for kw in ignored_keywords:
-        if re.search(rf'\b{re.escape(kw.lower())}\b', tweet_text.lower()):
-            ignored_found.append(kw)
-    if ignored_found:
-        print(f"[DEBUG] Ignored keywords found: {ignored_found}")
+    # # Ignore if any ignored keyword is present (word-boundary match)
+    # ignored_found = []
+    # for kw in ignored_keywords:
+    #     if re.search(rf'\b{re.escape(kw.lower())}\b', tweet_text.lower()):
+    #         ignored_found.append(kw)
+    # if ignored_found:
+    #     print(f"[DEBUG] Ignored keywords found: {ignored_found}")
+    #     await message.add_reaction("❌")
+    #     return True
+
+    # # Flatten text for keyword check
+    # flat_text = tweet_text.replace("\n", " ").replace("\r", " ").lower()
+    # print(f"[DEBUG] flat_text: {flat_text}")
+    # if required_keywords:
+    #     found = False
+    #     for kw in required_keywords:
+    #         if re.search(rf'\b{re.escape(kw.lower())}\b', flat_text):
+    #             print(f"[DEBUG] Required keyword matched: {kw}")
+    #             found = True
+    #             break
+    #     if not found:
+    #         print("[DEBUG] No required keyword matched.")
+    #         await message.add_reaction("❌")
+    #         return True
+    # else:
+    #     print("[DEBUG] No required keywords set, skipping required keyword check.")
+
+    # Use LLM to classify if this is an event/announcement tweet
+    is_event = await is_event_tweet(tweet_text, profile)
+    if not is_event:
+        print("[DEBUG] LLM classified this tweet as Filler/Non-event.")
         await message.add_reaction("❌")
         return True
-
-    # Flatten text for keyword check
-    flat_text = tweet_text.replace("\n", " ").replace("\r", " ").lower()
-    print(f"[DEBUG] flat_text: {flat_text}")
-    if required_keywords:
-        found = False
-        for kw in required_keywords:
-            if re.search(rf'\b{re.escape(kw.lower())}\b', flat_text):
-                print(f"[DEBUG] Required keyword matched: {kw}")
-                found = True
-                break
-        if not found:
-            print("[DEBUG] No required keyword matched.")
-            await message.add_reaction("❌")
-            return True
-    else:
-        print("[DEBUG] No required keywords set, skipping required keyword check.")
 
     # If passed, process like the read command (call the function directly)
     await message.add_reaction("✅")
@@ -198,10 +206,27 @@ async def tweet_listener_on_message(message):
     ctx = await bot.get_context(message)
     ctx.channel = announce_channel
 
-    await announce_channel.send("Detected a valid tweet, parsing...")
-    await read(ctx, twitter_link)
+    await announce_channel.send("Detected a svalid tweet, parsing...")
+    await read_llm(ctx, twitter_link)
     print("[DEBUG] Finished processing tweet.")
     return True   
+
+# Check if the tweet is an event/announcement using LLM
+async def is_event_tweet(tweet_text, profile):
+    """
+    Uses the LLM to classify if a tweet is an event/announcement for the given profile.
+    Returns True if it's an event, False otherwise.
+    """
+    prompt = (
+        f"Classify the following tweet for the game profile '{profile}'. "
+        "Reply only with 'Event' if it is an in-game event, banner, maintenance, or update announcement. "
+        "The tweet is only classified as an 'Event' if it has both a starting time and an ending time, regardless of timezone. "
+        "The starting and ending time can be vague, such as `After version X.X update` or `It will take about five hours to complete`."
+        "Reply only with 'Filler' if it is a trailer, fanart, contest, winner announcement, or any non-event content.\n"
+        f"Tweet:\n{tweet_text}"
+    )
+    response = await run_phi2_inference(prompt)
+    return response.strip().lower().startswith("event")
 
 @bot.event
 async def on_reaction_add(reaction, user):
@@ -235,4 +260,4 @@ async def on_reaction_add(reaction, user):
     await announce_channel.send(
         f"{user.mention} forced a read on this tweet (by reacting with {reaction.emoji}). Parsing now..."
     )
-    await read(ctx, twitter_link)
+    await read_llm(ctx, twitter_link)
