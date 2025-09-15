@@ -16,51 +16,50 @@ ALLOWED_SERVER_IDS = [DEV_SERVER_ID, MAIN_SERVER_ID]
 # Listener channels (development server only)
 # Format: {profile: channel_id}
 LISTENER_CHANNELS = {
-    # "HSR": 0,
-    # "ZZZ": 0,
-    # "AK": 0,
-    # "STRI": 0,
-    # "WUWA": 0,
+    "HSR": 0,
+    "ZZZ": 0,
+    "AK": 0,
+    "STRI": 0,
+    "WUWA": 0,
 }
 
 # Notification channels (by server)
 # Format: {server_id: channel_id}
 NOTIFICATION_CHANNELS = {
-    # DEV_SERVER_ID: 0,
-    # MAIN_SERVER_ID: 0,
+    MAIN_SERVER_ID: 0
 }
 
-# Current Events channels (main server only, by profile)
+# Ongoing Events channels (main server only, by profile)
 # Format: {profile: channel_id}
-CURRENT_EVENTS_CHANNELS = {
-    # "HSR": 0,
-    # "ZZZ": 0,
-    # "AK": 0,
-    # "STRI": 0,
-    # "WUWA": 0,
-    # "ALL": 0,
+ONGOING_EVENTS_CHANNELS = {
+    "HSR": 0,
+    "ZZZ": 0,
+    "AK": 0,
+    "STRI": 0,
+    "WUWA": 0,
+    "UMA": 0,
 }
 
 # Upcoming Events channels (main server only, by profile)
 # Format: {profile: channel_id}
 UPCOMING_EVENTS_CHANNELS = {
-    # "HSR": 0,
-    # "ZZZ": 0,
-    # "AK": 0,
-    # "STRI": 0,
-    # "WUWA": 0,
-    # "ALL": 0,
+    "HSR": 0,
+    "ZZZ": 0,
+    "AK": 0,
+    "STRI": 0,
+    "WUWA": 0,
+    "UMA": 0,
 }
 
-# Commands/Announcement channel (similar to Kanami assign)
+# Commands/Announcement channel
 # Format: {server_id: channel_id}
 COMMANDS_CHANNELS = {
-    # DEV_SERVER_ID: 0,
-    # MAIN_SERVER_ID: 0,
+    DEV_SERVER_ID: 0,
+    MAIN_SERVER_ID: 0,
 }
 
 # List of supported game profiles (used throughout the bot)
-GAME_PROFILES = ["HSR", "ZZZ", "AK", "STRI", "WUWA", "ALL"]
+GAME_PROFILES = ["HSR", "ZZZ", "AK", "STRI", "WUWA", "UMA"]
 
 # Mapping from Twitter handles/usernames to profile codes
 PROFILE_NORMALIZATION = {
@@ -69,12 +68,13 @@ PROFILE_NORMALIZATION = {
     "honkaistarrail": "HSR",
     "strinova_en": "STRI",
     "wuthering_waves": "WUWA",
+    "umamusume_eng": "UMA",
     "ak": "AK",
     "zzz": "ZZZ",
     "hsr": "HSR",
     "stri": "STRI",
     "wuwa": "WUWA",
-    "all": "ALL"
+    "uma": "UMA"
 }
 
 # Set of poster usernames that use triple timezone display (Hoyoverse games)
