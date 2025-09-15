@@ -1,3 +1,6 @@
 discord.log
 .env
 dump_db.py
+uma_timeline.html
+downloaded_assets/
+event_image_map.json
