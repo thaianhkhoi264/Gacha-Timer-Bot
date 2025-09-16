@@ -669,21 +669,21 @@ async def shadowverse_on_message(message):
                     if not remove:
                         await record_match(user_id, server_id, played_craft, enemy_craft, win, brick)
                         LOSS_MESSAGES = {
-                            "Forestcraft": "The Roach came too early 😔",
-                            "Swordcraft": "Should've had more than 12 hp 😔",
-                            "Runecraft": "Kuon this Dclimb that, THE POPULARITY VOTE DIDN'T MATTER, IT'S ALL RIGGED AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-                            "Dragoncraft": "Haha chicken go brrrr <:filenefeet:1396066558819696691>",
-                            "Abysscraft": "Did it even take more than 5 turns 😔",
-                            "Havencraft": "Should've Odin'd their Wilbert 😔",
-                            "Portalcraft": "It's either Orchis or Beta and both of them can eat my ass 😔"
+                            "Forestcraft": "SVO Moment 😔",
+                            "Swordcraft": "Zirconia on curve be like",
+                            "Runecraft": "Rune... Rune never changes",
+                            "Dragoncraft": "How did you lose to this? <:filenefeet:1396066558819696691>",
+                            "Abysscraft": "You fell for the Sham 😔",
+                            "Havencraft": "You lost to a NEET Deck 😔",
+                            "Portalcraft": "I can still feel the eggs vibrating... 😔"
                         }
                         # Sends attachment images if played craft is Dragoncraft
                         files = []
                         if played_craft == "Dragoncraft":
                             if win:
-                                files.append(discord.File("dragon_win.png"))
+                                files.append(discord.File("images/dragon_win.png"))
                             else:
-                                files.append(discord.File("dragon_loss.png"))
+                                files.append(discord.File("images/dragon_loss.png"))
                         if not win:
                             reply_text = LOSS_MESSAGES.get(enemy_craft)
                             if brick:
