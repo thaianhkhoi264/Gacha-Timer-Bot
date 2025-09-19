@@ -71,10 +71,6 @@ async def init_notification_db():
         )''')
         await conn.commit()
 
-# Ensure the notification DB is initialized at startup
-bot.loop.create_task(init_notification_db())
-
-
 PROFILE_EMOJIS = {
     "HSR": "<:Game_HSR:1384176219385237588>",
     "ZZZ": "<:Game_ZZZ:1384176233159589919>",
