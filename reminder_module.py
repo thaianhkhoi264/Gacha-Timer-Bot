@@ -2,6 +2,7 @@ import asyncio
 import pytz
 from datetime import datetime, timedelta
 from bot import bot
+from global_config import *
 
 USER_ID = 443416461457883136
 MESSAGE = "It's time to sleep little boy <:KanamiAnger:1406653154111524924>"
@@ -19,6 +20,8 @@ async def daily_reminder_task():
         try:
             user = await bot.fetch_user(USER_ID)
             await user.send(MESSAGE)
+            owner = await bot.fetch_user(OWNER_USER_ID)
+            await owner.send(f"Reminded {user.name} to go to sleep.")
         except Exception as e:
             print(f"[Reminder] Failed to send DM: {e}")
         await asyncio.sleep(1)  # Prevents double sending if the loop runs too quickly
