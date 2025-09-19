@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from bot import bot
 from global_config import *
 
-USER_ID = 443416461457883136
+USER_ID = 443416461457883136 # Naito's User ID
 MESSAGE = "It's time to sleep little boy <:KanamiAnger:1406653154111524924>"
 
 async def daily_reminder_task():
@@ -21,7 +21,9 @@ async def daily_reminder_task():
             user = await bot.fetch_user(USER_ID)
             await user.send(MESSAGE)
             owner = await bot.fetch_user(OWNER_USER_ID)
-            await owner.send(f"Reminded {user.name} to go to sleep.")
+            await owner.send(f"Kanami reminded Naito to go to sleep. <:KanamiHeart:1374409597628186624>")
+            reminderer = await bot.fetch_user(264758014198808577)  # Alfa
+            await reminderer.send(f"Kanami reminded Naito to go to sleep. <:KanamiHeart:1374409597628186624>")
         except Exception as e:
             print(f"[Reminder] Failed to send DM: {e}")
         await asyncio.sleep(1)  # Prevents double sending if the loop runs too quickly
