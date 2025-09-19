@@ -391,6 +391,10 @@ async def on_ready():
                 except Exception:
                     pass
 
+    if not hasattr(bot, "_notif_db_initialized"):
+        bot._notif_db_initialized = True
+        await notification_handler.init_notification_db()
+
     bot.loop.create_task(init_ak_db())
     await shadowverse_handler.init_sv_db()
     await ml_handler.check_llm_table()  # Ensure LLM table exists
