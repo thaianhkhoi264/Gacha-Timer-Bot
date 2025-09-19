@@ -11,6 +11,8 @@ from discord import app_commands
 from discord.ext import commands
 from tweet_listener import tweet_listener_on_message
 
+from arknights_module import *
+
 import aiosqlite
 import discord
 import signal
@@ -388,6 +390,7 @@ async def on_ready():
                 except Exception:
                     pass
 
+    bot.loop.create_task(init_ak_db())
     await shadowverse_handler.init_sv_db()
     await ml_handler.check_llm_table()  # Ensure LLM table exists
 
@@ -407,10 +410,10 @@ async def on_message(message):
     # Call the shadowverse handler to process Shadowverse messages
     if await shadowverse_handler.shadowverse_on_message(message):
         return
-
-    # #Call the LLM handler to process messages with the LLM
-    # if await ml_handler.ml_on_message(message):
-    #     return
+    
+    # Call the games' module to process tweet messages
+    if await arknights_on_message(message, force=False):
+        return
 
     if "good girl" in message.content.lower():
         emoji = "<:KanamiHeart:1374409597628186624>"
@@ -420,6 +423,27 @@ async def on_message(message):
         await message.channel.send(f"Go more more jump off a bridge")
 
     await bot.process_commands(message)  # Ensure other commands still work
+
+@bot.event
+async def on_reaction_add(reaction, user):
+    from global_config import OWNER_USER_ID, LISTENER_CHANNELS
+    from arknights_module import arknights_on_message
+    # Only proceed if the reactor is the owner
+    if user.id != OWNER_USER_ID:
+        return
+
+    # Only proceed if the reaction is in the AK listener channel
+    channel = reaction.message.channel
+    if channel.id != LISTENER_CHANNELS["AK"]:
+        return
+
+    # Only proceed if the emoji is :exclamation:
+    if str(reaction.emoji) not in ("❗", ":exclamation:"):
+        return
+
+    # Force process the message as an AK event tweet
+    # We'll add a 'force' parameter to arknights_on_message
+    await arknights_on_message(reaction.message, force=True)
 
 @bot.command() # "assign" command to assign the bot to announce its readiness in this channel
 @commands.has_permissions(manage_channels=True)
