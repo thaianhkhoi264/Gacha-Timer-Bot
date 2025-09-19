@@ -12,6 +12,7 @@ from discord.ext import commands
 from tweet_listener import tweet_listener_on_message
 
 from arknights_module import *
+import reminder_module
 
 import aiosqlite
 import discord
@@ -397,6 +398,7 @@ async def on_ready():
     bot.loop.create_task(notification_loop())
     bot.loop.create_task(send_daily_report())
     bot.loop.create_task(expired_event_cleanup_task())
+    bot.loop.create_task(reminder_module.daily_reminder_task())
 
 @bot.event # Checks for "good girl" and "good boy" in messages
 async def on_message(message):
