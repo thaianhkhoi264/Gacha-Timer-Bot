@@ -8,7 +8,7 @@ import inspect
 import pytz
 import re
 
-from ml_handler import run_phi2_inference
+from ml_handler import run_llm_inference
 
 PROFILE_NORMALIZATION = {
     "arknightsen": "AK",
@@ -1142,7 +1142,7 @@ async def extract_dates_llm(text):
         f"Text:\n{text}"
     )
     try:
-        llm_response = await run_phi2_inference(prompt)
+        llm_response = await run_llm_inference(prompt)
         import re
         match = re.search(r"Start[:\-]?\s*([^\n,]+)[,\n]\s*End[:\-]?\s*([^\n,]+)", llm_response)
         if match:
@@ -1556,7 +1556,7 @@ async def read_llm(ctx, link: str):
             "Timezone: UTC+8\n"
             f"Text:\n{tweet_text}"
         )
-        llm_response = await run_phi2_inference(prompt)
+        llm_response = await run_llm_inference(prompt)
 
         def extract_hyv_field(field, text):
             match = re.search(rf"{field}:\s*(.+)", text)
@@ -1660,7 +1660,7 @@ async def read_llm(ctx, link: str):
         "Timezone: UTC-7\n"
         "Text:\n" + tweet_text
     )
-    llm_response = await run_phi2_inference(prompt)
+    llm_response = await run_llm_inference(prompt)
 
     def extract_field(field, text):
         match = re.search(rf"{field}:\s*(.+)", text)

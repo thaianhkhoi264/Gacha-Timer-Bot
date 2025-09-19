@@ -1,5 +1,5 @@
 from twitter_handler import *
-from ml_handler import run_phi2_inference
+from ml_handler import run_llm_inference
 import aiosqlite
 import re
 
@@ -225,7 +225,7 @@ async def is_event_tweet(tweet_text, profile):
         "Reply only with 'Filler' if it is a trailer, fanart, contest, winner announcement, or any non-event content.\n"
         f"Tweet:\n{tweet_text}"
     )
-    response = await run_phi2_inference(prompt)
+    response = await run_llm_inference(prompt)
     return response.strip().lower().startswith("event")
 
 @bot.event
