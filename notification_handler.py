@@ -2,10 +2,78 @@ from modules import *
 from bot import bot
 
 from collections import deque
-
 import asyncio
 import datetime
 import time
+import aiosqlite
+import os
+
+from global_config import NOTIFICATION_CHANNELS, PROFILE_COLORS, GAME_PROFILES
+
+# --- Ensure notification DB and tables exist ---
+NOTIF_DB_PATH = os.path.join("data", "notifications.db")
+
+async def init_notification_db():
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        # Pending notifications (persistent scheduling)
+        await conn.execute('''CREATE TABLE IF NOT EXISTS pending_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_id TEXT,
+            category TEXT,
+            profile TEXT,
+            title TEXT,
+            timing_type TEXT,
+            notify_unix INTEGER,
+            event_time_unix INTEGER,
+            sent INTEGER DEFAULT 0,
+            region TEXT
+        )''')
+        # UNIQUE index to prevent duplicates (including region for HYV)
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_notif
+            ON pending_notifications (server_id, category, profile, title, timing_type, notify_unix, region)
+        ''')
+        # Notification timings per category and type (start/end)
+        await conn.execute('''CREATE TABLE IF NOT EXISTS notification_timings (
+            server_id TEXT,
+            category TEXT,
+            timing_type TEXT,
+            timing_minutes INTEGER,
+            PRIMARY KEY (server_id, category, timing_type)
+        )''')
+        # Notification timing status channel/message
+        await conn.execute('''CREATE TABLE IF NOT EXISTS notification_timing_channel (
+            server_id TEXT PRIMARY KEY,
+            channel_id TEXT,
+            message_id TEXT
+        )''')
+        # Pending notifications channel/messages
+        await conn.execute('''CREATE TABLE IF NOT EXISTS pending_notifications_channel (
+            server_id TEXT,
+            profile TEXT,
+            channel_id TEXT,
+            message_id TEXT,
+            PRIMARY KEY (server_id, profile)
+        )''')
+        await conn.execute('''CREATE TABLE IF NOT EXISTS pending_notifications_messages (
+            server_id TEXT,
+            profile TEXT,
+            message_id TEXT,
+            PRIMARY KEY (server_id, profile, message_id)
+        )''')
+        # Role reaction emoji-role mapping
+        await conn.execute('''CREATE TABLE IF NOT EXISTS role_reactions (
+            server_id TEXT,
+            message_id TEXT,
+            emoji TEXT,
+            role_id TEXT,
+            PRIMARY KEY (server_id, emoji)
+        )''')
+        await conn.commit()
+
+# Ensure the notification DB is initialized at startup
+bot.loop.create_task(init_notification_db())
+
 
 PROFILE_EMOJIS = {
     "HSR": "<:Game_HSR:1384176219385237588>",
@@ -21,13 +89,6 @@ REGION_EMOJIS = {
     "EUROPE": "<:Region_EU:1384176193426690088>"
 }
 
-PROFILE_COLORS = {
-    "AK": discord.Color.teal(),        # Aqua
-    "HSR": discord.Color.fuchsia(),    # Fuchsia
-    "ZZZ": discord.Color.yellow(),     # Yellow
-    "STRI": discord.Color.orange(),    # Orange
-    "WUWA": discord.Color.green(),     # Green
-}
 
 MAX_FIELDS = 25
 
@@ -76,7 +137,7 @@ def send_log(server_id, message):
 
 # Function to remove duplicate pending notifications
 async def remove_duplicate_pending_notifications():
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute("""
             DELETE FROM pending_notifications
             WHERE id NOT IN (
@@ -90,7 +151,7 @@ async def remove_duplicate_pending_notifications():
 
 # Function to update the notification timing message in the specified channel
 async def update_notification_timing_message(guild):
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         c = await conn.cursor()
         await c.execute("SELECT channel_id FROM notification_timing_channel WHERE server_id=?", (str(guild.id),))
         row = await c.fetchone()
@@ -152,7 +213,7 @@ async def update_notification_timing_message(guild):
 
 async def schedule_notifications_for_event(event):
     send_log(event['server_id'], f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute("SELECT timing_type, timing_minutes FROM notification_timings WHERE server_id=? AND category=?",
                                 (event['server_id'], event['category'])) as cursor:
             timings = await cursor.fetchall()
@@ -212,57 +273,60 @@ async def schedule_notifications_for_event(event):
     await update_pending_notifications_embed_for_profile(guild, event['profile'])
 
 async def send_notification(event, timing_type):
-    async with aiosqlite.connect('kanami_data.db') as conn:
-        async with conn.execute("SELECT channel_id FROM notification_channel WHERE server_id=?", (event['server_id'],)) as cursor:
-            row = await cursor.fetchone()
-        if not row or not row[0]:
-            send_log(event['server_id'], f"No notification channel set for server {event['server_id']}")
+    """
+    Sends a notification to the correct channel, using global_config.py for channel lookup.
+    """
+    # Use global_config.py for channel lookup first
+    server_id = int(event['server_id'])
+    channel_id = NOTIFICATION_CHANNELS.get(server_id)
+    if not channel_id:
+        send_log(event['server_id'], f"No notification channel set for server {event['server_id']}")
+        return
+
+    guild = bot.get_guild(server_id)
+    channel = guild.get_channel(channel_id) if channel_id else None
+    if not channel:
+        send_log(event['server_id'], f"No notification channel set for server {event['server_id']}")
+        return
+
+    HYV_PROFILES = {"HSR", "ZZZ"}
+    profile = event['profile'].upper()
+    if profile in HYV_PROFILES:
+        region = event.get('region')
+        if not region:
+            send_log(event['server_id'], f"No region found for notification: {event['title']}")
             return
 
-        channel_id = int(row[0])
-        guild = bot.get_guild(int(event['server_id']))
-        channel = guild.get_channel(channel_id)
-        if not channel:
-            send_log(event['server_id'], f"Notification channel {channel_id} not found in guild {guild}")
-            return
-
-        HYV_PROFILES = {"HSR", "ZZZ"}
-        profile = event['profile'].upper()
-        if profile in HYV_PROFILES:
-            region = event.get('region')
-            if not region:
-                send_log(event['server_id'], f"No region found for notification: {event['title']}")
-                return
-
-            combined_role_name = f"{profile} {region}"
-            role = discord.utils.get(guild.roles, name=combined_role_name)
-            if role:
-                role_mention = role.mention
-                send_log(event['server_id'], f"Found combined role for {profile} {region}: {role_mention}")
-            else:
-                send_log(event['server_id'], f"No combined role found for {profile} {region}")
-                return
-            unix_time = None
-            if region == "NA":
-                unix_time = event.get('america_start') if timing_type == "start" else event.get('america_end')
-            elif region == "EU":
-                unix_time = event.get('europe_start') if timing_type == "start" else event.get('europe_end')
-            elif region == "ASIA":
-                unix_time = event.get('asia_start') if timing_type == "start" else event.get('asia_end')
-            if not unix_time:
-                unix_time = event['start_date'] if timing_type == "start" else event['end_date']
-            time_str = "starting" if timing_type == "start" else "ending"
-            try:
-                await channel.send(
-                    f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
-                )
-                send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
-            except Exception as e:
-                send_log(event['server_id'], f"Failed to send notification for {profile} {region}: {e}")
+        combined_role_name = f"{profile} {region}"
+        role = discord.utils.get(guild.roles, name=combined_role_name)
+        if role:
+            role_mention = role.mention
+            send_log(event['server_id'], f"Found combined role for {profile} {region}: {role_mention}")
         else:
-            emoji = PROFILE_EMOJIS.get(profile)
-            role_mention = ""
-            if emoji:
+            send_log(event['server_id'], f"No combined role found for {profile} {region}")
+            return
+        unix_time = None
+        if region == "NA":
+            unix_time = event.get('america_start') if timing_type == "start" else event.get('america_end')
+        elif region == "EU":
+            unix_time = event.get('europe_start') if timing_type == "start" else event.get('europe_end')
+        elif region == "ASIA":
+            unix_time = event.get('asia_start') if timing_type == "start" else event.get('asia_end')
+        if not unix_time:
+            unix_time = event['start_date'] if timing_type == "start" else event['end_date']
+        time_str = "starting" if timing_type == "start" else "ending"
+        try:
+            await channel.send(
+                f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
+            )
+            send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
+        except Exception as e:
+            send_log(event['server_id'], f"Failed to send notification for {profile} {region}: {e}")
+    else:
+        emoji = PROFILE_EMOJIS.get(profile)
+        role_mention = ""
+        if emoji:
+            async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
                 async with conn.execute("SELECT role_id FROM role_reactions WHERE server_id=? AND emoji=?", (event['server_id'], emoji)) as cursor:
                     role_row = await cursor.fetchone()
                 if role_row:
@@ -274,25 +338,25 @@ async def send_notification(event, timing_type):
                         send_log(event['server_id'], f"Role ID {role_row[0]} not found in guild for profile {profile}")
                 else:
                     send_log(event['server_id'], f"No role_id found for emoji {emoji} (profile {profile})")
-            else:
-                send_log(event['server_id'], f"No emoji found for profile {profile}")
+        else:
+            send_log(event['server_id'], f"No emoji found for profile {profile}")
 
-            unix_time = event['start_date'] if timing_type == "start" else event['end_date']
-            time_str = "starting" if timing_type == "start" else "ending"
-            try:
-                await channel.send(
-                    f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
-                )
-                send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']}")
-            except Exception as e:
-                send_log(event['server_id'], f"Failed to send notification: {e}")
+        unix_time = event['start_date'] if timing_type == "start" else event['end_date']
+        time_str = "starting" if timing_type == "start" else "ending"
+        try:
+            await channel.send(
+                f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
+            )
+            send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']}")
+        except Exception as e:
+            send_log(event['server_id'], f"Failed to send notification: {e}")
 
 async def load_and_schedule_pending_notifications(bot):
     """
     Batch notification loop: checks for due notifications and sends them immediately.
     Should be called in a background loop every 30-60 seconds.
     """
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
         async with conn.execute("""
             SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, region
@@ -326,7 +390,7 @@ async def update_all_pending_notifications_embeds(guild):
 async def update_pending_notifications_embed_for_profile(guild, profile):
     import math
 
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         # Get the channel for pending notifications for this profile
         async with conn.execute(
             "SELECT channel_id FROM pending_notifications_channel WHERE server_id=? AND profile=?",
@@ -506,7 +570,7 @@ async def update_combined_roles(member):
 async def on_raw_reaction_add(payload):
     if payload.member is None or payload.member.bot:
         return
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute(
             "SELECT role_id FROM role_reactions WHERE server_id=? AND message_id=? AND emoji=?",
             (str(payload.guild_id), str(payload.message_id), str(payload.emoji))
@@ -531,7 +595,7 @@ async def on_raw_reaction_add(payload):
 
 @bot.event
 async def on_raw_reaction_remove(payload):
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute(
             "SELECT role_id FROM role_reactions WHERE server_id=? AND message_id=? AND emoji=?",
             (str(payload.guild_id), str(payload.message_id), str(payload.emoji))
@@ -567,7 +631,7 @@ async def assign_profile_role(ctx, profile: str, *, role: discord.Role):
     emoji = PROFILE_EMOJIS[profile]
     guild = ctx.guild
 
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute(
             "INSERT OR REPLACE INTO role_reactions (server_id, message_id, emoji, role_id) VALUES (?, ?, ?, ?)",
             (str(guild.id), None, emoji, str(role.id))
@@ -586,7 +650,7 @@ async def assign_region_role(ctx, region: str, *, role: discord.Role):
     emoji = REGION_EMOJIS[region]
     guild = ctx.guild
 
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute(
             "INSERT OR REPLACE INTO role_reactions (server_id, message_id, emoji, role_id) VALUES (?, ?, ?, ?)",
             (str(guild.id), None, emoji, str(role.id))
@@ -606,7 +670,7 @@ async def delete_role(ctx, *, role_name: str):
     try:
         await role.delete()
         await ctx.send(f"Role `{role_name}` deleted.")
-        async with aiosqlite.connect('kanami_data.db') as conn:
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
             await conn.execute("DELETE FROM role_reactions WHERE server_id=? AND role_id=?", (str(guild.id), str(role.id)))
             await conn.commit()
     except discord.Forbidden:
@@ -618,7 +682,7 @@ async def delete_role(ctx, *, role_name: str):
 @commands.has_permissions(manage_roles=True)
 async def create_role_reaction(ctx):
     guild = ctx.guild
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute(
             "SELECT emoji, role_id FROM role_reactions WHERE server_id=? AND role_id IS NOT NULL",
             (str(guild.id),)
@@ -631,7 +695,7 @@ async def create_role_reaction(ctx):
     # Profile roles message
     if profile_rows:
         msg1 = await ctx.send("React to this message to get notification roles for each game.")
-        async with aiosqlite.connect('kanami_data.db') as conn:
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
             for emoji, role_id in profile_rows:
                 await msg1.add_reaction(emoji)
                 await conn.execute("UPDATE role_reactions SET message_id=? WHERE server_id=? AND emoji=?",
@@ -643,7 +707,7 @@ async def create_role_reaction(ctx):
     # Region roles message
     if region_rows:
         msg2 = await ctx.send("React to this message to get your region role. (This only matters for Hoyoverse Games)")
-        async with aiosqlite.connect('kanami_data.db') as conn:
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
             for emoji, role_id in region_rows:
                 await msg2.add_reaction(emoji)
                 await conn.execute("UPDATE role_reactions SET message_id=? WHERE server_id=? AND emoji=?",
@@ -656,7 +720,7 @@ async def create_role_reaction(ctx):
 @commands.has_permissions(manage_roles=True)
 async def update_role_reaction(ctx):
     guild = ctx.guild
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute("SELECT DISTINCT message_id FROM role_reactions WHERE server_id=? AND message_id IS NOT NULL", (str(guild.id),)) as cursor:
             row = await cursor.fetchone()
         old_message_id = row[0] if row else None
@@ -681,7 +745,7 @@ async def update_role_reaction(ctx):
 
     # Create new role reaction message
     msg = await ctx.send("React to this message to get notification for each game.")
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         for emoji, role_id in rows:
             await msg.add_reaction(emoji)
             await conn.execute("UPDATE role_reactions SET message_id=? WHERE server_id=? AND emoji=?",
@@ -717,20 +781,11 @@ async def update_all_combined_roles(ctx):
     await ctx.send(f"Updated combined roles for {count} members.")
 
 @bot.command()
-@commands.has_permissions(manage_channels=True)
-async def set_notification_channel(ctx, channel: discord.TextChannel):
-    async with aiosqlite.connect('kanami_data.db') as conn:
-        await conn.execute("INSERT OR REPLACE INTO notification_channel (server_id, channel_id) VALUES (?, ?)",
-                           (str(ctx.guild.id), str(channel.id)))
-        await conn.commit()
-    await ctx.send(f"Notification channel set to {channel.mention}.")
-
-@bot.command()
 @commands.has_permissions(manage_guild=True)
 async def add_notification_timing(ctx, category: str, timing_type: str, minutes: int):
     server_id = str(ctx.guild.id)
     built_in = {"Banner", "Event", "Maintenance", "Offer"}
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute("CREATE TABLE IF NOT EXISTS custom_categories (server_id TEXT, category TEXT, PRIMARY KEY (server_id, category))")
         async with conn.execute("SELECT category FROM custom_categories WHERE server_id=?", (server_id,)) as cursor:
             custom = {row[0] async for row in cursor}
@@ -746,7 +801,7 @@ async def add_notification_timing(ctx, category: str, timing_type: str, minutes:
         return
 
     try:
-        async with aiosqlite.connect('kanami_data.db') as conn:
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
             await conn.execute(
                 "INSERT INTO notification_timings (server_id, category, timing_type, timing_minutes) VALUES (?, ?, ?, ?)",
                 (server_id, category, timing_type, minutes)
@@ -764,7 +819,7 @@ async def clear_notification_timing(ctx, category: str, timing_type: str):
     if timing_type not in ("start", "end"):
         await ctx.send("timing_type must be 'start' or 'end'.")
         return
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute(
             "DELETE FROM notification_timings WHERE server_id=? AND category=? AND timing_type=?",
             (str(ctx.guild.id), category, timing_type)
@@ -776,7 +831,7 @@ async def clear_notification_timing(ctx, category: str, timing_type: str):
 @bot.command()
 @commands.has_permissions(manage_channels=True)
 async def set_notification_timing_channel(ctx, channel: discord.TextChannel):
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute("INSERT OR REPLACE INTO notification_timing_channel (server_id, channel_id) VALUES (?, ?)",
                            (str(ctx.guild.id), str(channel.id)))
         await conn.commit()
@@ -786,7 +841,7 @@ async def set_notification_timing_channel(ctx, channel: discord.TextChannel):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def clear_pending_notifications(ctx):
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute("DELETE FROM pending_notifications")
         await conn.commit()
     await ctx.send("Cleared all pending notifications.")
@@ -795,7 +850,7 @@ async def clear_pending_notifications(ctx):
 @bot.command()
 @commands.has_permissions(manage_channels=True)
 async def set_pending_notifications_channel(ctx, channel: discord.TextChannel):
-    async with aiosqlite.connect('kanami_data.db') as conn:
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS pending_notifications_channel (
                 server_id TEXT,
@@ -843,7 +898,7 @@ async def refresh_pending_notifications(ctx):
 
     # Delete all pending notifications for this server
     try:
-        async with aiosqlite.connect('kanami_data.db') as conn:
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
             await conn.execute("DELETE FROM pending_notifications WHERE server_id=?", (server_id,))
             await conn.commit()
         await debug_log("Deleted all pending notifications.", bot)
@@ -854,7 +909,7 @@ async def refresh_pending_notifications(ctx):
 
     # Recreate pending notifications from current events
     try:
-        async with aiosqlite.connect('kanami_data.db') as conn:
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
             async with conn.execute("""
                 SELECT title, start_date, end_date, category, profile,
                        asia_start, asia_end, america_start, america_end, europe_start, europe_end
@@ -869,7 +924,7 @@ async def refresh_pending_notifications(ctx):
 
     # --- Clear all event messages in timer channels for this server ---
     try:
-        async with aiosqlite.connect('kanami_data.db') as conn2:
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn2:
             async with conn2.execute("SELECT timer_channel_id FROM config WHERE server_id=?", (server_id,)) as cursor:
                 timer_channels = {row[0] async for row in cursor}
             async with conn2.execute("SELECT event_id, channel_id, message_id FROM event_messages WHERE server_id=?", (server_id,)) as cursor:
@@ -887,7 +942,7 @@ async def refresh_pending_notifications(ctx):
                         except Exception as e:
                             await debug_log(f"Failed to delete message {message_id} in channel {channel_id}: {e}", bot)
                     # Remove from DB
-                    async with aiosqlite.connect('kanami_data.db') as c2c:
+                    async with aiosqlite.connect(NOTIF_DB_PATH) as c2c:
                         await c2c.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, channel_id))
                         await c2c.commit()
             await conn2.commit()
@@ -932,7 +987,7 @@ async def refresh_pending_notifications(ctx):
 
     # --- Re-post timer channel messages for all profiles ---
     try:
-        async with aiosqlite.connect('kanami_data.db') as conn3:
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn3:
             async with conn3.execute("SELECT profile FROM config WHERE server_id=?", (server_id,)) as cursor:
                 profiles = [row[0] async for row in cursor]
         for profile in profiles:
