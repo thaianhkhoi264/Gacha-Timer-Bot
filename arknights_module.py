@@ -409,4 +409,38 @@ async def ak_refresh_timers(ctx):
     await arknights_update_timers(ctx.guild)
     await ctx.send("Arknights event dashboards have been refreshed.")
 
+@bot.command()
+async def ak_read(ctx, link: str):
+    """
+    Checks if the tweet is an Arknights event and extracts event info, but does not add it to the database.
+    """
+    from twitter_handler import fetch_tweet_content, normalize_twitter_link
+    link = normalize_twitter_link(link)
+    tweet_text, tweet_image, username = await fetch_tweet_content(link)
+    if not tweet_text:
+        await ctx.send("Could not read the tweet. Please check the link or try again later.")
+        return
+
+    # Check if it's an event tweet
+    is_event = await is_ak_event_tweet(tweet_text)
+    await ctx.send(f"Classification: {'Event' if is_event else 'Filler'}")
+
+    if not is_event:
+        await ctx.send("This tweet is not classified as an event.")
+        return
+
+    # Extract event info
+    event_data = await extract_ak_event_from_tweet(tweet_text)
+    if (not event_data["image"] or event_data["image"].lower() == "none") and tweet_image:
+        event_data["image"] = tweet_image
+
+    # Show extracted info
+    await ctx.send(
+        f"**Extracted Event Info:**\n"
+        f"Title: {event_data['title']}\n"
+        f"Category: {event_data['category']}\n"
+        f"Start: {event_data['start']}\n"
+        f"End: {event_data['end']}\n"
+        f"Image: {event_data['image']}"
+    )
 # --- End of arknights_module.py ---
