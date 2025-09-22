@@ -668,11 +668,14 @@ async def ak_read(ctx, link: str):
     Reads an Arknights tweet, extracts event info using the LLM, and adds it to the AK database.
     """
     from twitter_handler import fetch_tweet_content, normalize_twitter_link
+    await ctx.send("Kanami is Reading tweet...")
     link = normalize_twitter_link(link)
     tweet_text, tweet_image, username = await fetch_tweet_content(link)
     if not tweet_text:
         await ctx.send("Could not read the tweet. Please check the link or try again later.")
         return
+    else:
+        await ctx.send(f"Kanami have read the tweet:\n```{tweet_text}```")
     # Use LLM to extract event info
     event_data = await extract_ak_event_from_tweet(tweet_text, tweet_image)
     # If LLM didn't find an image, use the tweet image
@@ -683,6 +686,7 @@ async def ak_read(ctx, link: str):
         await ctx.send(f"AI could not extract all required info. LLM response:\n```{event_data}```")
         return
     await add_ak_event(ctx, event_data)
+    await arknights_update_timers(ctx.guild)
 
 async def arknights_on_message(message, force=False):
     """
@@ -803,6 +807,7 @@ async def ak_remove_event(ctx, *, title: str):
     )
 
     await ctx.send(f"Deleted event '{event_title}' and its notifications.")
+    await arknights_update_timers(ctx.guild)
     
 @commands.has_permissions(manage_guild=True)
 @bot.command(name="ak_edit_event")
@@ -909,4 +914,47 @@ async def ak_edit_event(ctx, title: str, item: str, *, value: str):
             await schedule_update_task(ctx.guild.id, int(new_end))
         except Exception as e:
             print(f"[Arknights] Failed to schedule update tasks after edit: {e}")
+            
+from global_config import OWNER_USER_ID
+
+@bot.command(name="ak_dump_db")
+async def ak_dump_db(ctx):
+    """
+    Sends the current Arknights database as text in the owner's DM.
+    Only the owner can use this command.
+    """
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("You do not have permission to use this command.")
+        return
+
+    if not os.path.exists(AK_DB_PATH):
+        await ctx.author.send("No Arknights database file found.")
+        return
+
+    import aiosqlite
+
+    dump_lines = []
+    async with aiosqlite.connect(AK_DB_PATH) as db:
+        async with db.execute("SELECT name FROM sqlite_master WHERE type='table';") as cursor:
+            tables = [row[0] async for row in cursor]
+        for table in tables:
+            dump_lines.append(f"--- {table} ---")
+            async with db.execute(f"SELECT * FROM {table}") as cursor:
+                columns = [desc[0] for desc in cursor.description]
+                dump_lines.append(", ".join(columns))
+                async for row in cursor:
+                    dump_lines.append(", ".join(str(x) for x in row))
+            dump_lines.append("")
+
+    # Discord message limit is 2000 chars, so split if needed
+    text = "\n".join(dump_lines)
+    chunks = [text[i:i+1900] for i in range(0, len(text), 1900)]
+    owner = ctx.bot.get_user(OWNER_USER_ID)
+    if not owner:
+        owner = await ctx.bot.fetch_user(OWNER_USER_ID)
+    for chunk in chunks:
+        await owner.send(f"Arknights DB Dump:\n```{chunk}```")
+
+    await ctx.send("Database dump sent to your DM.")
+        
 # --- End of arknights_module.py ---
