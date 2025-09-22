@@ -6,7 +6,7 @@ from discord.ext import commands
 from modules import *
 from bot import bot
 from datetime import datetime, timezone, timedelta
-from global_config import ONGOING_EVENTS_CHANNELS, UPCOMING_EVENTS_CHANNELS, OWNER_USER_ID
+from global_config import ONGOING_EVENTS_CHANNELS, UPCOMING_EVENTS_CHANNELS, OWNER_USER_ID, MAIN_SERVER_ID, DEV_SERVER_ID
 from ml_handler import run_llm_inference  # Uses the LLM as in ml_handler.py
 import dateparser
 import logging
@@ -708,6 +708,7 @@ async def add_ak_event(ctx, event_data):
         await conn.commit()
     # Prepare event dict for notification_handler
     event_for_notification = {
+        'server_id': MAIN_SERVER_ID,
         'category': event_data['category'],
         'profile': "AK",
         'title': event_data['title'],
@@ -740,14 +741,14 @@ async def ak_read(ctx, link: str):
     Reads an Arknights tweet, extracts event info using the LLM, and adds it to the AK database.
     """
     from twitter_handler import fetch_tweet_content, normalize_twitter_link
-    await ctx.send("Kanami is Reading tweet...")
+    await ctx.send("Kanami is Reading tweet...")  # User confirmation
     link = normalize_twitter_link(link)
     tweet_text, tweet_image, username = await fetch_tweet_content(link)
     if not tweet_text:
         await ctx.send("Could not read the tweet. Please check the link or try again later.")
         return
     else:
-        await ctx.send(f"Kanami have read the tweet:\n```{tweet_text}```")
+        await ctx.send(f"Kanami have read the tweet:\n```{tweet_text}```")  # Show tweet text
     # Use LLM to extract event info
     event_data = await extract_ak_event_from_tweet(tweet_text, tweet_image)
     # If LLM didn't find an image, use the tweet image
@@ -967,6 +968,7 @@ async def ak_edit(ctx, title: str, item: str, *, value: str):
     if updated:
         new_title, new_start, new_end, new_category, new_profile = updated
         event_for_notification = {
+            'server_id': MAIN_SERVER_ID,
             'category': new_category,
             'profile': new_profile,
             'title': new_title,
