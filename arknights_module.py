@@ -663,7 +663,7 @@ async def add_ak_event(ctx, event_data):
 # --- Command to Manually Add Event from Tweet Link ---
 
 @bot.command()
-async def ak_read_llm(ctx, link: str):
+async def ak_read(ctx, link: str):
     """
     Reads an Arknights tweet, extracts event info using the LLM, and adds it to the AK database.
     """
@@ -674,7 +674,7 @@ async def ak_read_llm(ctx, link: str):
         await ctx.send("Could not read the tweet. Please check the link or try again later.")
         return
     # Use LLM to extract event info
-    event_data = await extract_ak_event_from_tweet(tweet_text)
+    event_data = await extract_ak_event_from_tweet(tweet_text, tweet_image)
     # If LLM didn't find an image, use the tweet image
     if (not event_data["image"] or event_data["image"].lower() == "none") and tweet_image:
         event_data["image"] = tweet_image
@@ -732,7 +732,7 @@ async def ak_refresh_timers(ctx):
     await ctx.send("Arknights event dashboards have been refreshed.")
 
 @bot.command()
-async def ak_read(ctx, link: str):
+async def ak_read_test(ctx, link: str):
     """
     Checks if the tweet is an Arknights event and extracts event info, but does not add it to the database.
     """
@@ -756,7 +756,7 @@ async def ak_read(ctx, link: str):
 
     # Extract event info
     await ctx.send("This tweet is classified as an event! Extracting event info...")
-    event_data = await extract_ak_event_from_tweet(tweet_text)
+    event_data = await extract_ak_event_from_tweet(tweet_text,tweet_image)
     if (not event_data["image"] or event_data["image"].lower() == "none") and tweet_image:
         event_data["image"] = tweet_image
 
