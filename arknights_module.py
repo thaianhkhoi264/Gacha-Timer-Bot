@@ -690,6 +690,7 @@ async def add_ak_event(ctx, event_data):
     """
     Adds an event to the Arknights database and schedules notifications via the central handler.
     Also schedules dashboard update tasks at event start and end.
+    Immediately posts the event embed to the appropriate channel.
     """
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         await conn.execute(
@@ -706,6 +707,7 @@ async def add_ak_event(ctx, event_data):
             )
         )
         await conn.commit()
+
     # Prepare event dict for notification_handler
     event_for_notification = {
         'server_id': MAIN_SERVER_ID,
@@ -727,6 +729,19 @@ async def add_ak_event(ctx, event_data):
         await schedule_update_task(end_unix)
     except Exception as e:
         print(f"[Arknights] Failed to schedule update tasks: {e}")
+
+    # --- Immediately post the event embed to the appropriate channel ---
+    guild = ctx.guild
+    now = int(datetime.now(timezone.utc).timestamp())
+    if event_data["start"] <= now < event_data["end"]:
+        # Ongoing event
+        channel_id = ONGOING_EVENTS_CHANNELS["AK"]
+    else:
+        # Upcoming event
+        channel_id = UPCOMING_EVENTS_CHANNELS["AK"]
+    channel = guild.get_channel(channel_id)
+    if channel:
+        await post_event_embed(channel, event_data)
 
     await ctx.send(
         f"Added `{event_data['title']}` as **{event_data['category']}** for Arknights!\n"
