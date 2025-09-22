@@ -9,6 +9,16 @@ from datetime import datetime, timezone, timedelta
 from global_config import ONGOING_EVENTS_CHANNELS, UPCOMING_EVENTS_CHANNELS, OWNER_USER_ID
 from ml_handler import run_llm_inference  # Uses the LLM as in ml_handler.py
 import dateparser
+import logging
+
+# Create a custom logger for Arknights extraction and event updates
+ak_logger = logging.getLogger("arknights")
+ak_logger.setLevel(logging.INFO)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+if not ak_logger.hasHandlers():
+    ak_logger.addHandler(console_handler)
 
 def ak_date_string_to_unix(date_str):
     """
@@ -528,9 +538,9 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
     Uses the LLM to extract event details from an Arknights tweet.
     Returns a dict with title, category, start, end, image (if found).
     """
-    print("=== [extract_ak_event_from_tweet] ===")
-    print(f"Tweet text:\n{tweet_text}")
-    print(f"Tweet image: {tweet_image}")
+    ak_logger.info("=== [extract_ak_event_from_tweet] ===")
+    ak_logger.info(f"Tweet text:\n{tweet_text}")
+    ak_logger.info(f"Tweet image: {tweet_image}")
 
     prompt = (
             "Extract the following information from this Arknights event announcement tweet."
@@ -596,6 +606,7 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
     #     response = None
     
     response = None  # LLM disabled for now
+    ak_logger.info(f"LLM response: {response}")
 
     # --- Robust field extraction using line-by-line parsing ---
     def extract_fields(text):
@@ -610,23 +621,23 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
         return fields
 
     fields = extract_fields(response)
-    print(f"Extracted fields from LLM: {fields}")
+    ak_logger.info(f"Extracted fields from LLM: {fields}")
 
     # Fallbacks for missing or None fields
     title = fields["Title"] if fields["Title"] and fields["Title"].lower() != "none" else parse_title_ak(tweet_text)
-    print(f"Title after fallback: {title}")
+    ak_logger.info(f"Title after fallback: {title}")
     category = fields["Category"] if fields["Category"] and fields["Category"].lower() != "none" else parse_category_ak(tweet_text)
-    print(f"Category after fallback: {category}")
+    ak_logger.info(f"Category after fallback: {category}")
     start = fields["Start"] if fields["Start"] and fields["Start"].lower() != "none" else None
     end = fields["End"] if fields["End"] and fields["End"].lower() != "none" else None
-    print(f"Start from LLM: {start}")
-    print(f"End from LLM: {end}")
+    ak_logger.info(f"Start from LLM: {start}")
+    ak_logger.info(f"End from LLM: {end}")
 
     # If start or end is missing, use parse_dates_ak
     if not start or not end:
-        print("Start or end missing, using parse_dates_ak fallback...")
+        ak_logger.info("Start or end missing, using parse_dates_ak fallback...")
         parsed_start, parsed_end = await parse_dates_ak(None, tweet_text)
-        print(f"parse_dates_ak returned: start={parsed_start}, end={parsed_end}")
+        ak_logger.info(f"parse_dates_ak returned: start={parsed_start}, end={parsed_end}")
         if not start and parsed_start:
             start = parsed_start
         if not end and parsed_end:
@@ -635,20 +646,20 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
     # --- Convert start/end to UNIX timestamps (timezone-aware) ---
     def to_unix(date_str):
         if not date_str:
-            print("to_unix: date_str is None")
+            ak_logger.warning("to_unix: date_str is None")
             return None
         dt = dateparser.parse(date_str, settings={'RETURN_AS_TIMEZONE_AWARE': True})
-        print(f"to_unix: parsed '{date_str}' to datetime: {dt}")
+        ak_logger.info(f"to_unix: parsed '{date_str}' to datetime: {dt}")
         if not dt:
             return None
         ts = int(dt.timestamp())
-        print(f"to_unix: UNIX timestamp: {ts}")
+        ak_logger.info(f"to_unix: UNIX timestamp: {ts}")
         return ts
 
     start_unix = to_unix(start)
     end_unix = to_unix(end)
-    print(f"Final start_unix: {start_unix}")
-    print(f"Final end_unix: {end_unix}")
+    ak_logger.info(f"Final start_unix: {start_unix}")
+    ak_logger.info(f"Final end_unix: {end_unix}")
 
     # --- Image extraction ---
     image = fields["Image"] if fields["Image"] and fields["Image"].lower() != "none" else None
@@ -657,14 +668,14 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
         images = re.findall(r'https://pbs\.twimg\.com/media/[^\s]+', tweet_text)
         if images:
             image = images[0]
-            print(f"Image found in tweet text: {image}")
+            ak_logger.info(f"Image found in tweet text: {image}")
         elif tweet_image:
             image = tweet_image
-            print(f"Image fallback to tweet_image: {image}")
+            ak_logger.info(f"Image fallback to tweet_image: {image}")
         else:
-            print("No image found.")
+            ak_logger.warning("No image found.")
 
-    print(f"Returning event dict: title={title}, category={category}, start={start_unix}, end={end_unix}, image={image}")
+    ak_logger.info(f"Returning event dict: title={title}, category={category}, start={start_unix}, end={end_unix}, image={image}")
     return {
         "title": title,
         "category": category,
