@@ -169,10 +169,20 @@ async def cleanup_old_update_tasks():
 # --- Event Posting Helper ---
 async def post_event_embed(channel, event):
     """Posts an embed for the event in the given channel and returns the message."""
+    # Set color by category
+    category = event.get("category", "").lower()
+    if category == "banner":
+        color = discord.Color.teal()
+    elif category == "event":
+        color = discord.Color.gold()
+    elif category == "maintenance":
+        color = discord.Color.red()
+    else:
+        color = discord.Color.default()
     embed = discord.Embed(
         title=event["title"],
         description=f"**Start:** <t:{event['start']}:F>\n**End:** <t:{event['end']}:F>",
-        color=discord.Color.teal()
+        color=color
     )
     if event.get("image") and event["image"].startswith("http"):
         embed.set_image(url=event["image"])
@@ -212,10 +222,20 @@ async def upsert_event_message(guild, channel, event, event_id):
             (event_id, str(channel.id))
         ) as cursor:
             row = await cursor.fetchone()
+        # Set color by category
+        category = event.get("category", "").lower()
+        if category == "banner":
+            color = discord.Color.teal()
+        elif category == "event":
+            color = discord.Color.gold()
+        elif category == "maintenance":
+            color = discord.Color.red()
+        else:
+            color = discord.Color.default()
         embed = discord.Embed(
             title=event["title"],
             description=f"**Start:** <t:{event['start']}:F>\n**End:** <t:{event['end']}:F>",
-            color=discord.Color.teal()
+            color=color
         )
         if event.get("image") and event["image"].startswith("http"):
             embed.set_image(url=event["image"])
