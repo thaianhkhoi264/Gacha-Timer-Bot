@@ -342,8 +342,11 @@ async def extract_ak_event_from_tweet(tweet_text):
         "- The Category should be one of these single words: [Banner, Event, Maintenance]. Do not use phrases."
         "- Only extract if the tweet is about an in-game event, banner, or maintenance/update with a clear time window."
         "- Do NOT extract for outfits, skins, music, comics, trailers, fanart, lore, or rewards, even if they have a time window. For these, reply with None for all fields except Profile."
-        "- If the Category is Banner, the Title should include the name of the main 6★ Operator in the Banner, or the banner name if multiple."
+        "- If the tweet has the word 'headhunting' or 'rate up', it is a banner."
+        "- If the Category is Banner, the Title should include the name of the 6★ Operators in the Banner, or the banner name if multiple."
         "- If any field is missing, write None for that field."
+        "- If the tweet contains a date range, always convert and extract Start and End as UNIX timestamps in UTC."
+        "- For banners, Category must be Banner and Start/End must be extracted from the date range."
         ""
         "Examples:"
         ""
@@ -522,8 +525,11 @@ async def ak_read(ctx, link: str):
     if not tweet_text:
         await ctx.send("Could not read the tweet. Please check the link or try again later.")
         return
+    else:
+        await ctx.send(f"Found tweet, tweet text:\n```{tweet_text}```")
 
     # Check if it's an event tweet
+    await ctx.send("Checking if the tweet is an event...")
     is_event = await is_ak_event_tweet(tweet_text)
     await ctx.send(f"Classification: {'Event' if is_event else 'Filler'}")
 
@@ -532,6 +538,7 @@ async def ak_read(ctx, link: str):
         return
 
     # Extract event info
+    await ctx.send("This tweet is classified as an event! Extracting event info...")
     event_data = await extract_ak_event_from_tweet(tweet_text)
     if (not event_data["image"] or event_data["image"].lower() == "none") and tweet_image:
         event_data["image"] = tweet_image
