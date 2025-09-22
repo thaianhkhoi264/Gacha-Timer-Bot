@@ -10,15 +10,33 @@ from global_config import ONGOING_EVENTS_CHANNELS, UPCOMING_EVENTS_CHANNELS, OWN
 from ml_handler import run_llm_inference  # Uses the LLM as in ml_handler.py
 import dateparser
 import logging
+import logging.handlers
+import os
 
 # Create a custom logger for Arknights extraction and event updates
 ak_logger = logging.getLogger("arknights")
 ak_logger.setLevel(logging.INFO)
+
+# Console handler (stdout)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
-if not ak_logger.hasHandlers():
+
+# File handler (persistent logs)
+log_file_path = os.path.join("logs", "arknights.log")
+os.makedirs("logs", exist_ok=True)
+file_handler = logging.FileHandler(log_file_path)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s"))
+
+# Add handlers if not already present
+if not any(isinstance(h, logging.StreamHandler) for h in ak_logger.handlers):
     ak_logger.addHandler(console_handler)
+if not any(isinstance(h, logging.FileHandler) for h in ak_logger.handlers):
+    ak_logger.addHandler(file_handler)
+
+# Propagate to root logger (so systemd/journalctl sees it)
+ak_logger.propagate = True
 
 def ak_date_string_to_unix(date_str):
     """
@@ -216,16 +234,21 @@ async def upsert_event_message(guild, channel, event, event_id):
         )
         await conn.commit()
 
-async def arknights_update_timers(guild):
+async def arknights_update_timers(_guild=None):
     """
     Updates all Arknights event dashboards:
     - Moves events between upcoming/current channels as needed.
     - Deletes ended events and their messages.
     - Ensures no overlapping events with the same name.
+    Always operates on the main server's event channels.
     """
+    # Always use the main server for dashboard updates
+    main_guild = bot.get_guild(MAIN_SERVER_ID)
+    if not main_guild:
+        return
     now = int(datetime.now(timezone.utc).timestamp())
-    ongoing_channel = guild.get_channel(ONGOING_EVENTS_CHANNELS["AK"])
-    upcoming_channel = guild.get_channel(UPCOMING_EVENTS_CHANNELS["AK"])
+    ongoing_channel = main_guild.get_channel(ONGOING_EVENTS_CHANNELS["AK"])
+    upcoming_channel = main_guild.get_channel(UPCOMING_EVENTS_CHANNELS["AK"])
 
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         # Fetch all events, sorted by start time
@@ -241,8 +264,8 @@ async def arknights_update_timers(guild):
         for event in events:
             # If event has ended, delete from DB and both channels
             if event["end"] < now:
-                await delete_event_message(guild, ONGOING_EVENTS_CHANNELS["AK"], event["id"])
-                await delete_event_message(guild, UPCOMING_EVENTS_CHANNELS["AK"], event["id"])
+                await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["AK"], event["id"])
+                await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["AK"], event["id"])
                 await conn.execute("DELETE FROM events WHERE id=?", (event["id"],))
                 await conn.commit()
                 continue
@@ -254,18 +277,20 @@ async def arknights_update_timers(guild):
                     continue
                 ongoing_titles.add(event["title"])
                 # Remove from upcoming channel if exists
-                await delete_event_message(guild, UPCOMING_EVENTS_CHANNELS["AK"], event["id"])
+                await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["AK"], event["id"])
                 # Upsert in ongoing channel
-                await upsert_event_message(guild, ongoing_channel, event, event["id"])
+                if ongoing_channel:
+                    await upsert_event_message(main_guild, ongoing_channel, event, event["id"])
             # If event is upcoming
             elif event["start"] > now:
                 # Only add to upcoming if no ongoing event with the same name
                 if event["title"] in ongoing_titles:
-                    continue
+                    continue  # Wait until the current event ends
                 # Upsert in upcoming channel
-                await upsert_event_message(guild, upcoming_channel, event, event["id"])
+                if upcoming_channel:
+                    await upsert_event_message(main_guild, upcoming_channel, event, event["id"])
                 # Remove from ongoing channel if exists (shouldn't be, but for safety)
-                await delete_event_message(guild, ONGOING_EVENTS_CHANNELS["AK"], event["id"])
+                await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["AK"], event["id"])
 
 # --- Parsing Helpers (unchanged) ---
 def parse_title_ak(text):
@@ -690,7 +715,7 @@ async def add_ak_event(ctx, event_data):
     """
     Adds an event to the Arknights database and schedules notifications via the central handler.
     Also schedules dashboard update tasks at event start and end.
-    Immediately posts the event embed to the appropriate channel.
+    Immediately posts the event embed to the appropriate channel on the main server.
     """
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         await conn.execute(
@@ -730,8 +755,8 @@ async def add_ak_event(ctx, event_data):
     except Exception as e:
         print(f"[Arknights] Failed to schedule update tasks: {e}")
 
-    # --- Immediately post the event embed to the appropriate channel ---
-    guild = ctx.guild
+    # --- Immediately post the event embed to the appropriate channel on the main server ---
+    main_guild = bot.get_guild(MAIN_SERVER_ID)
     now = int(datetime.now(timezone.utc).timestamp())
     if event_data["start"] <= now < event_data["end"]:
         # Ongoing event
@@ -739,15 +764,17 @@ async def add_ak_event(ctx, event_data):
     else:
         # Upcoming event
         channel_id = UPCOMING_EVENTS_CHANNELS["AK"]
-    channel = guild.get_channel(channel_id)
+    channel = main_guild.get_channel(channel_id) if main_guild else None
     if channel:
         await post_event_embed(channel, event_data)
+    else:
+        await ctx.send("Warning: Could not find the event channel on the main server to post the embed. Please check your channel configuration.")
 
     await ctx.send(
         f"Added `{event_data['title']}` as **{event_data['category']}** for Arknights!\n"
         f"Start: <t:{event_data['start']}:F>\nEnd: <t:{event_data['end']}:F>"
     )
-
+    
 # --- Command to Manually Add Event from Tweet Link ---
 
 @bot.command()
@@ -774,11 +801,8 @@ async def ak_read(ctx, link: str):
         await ctx.send(f"AI could not extract all required info. LLM response:\n```{event_data}```")
         return
     await add_ak_event(ctx, event_data)
-    await ctx.send(
-        f"Added `{event_data['title']}` as **{event_data['category']}** for Arknights!\n"
-        f"Start: <t:{event_data['start']}:F>\nEnd: <t:{event_data['end']}:F>"
-    )
-    await arknights_update_timers(ctx.guild)
+    # No need to send another confirmation; add_ak_event already does.
+    await arknights_update_timers()
 
 async def arknights_on_message(message, force=False):
     """
@@ -863,7 +887,9 @@ async def ak_read_test(ctx, link: str):
 async def ak_remove(ctx, *, title: str):
     """
     Removes an Arknights event by title (case-insensitive).
+    Always removes from the main server's event channels.
     """
+    main_guild = bot.get_guild(MAIN_SERVER_ID)
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         # Find the event
         async with conn.execute(
@@ -877,8 +903,8 @@ async def ak_remove(ctx, *, title: str):
         event_id, event_title, event_category, event_profile = row
 
         # Delete event messages from both channels
-        await delete_event_message(ctx.guild, ONGOING_EVENTS_CHANNELS["AK"], event_id)
-        await delete_event_message(ctx.guild, UPCOMING_EVENTS_CHANNELS["AK"], event_id)
+        await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["AK"], event_id)
+        await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["AK"], event_id)
 
         # Delete from DB
         await conn.execute("DELETE FROM events WHERE id=?", (event_id,))
@@ -891,7 +917,7 @@ async def ak_remove(ctx, *, title: str):
     )
 
     await ctx.send(f"Deleted event '{event_title}' and its notifications.")
-    await arknights_update_timers(ctx.guild)
+    await arknights_update_timers()
 
 # --- Edit Event Command ---
 
@@ -903,6 +929,7 @@ async def ak_edit(ctx, title: str, item: str, *, value: str):
     Usage: !ak_edit_event "<title>" <item> <value>
     Allowed items: start, end, category, profile, image, title
     For start/end, accepts UNIX timestamp or "YYYY-MM-DD HH:MM" (will prompt for timezone if missing).
+    Always edits events for the main server.
     """
     allowed_items = ["start", "end", "category", "profile", "image", "title"]
 
@@ -996,14 +1023,15 @@ async def ak_edit(ctx, title: str, item: str, *, value: str):
             await schedule_update_task(int(new_end))
         except Exception as e:
             print(f"[Arknights] Failed to schedule update tasks after edit: {e}")
+    await arknights_update_timers()
 
 # --- Manual Refresh Command ---
 
 @commands.has_permissions(manage_guild=True)
 @bot.command(name="ak_refresh")
 async def ak_refresh(ctx):
-    """Refreshes all Arknights event dashboards (ongoing/upcoming channels)."""
-    await arknights_update_timers(ctx.guild)
+    """Refreshes all Arknights event dashboards (ongoing/upcoming channels) on the main server."""
+    await arknights_update_timers()
     await ctx.send("Arknights event dashboards have been refreshed.")
 
 # --- Dump DB Command ---
