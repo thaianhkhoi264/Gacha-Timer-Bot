@@ -268,6 +268,17 @@ async def schedule_notifications_for_event(event):
     guild = bot.get_guild(int(event['server_id']))
     await update_pending_notifications_embed_for_profile(guild, event['profile'])
 
+async def delete_notifications_for_event(server_id, title, category, profile):
+    """
+    Deletes all pending notifications for a specific event.
+    """
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        await conn.execute(
+            "DELETE FROM pending_notifications WHERE server_id=? AND title=? AND category=? AND profile=?",
+            (str(server_id), title, category, profile)
+        )
+        await conn.commit()
+
 async def send_notification(event, timing_type):
     """
     Sends a notification to the correct channel, using global_config.py for channel lookup.

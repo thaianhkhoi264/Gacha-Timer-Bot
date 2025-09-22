@@ -1,5 +1,6 @@
 import os
 import aiosqlite
+import asyncio
 import discord
 from discord.ext import commands
 from modules import *
@@ -36,7 +37,83 @@ async def init_ak_db():
                 PRIMARY KEY (event_id, channel_id)
             )
         ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS scheduled_update_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_id TEXT,
+                update_unix INTEGER,
+                status TEXT DEFAULT 'pending'
+            )
+        ''')
+        await conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_update_time_server ON scheduled_update_tasks (server_id, update_unix)
+        ''')
         await conn.commit()
+
+SCHEDULED_UPDATE_TASKS = {}  # { (server_id, update_unix): asyncio.Task }
+
+async def schedule_update_task(server_id, update_unix):
+    """
+    Schedules arknights_update_timers for the given server at update_unix.
+    Avoids scheduling if a task exists within ±15 minutes.
+    """
+    async with aiosqlite.connect(AK_DB_PATH) as conn:
+        min_time = update_unix - 900
+        max_time = update_unix + 900
+        async with conn.execute(
+            "SELECT 1 FROM scheduled_update_tasks WHERE server_id=? AND update_unix BETWEEN ? AND ?",
+            (str(server_id), min_time, max_time)
+        ) as cursor:
+            if await cursor.fetchone():
+                return  # Task already scheduled in this window
+        await conn.execute(
+            "INSERT OR IGNORE INTO scheduled_update_tasks (server_id, update_unix) VALUES (?, ?)",
+            (str(server_id), update_unix)
+        )
+        await conn.commit()
+
+    # Actually schedule the task in memory
+    delay = update_unix - int(datetime.now(timezone.utc).timestamp())
+    if delay > 0:
+        key = (str(server_id), update_unix)
+        if key in SCHEDULED_UPDATE_TASKS:
+            return  # Already scheduled in memory
+        SCHEDULED_UPDATE_TASKS[key] = asyncio.create_task(run_update_after_delay(server_id, update_unix, delay))
+
+async def periodic_ak_cleanup():
+    from arknights_module import cleanup_old_update_tasks
+    while True:
+        await cleanup_old_update_tasks()
+        await asyncio.sleep(86400)  # Run once every 24 hours
+
+async def run_update_after_delay(server_id, update_unix, delay):
+    await asyncio.sleep(delay)
+    guild = bot.get_guild(int(server_id))
+    if guild:
+        await arknights_update_timers(guild)
+    # Mark as done in DB
+    async with aiosqlite.connect(AK_DB_PATH) as conn:
+        await conn.execute(
+            "UPDATE scheduled_update_tasks SET status='done' WHERE server_id=? AND update_unix=?",
+            (str(server_id), update_unix)
+        )
+        await conn.commit()
+
+async def load_scheduled_ak_update_tasks():
+    """
+    Loads all pending scheduled update tasks from the DB and schedules them in memory.
+    Call this once on bot startup.
+    """
+    async with aiosqlite.connect(AK_DB_PATH) as conn:
+        now = int(datetime.now(timezone.utc).timestamp())
+        async with conn.execute(
+            "SELECT server_id, update_unix FROM scheduled_update_tasks WHERE update_unix > ? AND status='pending'",
+            (now,)
+        ) as cursor:
+            async for row in cursor:
+                server_id, update_unix = row
+                await schedule_update_task(server_id, update_unix)
 
 # --- Event Posting Helper ---
 async def post_event_embed(channel, event):
@@ -211,11 +288,6 @@ def parse_title_ak(text):
         # Case 4: fallback
         else:
             return "Special Banner"
-
-    # Fallback: Poly Vision Museum or other event
-    museum_match = re.search(r"Poly Vision Museum", text, re.IGNORECASE)
-    if museum_match:
-        return "Poly Vision Museum"
 
     # Fallback: first non-empty line after "Dear Doctor,"
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -423,7 +495,7 @@ async def is_ak_event_tweet(tweet_text):
 
 # --- Tweet Reading and Event Extraction ---
 
-async def extract_ak_event_from_tweet(tweet_text):
+async def extract_ak_event_from_tweet(tweet_text, tweet_image):
     """
     Uses the LLM to extract event details from an Arknights tweet.
     Returns a dict with title, category, start, end, image (if found).
@@ -485,39 +557,50 @@ async def extract_ak_event_from_tweet(tweet_text):
         "Now extract from this tweet:"
         "{tweet_text}"
     )
-    response = await run_llm_inference(prompt)
-    # Parse the response
-    import re
-    def extract_field(field, text):
-        match = re.search(rf"{field}:\s*(.+)", text)
-        return match.group(1).strip() if match else None
+    # Try to call the LLM, but handle the case where it is commented out or fails
+    try:
+        response = await run_llm_inference(prompt)
+    except Exception:
+        response = None
 
-    title = extract_field("Title", response)
-    # Fallback to the regex if the title parsing fails
-    if not title or title.lower() == "none":
-        title = parse_title_ak(tweet_text)
+    # --- Robust field extraction using line-by-line parsing ---
+    def extract_fields(text):
+        fields = {"Title": None, "Category": None, "Profile": None, "Start": None, "End": None, "Image": None}
+        if not text:
+            return fields
+        for line in text.splitlines():
+            for key in fields:
+                if line.strip().lower().startswith(f"{key.lower()}:"):
+                    value = line.split(":", 1)[1].strip()
+                    fields[key] = value
+        return fields
 
-    category = extract_field("Category", response)
-    # Fallback to regex if category parsing fails
-    if not category or category.lower() == "none":
-        category = parse_category_ak(tweet_text)
+    fields = extract_fields(response)
 
-    start = extract_field("Start", response)
-    end = extract_field("End", response)
+    # Fallbacks for missing or None fields
+    title = fields["Title"] if fields["Title"] and fields["Title"].lower() != "none" else parse_title_ak(tweet_text)
+    category = fields["Category"] if fields["Category"] and fields["Category"].lower() != "none" else parse_category_ak(tweet_text)
+    start = fields["Start"] if fields["Start"] and fields["Start"].lower() != "none" else None
+    end = fields["End"] if fields["End"] and fields["End"].lower() != "none" else None
 
-    # If start or end is missing or "none", use parse_dates_ak properly
-    if not start or start.lower() == "none" or not end or end.lower() == "none":
-        # parse_dates_ak is async and expects a ctx, but we don't have one here, so pass None
+    # If start or end is missing, use parse_dates_ak
+    if not start or not end:
         parsed_start, parsed_end = await parse_dates_ak(None, tweet_text)
-        if (not start or start.lower() == "none") and parsed_start:
+        if not start and parsed_start:
             start = parsed_start
-        if (not end or end.lower() == "none") and parsed_end:
+        if not end and parsed_end:
             end = parsed_end
-            
-    image = extract_field("Image", response)
-    # If image is "None" or missing, set to None
-    if not image or image.lower() == "none":
-        image = None
+
+    # --- Image extraction ---
+    image = fields["Image"] if fields["Image"] and fields["Image"].lower() != "none" else None
+    # If still no image, try to extract from tweet text using twitter_handler logic
+    if not image:
+        import re
+        images = re.findall(r'https://pbs\.twimg\.com/media/[^\s]+', tweet_text)
+        if images:
+            image = images[0]
+        elif tweet_image:
+            image = tweet_image
 
     return {
         "title": title,
@@ -532,6 +615,7 @@ async def extract_ak_event_from_tweet(tweet_text):
 async def add_ak_event(ctx, event_data):
     """
     Adds an event to the Arknights database and schedules notifications via the central handler.
+    Also schedules dashboard update tasks at event start and end.
     """
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         await conn.execute(
@@ -561,6 +645,16 @@ async def add_ak_event(ctx, event_data):
     # Schedule notifications using the central handler
     from notification_handler import schedule_notifications_for_event
     await schedule_notifications_for_event(event_for_notification)
+
+    # --- Schedule dashboard updates at event start and end ---
+    try:
+        start_unix = int(event_data["start"])
+        end_unix = int(event_data["end"])
+        await schedule_update_task(ctx.guild.id, start_unix)
+        await schedule_update_task(ctx.guild.id, end_unix)
+    except Exception as e:
+        print(f"[Arknights] Failed to schedule update tasks: {e}")
+
     await ctx.send(
         f"Added `{event_data['title']}` as **{event_data['category']}** for Arknights!\n"
         f"Start: <t:{event_data['start']}:F>\nEnd: <t:{event_data['end']}:F>"
@@ -614,7 +708,7 @@ async def arknights_on_message(message, force=False):
     # Only skip classification if not forced
     if not force and not await is_ak_event_tweet(tweet_text):
         return False
-    event_data = await extract_ak_event_from_tweet(tweet_text)
+    event_data = await extract_ak_event_from_tweet(tweet_text, tweet_image)
     if (not event_data["image"] or event_data["image"].lower() == "none") and tweet_image:
         event_data["image"] = tweet_image
     if not (event_data["title"] and event_data["category"] and event_data["start"] and event_data["end"]):
@@ -675,4 +769,144 @@ async def ak_read(ctx, link: str):
         f"End: {event_data['end']}\n"
         f"Image: {event_data['image']}"
     )
+    
+@commands.has_permissions(manage_guild=True)
+@bot.command(name="ak_remove_event")
+async def ak_remove_event(ctx, *, title: str):
+    """
+    Removes an Arknights event by title (case-insensitive).
+    """
+    async with aiosqlite.connect(AK_DB_PATH) as conn:
+        # Find the event
+        async with conn.execute(
+            "SELECT id, title, category, profile FROM events WHERE server_id=? AND LOWER(title)=?",
+            (str(ctx.guild.id), title.lower())
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            await ctx.send(f"No event found with title '{title}'.")
+            return
+        event_id, event_title, event_category, event_profile = row
+
+        # Delete event messages from both channels
+        await delete_event_message(ctx.guild, ONGOING_EVENTS_CHANNELS["AK"], event_id)
+        await delete_event_message(ctx.guild, UPCOMING_EVENTS_CHANNELS["AK"], event_id)
+
+        # Delete from DB
+        await conn.execute("DELETE FROM events WHERE id=?", (event_id,))
+        await conn.commit()
+
+    # Delete notifications for this event
+    from notification_handler import delete_notifications_for_event
+    await delete_notifications_for_event(
+        str(ctx.guild.id), event_title, event_category, event_profile
+    )
+
+    await ctx.send(f"Deleted event '{event_title}' and its notifications.")
+    
+@commands.has_permissions(manage_guild=True)
+@bot.command(name="ak_edit_event")
+async def ak_edit_event(ctx, title: str, item: str, *, value: str):
+    """
+    Edits an Arknights event in the database.
+    Usage: !ak_edit_event "<title>" <item> <value>
+    Allowed items: start, end, category, profile, image, title
+    For start/end, accepts UNIX timestamp or "YYYY-MM-DD HH:MM" (will prompt for timezone if missing).
+    """
+    allowed_items = ["start", "end", "category", "profile", "image", "title"]
+
+    async with aiosqlite.connect(AK_DB_PATH) as conn:
+        async with conn.execute("SELECT id, title, category, profile FROM events WHERE server_id=? AND LOWER(title)=?", (str(ctx.guild.id), title.lower())) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            await ctx.send(f"No event found with the title `{title}`.")
+            return
+        event_id, old_title, old_category, old_profile = row
+
+        # Edit start/end times
+        if item.lower() in ("start", "end"):
+            # Try to parse as unix timestamp, else as date string
+            try:
+                unix_time = int(value)
+            except ValueError:
+                # Prompt for timezone if not present
+                import re
+                tz_match = re.search(r'(UTC[+-]\d+|GMT[+-]\d+|[A-Za-z]+/[A-Za-z_]+)', value)
+                if tz_match:
+                    timezone_str = tz_match.group(1)
+                else:
+                    await ctx.send("No timezone detected. Please enter the timezone for this event (e.g. `Asia/Tokyo`, `UTC+8`, etc.):")
+                    def check(m): return m.author == ctx.author and m.channel == ctx.channel
+                    try:
+                        msg = await bot.wait_for("message", timeout=60.0, check=check)
+                        timezone_str = msg.content.strip()
+                    except Exception:
+                        await ctx.send("No timezone provided. Cancelling.")
+                        return
+                # Split date/time from value
+                date_time = value.split()
+                if len(date_time) == 2:
+                    date, time = date_time
+                else:
+                    await ctx.send("Invalid date/time format. Use `YYYY-MM-DD HH:MM`.")
+                    return
+                from database_handler import convert_to_unix_tz
+                unix_time = convert_to_unix_tz(date, time, timezone_str)
+            # Update start or end
+            if item.lower() == "start":
+                await conn.execute("UPDATE events SET start_date=? WHERE id=?", (str(unix_time), event_id))
+            else:
+                await conn.execute("UPDATE events SET end_date=? WHERE id=?", (str(unix_time), event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `{item}` for `{old_title}` to `{value}`.")
+        # Edit other fields
+        elif item.lower() == "category":
+            await conn.execute("UPDATE events SET category=? WHERE id=?", (value, event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `category` for `{old_title}` to `{value}`.")
+        elif item.lower() == "profile":
+            await conn.execute("UPDATE events SET profile=? WHERE id=?", (value.upper(), event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `profile` for `{old_title}` to `{value.upper()}`.")
+        elif item.lower() == "image":
+            await conn.execute("UPDATE events SET image=? WHERE id=?", (value, event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `image` for `{old_title}`.")
+        elif item.lower() == "title":
+            # Update the title in events
+            await conn.execute("UPDATE events SET title=? WHERE id=?", (value, event_id))
+            # Also update event_messages for consistency
+            await conn.execute("UPDATE event_messages SET event_id=(SELECT id FROM events WHERE server_id=? AND title=?) WHERE server_id=? AND event_id=?", (str(ctx.guild.id), value, str(ctx.guild.id), event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `title` for `{old_title}` to `{value}`.")
+        else:
+            await ctx.send(f"Cannot edit `{item}`. Only {', '.join(allowed_items)} can be edited.")
+            return
+
+    # Delete and reschedule notifications
+    from notification_handler import delete_notifications_for_event, schedule_notifications_for_event
+    await delete_notifications_for_event(
+        str(ctx.guild.id), old_title, old_category, old_profile
+    )
+    # Fetch updated event info for notification rescheduling
+    async with aiosqlite.connect(AK_DB_PATH) as conn:
+        async with conn.execute("SELECT title, start_date, end_date, category, profile FROM events WHERE id=?", (event_id,)) as cursor:
+            updated = await cursor.fetchone()
+    if updated:
+        new_title, new_start, new_end, new_category, new_profile = updated
+        event_for_notification = {
+            'server_id': str(ctx.guild.id),
+            'category': new_category,
+            'profile': new_profile,
+            'title': new_title,
+            'start_date': str(new_start),
+            'end_date': str(new_end)
+        }
+        await schedule_notifications_for_event(event_for_notification)
+        # Schedule dashboard updates at new start and end
+        try:
+            await schedule_update_task(ctx.guild.id, int(new_start))
+            await schedule_update_task(ctx.guild.id, int(new_end))
+        except Exception as e:
+            print(f"[Arknights] Failed to schedule update tasks after edit: {e}")
 # --- End of arknights_module.py ---
