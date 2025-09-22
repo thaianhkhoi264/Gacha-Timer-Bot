@@ -577,6 +577,7 @@ async def is_ak_event_tweet(tweet_text):
         "Classification:"
     )
     response = await run_llm_inference(prompt)
+    ak_logger.info(f"is_ak_event_tweet LLM response: {response!r}")
     return response.strip().lower().startswith("event")
 
 # --- Tweet Reading and Event Extraction ---
@@ -818,34 +819,62 @@ async def arknights_on_message(message, force=False):
     If force=True, always process as an event.
     """
     from global_config import LISTENER_CHANNELS
+    ak_logger.info(f"on_message: Received message in channel {message.channel.id} (guild {getattr(message.guild, 'id', None)}) by user {message.author.id}")
+
     if message.channel.id not in LISTENER_CHANNELS.values():
+        ak_logger.info(f"on_message: Channel {message.channel.id} not in LISTENER_CHANNELS, ignoring.")
         return False
+
     twitter_link = None
     for word in message.content.split():
         if "twitter.com" in word or "x.com" in word:
             twitter_link = word
             break
     if not twitter_link:
+        ak_logger.info("on_message: No Twitter link found in message.")
         return False
+
     from twitter_handler import fetch_tweet_content, normalize_twitter_link
     twitter_link = normalize_twitter_link(twitter_link)
+    ak_logger.info(f"on_message: Normalized Twitter link: {twitter_link}")
+
     tweet_text, tweet_image, username = await fetch_tweet_content(twitter_link)
     if not tweet_text:
+        ak_logger.info("on_message: Could not fetch tweet text.")
         return False
+
+    ak_logger.info(f"on_message: Tweet text:\n{tweet_text}")
+
     # Only skip classification if not forced
-    if not force and not await is_ak_event_tweet(tweet_text):
-        return False
+    if not force:
+        is_event = await is_ak_event_tweet(tweet_text)
+        ak_logger.info(f"on_message: LLM classified as event? {is_event}")
+        if not is_event:
+            ak_logger.info("on_message: Tweet not classified as event, skipping.")
+            return False
+    else:
+        ak_logger.info("on_message: Force=True, skipping classification.")
+
     event_data = await extract_ak_event_from_tweet(tweet_text, tweet_image)
+    ak_logger.info(f"on_message: Extracted event_data: {event_data}")
+
     if (not event_data["image"] or event_data["image"].lower() == "none") and tweet_image:
         event_data["image"] = tweet_image
+        ak_logger.info("on_message: Used tweet_image as fallback for event image.")
+
     if not (event_data["title"] and event_data["category"] and event_data["start"] and event_data["end"]):
+        ak_logger.info("on_message: Missing required event fields, not adding event.")
         return False
+
     class DummyCtx:
         author = message.author
         guild = message.guild
         async def send(self, msg, **kwargs):
             await message.channel.send(msg, **kwargs)
+
+    ak_logger.info(f"on_message: Adding event to DB: {event_data['title']}")
     await add_ak_event(DummyCtx(), event_data)
+    ak_logger.info("on_message: Event added successfully.")
     return True
 
 @bot.command()
