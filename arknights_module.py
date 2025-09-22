@@ -801,14 +801,6 @@ async def arknights_on_message(message, force=False):
     await add_ak_event(DummyCtx(), event_data)
     return True
 
-# Manual Refresh command
-@commands.has_permissions(manage_guild=True)
-@bot.command(name="ak_refresh")
-async def ak_refresh(ctx):
-    """Refreshes all Arknights event dashboards (ongoing/upcoming channels)."""
-    await arknights_update_timers(ctx.guild)
-    await ctx.send("Arknights event dashboards have been refreshed.")
-
 @bot.command()
 async def ak_read_test(ctx, link: str):
     """
