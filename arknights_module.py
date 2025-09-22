@@ -8,6 +8,21 @@ from bot import bot
 from datetime import datetime, timezone
 from global_config import ONGOING_EVENTS_CHANNELS, UPCOMING_EVENTS_CHANNELS
 from ml_handler import run_llm_inference  # Uses the LLM as in ml_handler.py
+import dateparser
+
+def ak_date_string_to_unix(date_str):
+    """
+    Converts a date string like 'September 16, 2025, 10:00 (UTC-7)' to a UNIX timestamp (UTC).
+    Returns an integer timestamp, or None if parsing fails.
+    """
+    # Remove extra whitespace and commas
+    date_str = date_str.strip().replace("  ", " ")
+    # Use dateparser to handle timezones and formats
+    dt = dateparser.parse(date_str)
+    if not dt:
+        return None
+    # Convert to UTC and get timestamp
+    return int(dt.replace(tzinfo=timezone.utc).timestamp()) if dt.tzinfo else int(dt.timestamp())
 
 # Path to Arknights-specific database
 AK_DB_PATH = os.path.join("data", "arknights_data.db")
@@ -557,12 +572,14 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
         "Now extract from this tweet:"
         "{tweet_text}"
     )
-    # Try to call the LLM, but handle the case where it is commented out or fails
-    try:
-        response = await run_llm_inference(prompt)
-    except Exception:
-        response = None
-
+    # LLM disabled for now
+    # try:
+    #     response = await run_llm_inference(prompt)
+    # except Exception:
+    #     response = None
+    
+    response = None  # LLM disabled for now
+    
     # --- Robust field extraction using line-by-line parsing ---
     def extract_fields(text):
         fields = {"Title": None, "Category": None, "Profile": None, "Start": None, "End": None, "Image": None}
@@ -591,6 +608,18 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
         if not end and parsed_end:
             end = parsed_end
 
+    # --- Convert start/end to UNIX timestamps (timezone-aware) ---
+    def to_unix(date_str):
+        if not date_str:
+            return None
+        dt = dateparser.parse(date_str, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+        if not dt:
+            return None
+        return int(dt.timestamp())
+
+    start_unix = to_unix(start)
+    end_unix = to_unix(end)
+
     # --- Image extraction ---
     image = fields["Image"] if fields["Image"] and fields["Image"].lower() != "none" else None
     # If still no image, try to extract from tweet text using twitter_handler logic
@@ -605,8 +634,8 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
     return {
         "title": title,
         "category": category,
-        "start": start,
-        "end": end,
+        "start": start_unix,
+        "end": end_unix,
         "image": image
     }
 
