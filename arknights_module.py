@@ -329,12 +329,15 @@ def parse_title_ak(text):
                 "Mountain", "Archetto", "Saga", "Passenger", "Kal'tsit", "Carnelian", "Pallas"
             ]
             # If any kernel operator is present
-            if any(op.lower() in (s.lower() for s in six_stars) for op in kernel_list):
-                return "Kernel Banner"
+            is_kernel = any(op.lower() in (s.lower() for s in six_stars) for op in kernel_list)
+            # Join names with &
+            title_names = f"{six_stars[0]} & {six_stars[1]}"
+            if is_kernel:
+                return f"{title_names} Kernel Banner"
             # If "Limited" or "[Limited]" in text
             if re.search(r"\[?Limited\]?", text, re.IGNORECASE):
-                return "Limited Banner"
-            return "Rotating Banner"
+                return f"{title_names} Limited Banner"
+            return f"{title_names} Banner"
 
         # Case 2: 4 6*s
         elif num_six == 4:
