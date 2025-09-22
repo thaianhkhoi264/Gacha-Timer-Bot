@@ -758,6 +758,10 @@ async def ak_read(ctx, link: str):
         await ctx.send(f"AI could not extract all required info. LLM response:\n```{event_data}```")
         return
     await add_ak_event(ctx, event_data)
+    await ctx.send(
+        f"Added `{event_data['title']}` as **{event_data['category']}** for Arknights!\n"
+        f"Start: <t:{event_data['start']}:F>\nEnd: <t:{event_data['end']}:F>"
+    )
     await arknights_update_timers(ctx.guild)
 
 async def arknights_on_message(message, force=False):
@@ -844,6 +848,8 @@ async def ak_read_test(ctx, link: str):
         f"Image: {event_data['image']}"
     )
 
+# --- Remove Event Command ---
+
 @commands.has_permissions(manage_guild=True)
 @bot.command(name="ak_remove")
 async def ak_remove(ctx, *, title: str):
@@ -878,6 +884,8 @@ async def ak_remove(ctx, *, title: str):
 
     await ctx.send(f"Deleted event '{event_title}' and its notifications.")
     await arknights_update_timers(ctx.guild)
+
+# --- Edit Event Command ---
 
 @commands.has_permissions(manage_guild=True)
 @bot.command(name="ak_edit")
@@ -948,7 +956,6 @@ async def ak_edit(ctx, title: str, item: str, *, value: str):
             await conn.commit()
             await ctx.send(f"Updated `image` for `{old_title}`.")
         elif item.lower() == "title":
-            # Update the title in events
             await conn.execute("UPDATE events SET title=? WHERE id=?", (value, event_id))
             await conn.commit()
             await ctx.send(f"Updated `title` for `{old_title}` to `{value}`.")
@@ -975,12 +982,22 @@ async def ak_edit(ctx, title: str, item: str, *, value: str):
             'end_date': str(new_end)
         }
         await schedule_notifications_for_event(event_for_notification)
-        # Schedule dashboard updates at new start and end
         try:
             await schedule_update_task(int(new_start))
             await schedule_update_task(int(new_end))
         except Exception as e:
             print(f"[Arknights] Failed to schedule update tasks after edit: {e}")
+
+# --- Manual Refresh Command ---
+
+@commands.has_permissions(manage_guild=True)
+@bot.command(name="ak_refresh")
+async def ak_refresh(ctx):
+    """Refreshes all Arknights event dashboards (ongoing/upcoming channels)."""
+    await arknights_update_timers(ctx.guild)
+    await ctx.send("Arknights event dashboards have been refreshed.")
+
+# --- Dump DB Command ---
 
 @bot.command(name="ak_dump_db")
 async def ak_dump_db(ctx):
