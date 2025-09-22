@@ -230,7 +230,108 @@ def parse_title_ak(text):
 
     return "Unknown Title"
 
+def parse_category_ak(text):
+    """
+    Parses Arknights tweet text to determine the event category.
+    Returns one of: "Banner", "Event", "Maintenance", or None.
+    """
+    text_lower = text.lower()
+    if "operator" in text_lower or "operators" in text_lower:
+        return "Banner"
+    elif "event" in text_lower:
+        return "Event"
+    elif "maintenance" in text_lower:
+        return "Maintenance"
+    return None
 
+async def parse_dates_ak(ctx, text):
+    """
+    Parses Arknights event/maintenance tweets for start and end times.
+    If only one date is found, prompts the user for event duration and calculates the end date.
+    Returns (start, end) as strings if found, otherwise None for missing.
+    """
+    current_year = datetime.now().year
+
+    def ensure_year(date_str):
+        if re.search(r'\b\d{4}\b', date_str):
+            return date_str
+        match = re.match(r'([A-Za-z]+ \d{1,2}),?\s*(\d{2}:\d{2})(.*)', date_str)
+        if match:
+            month_day = match.group(1)
+            time_part = match.group(2)
+            rest = match.group(3)
+            return f"{month_day}, {current_year}, {time_part}{rest}"
+        return date_str
+
+    # 1. Range with dash or en-dash and optional UTC
+    match = re.search(
+        r'(?:during|between)?\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
+        text, re.IGNORECASE)
+    if match:
+        start = ensure_year(match.group(1).strip())
+        end = ensure_year(match.group(2).strip())
+        return start, end
+
+    # 2. Maintenance with single date and time range (e.g. May 8, 2025, 10:00-10:10 (UTC-7))
+    match = re.search(
+        r'on\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?),?\s*(\d{2}:\d{2})\s*[-–]\s*(\d{2}:\d{2})\s*\((UTC[+-]\d+)\)',
+        text, re.IGNORECASE)
+    if match:
+        date = ensure_year(match.group(1).strip())
+        start_time = match.group(2).strip()
+        end_time = match.group(3).strip()
+        tz = match.group(4).strip()
+        start = f"{date}, {start_time} ({tz})"
+        end = f"{date}, {end_time} ({tz})"
+        return start, end
+    
+    # 2.5. Lax date-time range
+    match = re.search(
+    r'([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{1,2}:\d{2})\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{1,2}:\d{2})(?:\s*\((UTC[+-]\d+)\))?',
+    text, re.IGNORECASE)
+    if match:
+        start = ensure_year(match.group(1).strip())
+        end = ensure_year(match.group(2).strip())
+        tz = match.group(3)
+        if tz:
+            start += f" ({tz})"
+            end += f" ({tz})"
+        return start, end
+
+    # 3. Fallback: single date/time with UTC or missing year
+    match = re.search(
+        r'([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
+        text, re.IGNORECASE)
+    if match:
+        date = ensure_year(match.group(1).strip())
+        # Prompt user for duration
+        await ctx.send("Kanami only found 1 date in the tweet... How many days does this event last for? (Enter a number, e.g. `14`)")
+        def check(m): return m.author == ctx.author and m.channel == ctx.channel
+        try:
+            msg = await bot.wait_for("message", timeout=60.0, check=check)
+            days = int(msg.content.strip())
+        except Exception:
+            await ctx.send("No valid duration provided. Cancelling.")
+            return date, None
+
+        # Parse the start date to datetime
+        import dateparser
+        dt = dateparser.parse(date)
+        if not dt:
+            await ctx.send("Could not parse the start date. Cancelling.")
+            return date, None
+
+        # Add days, set time to 03:59 of the same timezone as start
+        end_dt = dt + timedelta(days=days)
+        end_dt = end_dt.replace(hour=3, minute=59)
+        # Try to extract timezone from the original string
+        tz_match = re.search(r'\(UTC[+-]\d+\)', date)
+        tz_str = tz_match.group(0) if tz_match else ""
+        # Format end date in the same style as start
+        end_str = end_dt.strftime("%B %d, %Y, %H:%M") + f" {tz_str}".strip()
+        return date, end_str
+
+    return None, None
 
 # --- Tweet Listening and Filtering ---
 
@@ -342,7 +443,7 @@ async def extract_ak_event_from_tweet(tweet_text):
         "- The Category should be one of these single words: [Banner, Event, Maintenance]. Do not use phrases."
         "- Only extract if the tweet is about an in-game event, banner, or maintenance/update with a clear time window."
         "- Do NOT extract for outfits, skins, music, comics, trailers, fanart, lore, or rewards, even if they have a time window. For these, reply with None for all fields except Profile."
-        "- If the tweet has the word 'headhunting' or 'rate up', it is a banner."
+        "- If the tweet has the word 'headhunting' or 'rate up' or 'operator', it is a banner."
         "- If the Category is Banner, the Title should include the name of the 6★ Operators in the Banner, or the banner name if multiple."
         "- If any field is missing, write None for that field."
         "- If the tweet contains a date range, always convert and extract Start and End as UNIX timestamps in UTC."
@@ -391,17 +492,39 @@ async def extract_ak_event_from_tweet(tweet_text):
         match = re.search(rf"{field}:\s*(.+)", text)
         return match.group(1).strip() if match else None
 
-    title = parse_title_ak(tweet_text)
-    # Fallback to the AI if the title parsing fails
+    title = extract_field("Title", response)
+    # Fallback to the regex if the title parsing fails
     if not title or title.lower() == "none":
-        title = extract_field("Title", response)
+        title = parse_title_ak(tweet_text)
+
+    category = extract_field("Category", response)
+    # Fallback to regex if category parsing fails
+    if not category or category.lower() == "none":
+        category = parse_category_ak(tweet_text)
+
+    start = extract_field("Start", response)
+    end = extract_field("End", response)
+
+    # If start or end is missing or "none", use parse_dates_ak properly
+    if not start or start.lower() == "none" or not end or end.lower() == "none":
+        # parse_dates_ak is async and expects a ctx, but we don't have one here, so pass None
+        parsed_start, parsed_end = await parse_dates_ak(None, tweet_text)
+        if (not start or start.lower() == "none") and parsed_start:
+            start = parsed_start
+        if (not end or end.lower() == "none") and parsed_end:
+            end = parsed_end
+            
+    image = extract_field("Image", response)
+    # If image is "None" or missing, set to None
+    if not image or image.lower() == "none":
+        image = None
 
     return {
         "title": title,
-        "category": extract_field("Category", response),
-        "start": extract_field("Start", response),
-        "end": extract_field("End", response),
-        "image": extract_field("Image", response)
+        "category": category,
+        "start": start,
+        "end": end,
+        "image": image
     }
 
 # --- Add Event to Database and Schedule Notification ---
