@@ -400,8 +400,12 @@ async def parse_dates_ak(ctx, text):
         text, re.IGNORECASE)
     if match:
         date = ensure_year(match.group(1).strip())
+        if ctx is None:
+            # Can't prompt, just return what we have
+            return date, None
         # Prompt user for duration
         await ctx.send("Kanami only found 1 date in the tweet... How many days does this event last for? (Enter a number, e.g. `14`)")
+
         def check(m): return m.author == ctx.author and m.channel == ctx.channel
         try:
             msg = await bot.wait_for("message", timeout=60.0, check=check)
@@ -524,6 +528,10 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
     Uses the LLM to extract event details from an Arknights tweet.
     Returns a dict with title, category, start, end, image (if found).
     """
+    print("=== [extract_ak_event_from_tweet] ===")
+    print(f"Tweet text:\n{tweet_text}")
+    print(f"Tweet image: {tweet_image}")
+
     prompt = (
             "Extract the following information from this Arknights event announcement tweet."
             "Reply in this exact format (one line per field, no extra text, no quotes):"
@@ -602,16 +610,23 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
         return fields
 
     fields = extract_fields(response)
+    print(f"Extracted fields from LLM: {fields}")
 
     # Fallbacks for missing or None fields
     title = fields["Title"] if fields["Title"] and fields["Title"].lower() != "none" else parse_title_ak(tweet_text)
+    print(f"Title after fallback: {title}")
     category = fields["Category"] if fields["Category"] and fields["Category"].lower() != "none" else parse_category_ak(tweet_text)
+    print(f"Category after fallback: {category}")
     start = fields["Start"] if fields["Start"] and fields["Start"].lower() != "none" else None
     end = fields["End"] if fields["End"] and fields["End"].lower() != "none" else None
+    print(f"Start from LLM: {start}")
+    print(f"End from LLM: {end}")
 
     # If start or end is missing, use parse_dates_ak
     if not start or not end:
+        print("Start or end missing, using parse_dates_ak fallback...")
         parsed_start, parsed_end = await parse_dates_ak(None, tweet_text)
+        print(f"parse_dates_ak returned: start={parsed_start}, end={parsed_end}")
         if not start and parsed_start:
             start = parsed_start
         if not end and parsed_end:
@@ -620,26 +635,36 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
     # --- Convert start/end to UNIX timestamps (timezone-aware) ---
     def to_unix(date_str):
         if not date_str:
+            print("to_unix: date_str is None")
             return None
         dt = dateparser.parse(date_str, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+        print(f"to_unix: parsed '{date_str}' to datetime: {dt}")
         if not dt:
             return None
-        return int(dt.timestamp())
+        ts = int(dt.timestamp())
+        print(f"to_unix: UNIX timestamp: {ts}")
+        return ts
 
     start_unix = to_unix(start)
     end_unix = to_unix(end)
+    print(f"Final start_unix: {start_unix}")
+    print(f"Final end_unix: {end_unix}")
 
     # --- Image extraction ---
     image = fields["Image"] if fields["Image"] and fields["Image"].lower() != "none" else None
-    # If still no image, try to extract from tweet text using twitter_handler logic
     if not image:
         import re
         images = re.findall(r'https://pbs\.twimg\.com/media/[^\s]+', tweet_text)
         if images:
             image = images[0]
+            print(f"Image found in tweet text: {image}")
         elif tweet_image:
             image = tweet_image
+            print(f"Image fallback to tweet_image: {image}")
+        else:
+            print("No image found.")
 
+    print(f"Returning event dict: title={title}, category={category}, start={start_unix}, end={end_unix}, image={image}")
     return {
         "title": title,
         "category": category,
