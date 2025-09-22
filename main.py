@@ -344,6 +344,19 @@ async def notification_loop():
         await notification_handler.load_and_schedule_pending_notifications(bot)
         await asyncio.sleep(30)  # Check every 30 seconds
 
+# Get latest git commit message for version info
+def get_latest_commit_message():
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--pretty=%B"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    except Exception:
+        return "No commit info"
 @bot.event
 async def on_ready():
     print(f"Kanami is ready to go!")
@@ -357,13 +370,17 @@ async def on_ready():
     async with aiosqlite.connect('kanami_data.db') as conn:
         async with conn.execute("SELECT server_id, announce_channel_id FROM announce_config") as cursor:
             rows = await cursor.fetchall()
+    commit_msg = get_latest_commit_message()
     for server_id, channel_id in rows:
         guild = bot.get_guild(int(server_id))
         if guild:
             channel = guild.get_channel(int(channel_id))
             if channel:
                 try:
-                    await channel.send(f"Kanami is ready to go! (version {bot_version})")
+                    await channel.send(
+                        f"Kanami is ready to go! (version {bot_version})\n"
+                        f"Latest commit: `{commit_msg}`"
+                    )
                 except Exception:
                     pass
 
@@ -396,7 +413,11 @@ async def on_ready():
         await notification_handler.init_notification_db()
 
     bot.loop.create_task(init_ak_db())
+    await load_scheduled_ak_update_tasks()
+    await periodic_ak_cleanup()
+
     await shadowverse_handler.init_sv_db()
+    
     await ml_handler.check_llm_table()  # Ensure LLM table exists
 
     bot.loop.create_task(notification_loop())
