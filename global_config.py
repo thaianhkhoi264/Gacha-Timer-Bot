@@ -56,6 +56,17 @@ UPCOMING_EVENTS_CHANNELS = {
     "UMA": 1417203965308964966,
 }
 
+# Control Panel channels (main server only, by profile)
+# Format: {profile: channel_id}
+CONTROL_PANEL_CHANNELS = {
+    "HSR": 1420821600223232030,
+    "ZZZ": 1420821623740825734,
+    "AK": 1420821379707699281,
+    "STRI": 1420821566115025068,
+    "WUWA": 1420821653478441230,
+    "UMA": 1420821685334184056,
+}
+
 # Role IDs (by profile)
 # Format: {profile: role_id}
 ROLE_IDS = {

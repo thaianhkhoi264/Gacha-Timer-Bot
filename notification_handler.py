@@ -18,7 +18,6 @@ async def init_notification_db():
         # Pending notifications (persistent scheduling)
         await conn.execute('''CREATE TABLE IF NOT EXISTS pending_notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            server_id TEXT,
             category TEXT,
             profile TEXT,
             title TEXT,
@@ -31,35 +30,12 @@ async def init_notification_db():
         # UNIQUE index to prevent duplicates (including region for HYV)
         await conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_notif
-            ON pending_notifications (server_id, category, profile, title, timing_type, notify_unix, region)
+            ON pending_notifications (category, profile, title, timing_type, notify_unix, region)
         ''')
-        # Notification timings per category and type (start/end)
-        await conn.execute('''CREATE TABLE IF NOT EXISTS notification_timings (
-            server_id TEXT,
-            category TEXT,
-            timing_type TEXT,
-            timing_minutes INTEGER,
-            PRIMARY KEY (server_id, category, timing_type)
-        )''')
-        # Notification timing status channel/message
-        await conn.execute('''CREATE TABLE IF NOT EXISTS notification_timing_channel (
-            server_id TEXT PRIMARY KEY,
-            channel_id TEXT,
-            message_id TEXT
-        )''')
-        # Pending notifications channel/messages
-        await conn.execute('''CREATE TABLE IF NOT EXISTS pending_notifications_channel (
-            server_id TEXT,
-            profile TEXT,
-            channel_id TEXT,
-            message_id TEXT,
-            PRIMARY KEY (server_id, profile)
-        )''')
         await conn.execute('''CREATE TABLE IF NOT EXISTS pending_notifications_messages (
-            server_id TEXT,
             profile TEXT,
             message_id TEXT,
-            PRIMARY KEY (server_id, profile, message_id)
+            PRIMARY KEY (profile, message_id)
         )''')
         await conn.commit()
 
@@ -78,6 +54,12 @@ REGION_EMOJIS = {
     "EUROPE": "<:Region_EU:1384176193426690088>"
 }
 
+NOTIFICATION_TIMINGS = {
+    "Banner":    {"start": [60, 1440], "end": [60, 1440]},
+    "Event":     {"start": [180], "end": [180, 1440]},
+    "Maintenance": {"start": [60], "end": [0]},
+    "Offer":     {"start": [180, 1440], "end": [1440]},
+}
 
 MAX_FIELDS = 25
 
@@ -114,13 +96,16 @@ def format_minutes(minutes):
     return " ".join(parts) if parts else "0m"
 
 # Function to log messages to both console and a file
-def send_log(server_id, message):
-    """Logs a message to both the console and the discord.log file, including the server ID."""
-    log_entry = f"[Server {server_id}] {message}"
-    print(log_entry)
+def send_log(*args):
+    """Logs a message to both the console and the discord.log file. Accepts any arguments and joins them as a string."""
+    # If the first argument looks like a server ID, skip it
+    if len(args) > 1 and (str(args[0]).isdigit() or args[0] in ("N/A", MAIN_SERVER_ID)):
+        args = args[1:]
+    message = " ".join(str(arg) for arg in args if arg is not None)
+    print(message)
     try:
         with open("discord.log", "a", encoding="utf-8") as f:
-            f.write(log_entry + "\n")
+            f.write(message + "\n")
     except Exception as e:
         print(f"Failed to write to log file: {e}")
 
@@ -132,85 +117,30 @@ async def remove_duplicate_pending_notifications():
             WHERE id NOT IN (
                 SELECT MIN(id)
                 FROM pending_notifications
-                GROUP BY server_id, category, profile, title, timing_type, notify_unix, region
+                GROUP BY category, profile, title, timing_type, notify_unix, region
             )
         """)
         await conn.commit()
     print("Duplicate pending_notifications removed.")
 
-# Function to update the notification timing message in the specified channel
-async def update_notification_timing_message(guild):
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        c = await conn.cursor()
-        await c.execute("SELECT channel_id FROM notification_timing_channel WHERE server_id=?", (str(guild.id),))
-        row = await c.fetchone()
-        if not row:
-            return
-    channel_id = int(row[0])
-    channel = guild.get_channel(channel_id)
-    if not channel:
-        conn.close()
-        return
-
-    c.execute("SELECT category, timing_type, timing_minutes FROM notification_timings WHERE server_id=?", (str(guild.id),))
-    timings = c.fetchall()
-    conn.close()
-
-    embed = discord.Embed(
-        title="Notification Timings",
-        description="Current notification timings for each category.",
-        color=discord.Color.blue()
-    )
-
-    if not timings:
-        embed.description = "No notification timings set."
-    else:
-        # Group by category and timing_type, collect all timings
-        timing_dict = {}
-        for cat, ttype, mins in timings:
-            if cat not in timing_dict:
-                timing_dict[cat] = {"start": [], "end": []}
-            timing_dict[cat][ttype].append(mins)
-        for cat, types in timing_dict.items():
-            start_list = sorted(types.get("start", []))
-            end_list = sorted(types.get("end", []))
-            start_str = ", ".join(format_minutes(m) for m in start_list) if start_list else "Not set"
-            end_str = ", ".join(format_minutes(m) for m in end_list) if end_list else "Not set"
-            embed.add_field(
-                name=f"{cat}",
-                value=f"**Start:** {start_str}\n**End:** {end_str}",
-                inline=False
-            )
-
-    # Try to edit the existing message, or send a new one
-    try:
-        await c.execute("SELECT message_id FROM notification_timing_channel WHERE server_id=?", (str(guild.id),))
-        msg_row = await c.fetchone()
-        if msg_row and msg_row[0]:
-            message_id = int(msg_row[0])
-            try:
-                msg = await channel.fetch_message(message_id)
-                await msg.edit(content=None, embed=embed)
-                return
-            except Exception:
-                pass
-        msg = await channel.send(embed=embed)
-        c.execute("UPDATE notification_timing_channel SET message_id=? WHERE server_id=?", (str(msg.id), str(guild.id)))
-        c.connection.commit()
-    except Exception:
-        pass
+def get_notification_timings(category):
+    # Returns a list of (timing_type, timing_minutes) tuples for the given category
+    timings = []
+    cat_timings = NOTIFICATION_TIMINGS.get(category, {})
+    for timing_type in ("start", "end"):
+        for minutes in cat_timings.get(timing_type, []):
+            timings.append((timing_type, minutes))
+    return timings
 
 async def schedule_notifications_for_event(event):
     """
-    Schedules notifications for an event using only profile-based channels.
+    Schedules notifications for an event using only profile-based channels and hardcoded timings.
     """
     send_log(MAIN_SERVER_ID, f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        async with conn.execute("SELECT timing_type, timing_minutes FROM notification_timings WHERE server_id=? AND category=?",
-                                (str(MAIN_SERVER_ID), event['category'])) as cursor:
-            timings = await cursor.fetchall()
-        send_log(MAIN_SERVER_ID, f"Found timings for event: {timings}")
+    timings = get_notification_timings(event['category'])
+    send_log(MAIN_SERVER_ID, f"Using timings for event: {timings}")
 
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         HYV_PROFILES = {"HSR", "ZZZ"}
         if event['profile'].upper() in HYV_PROFILES:
             regions = ["NA", "EU", "ASIA"]
@@ -360,16 +290,15 @@ async def load_and_schedule_pending_notifications(bot):
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
         async with conn.execute("""
-            SELECT id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, region
+            SELECT id, category, profile, title, timing_type, notify_unix, event_time_unix, region
             FROM pending_notifications
             WHERE sent=0 AND notify_unix <= ?
         """, (now + 60,)) as cursor:
             rows = await cursor.fetchall()
 
         for row in rows:
-            notif_id, server_id, category, profile, title, timing_type, notify_unix, event_time_unix, region = row
+            notif_id, category, profile, title, timing_type, notify_unix, event_time_unix, region = row
             event = {
-                'server_id': server_id,
                 'category': category,
                 'profile': profile,
                 'title': title,
@@ -493,8 +422,8 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
 
         # Fetch all existing dashboard messages for this profile
         async with conn.execute(
-            "SELECT message_id FROM pending_notifications_messages WHERE server_id=? AND profile=? ORDER BY message_id ASC",
-            (str(guild.id), profile)
+            "SELECT message_id FROM pending_notifications_messages WHERE profile=? ORDER BY message_id ASC",
+            (profile,)
         ) as cursor:
             old_msgs = [msg_id async for (msg_id,) in cursor]
 
@@ -533,13 +462,13 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
 
         # Update the DB with the new set of message IDs
         await conn.execute(
-            "DELETE FROM pending_notifications_messages WHERE server_id=? AND profile=?",
-            (str(guild.id), profile)
+            "DELETE FROM pending_notifications_messages WHERE profile=?",
+            (profile,)
         )
         for msg_id in new_msg_ids:
             await conn.execute(
-                "INSERT INTO pending_notifications_messages (server_id, profile, message_id) VALUES (?, ?, ?)",
-                (str(guild.id), profile, msg_id)
+                "INSERT INTO pending_notifications_messages (profile, message_id) VALUES (?, ?)",
+                (profile, msg_id)
             )
         await conn.commit()
 
@@ -662,93 +591,12 @@ async def update_all_combined_roles(ctx):
     await ctx.send(f"Updated combined roles for {count} members.")
 
 @bot.command()
-@commands.has_permissions(manage_guild=True)
-async def add_notification_timing(ctx, category: str, timing_type: str, minutes: int):
-    server_id = str(ctx.guild.id)
-    built_in = {"Banner", "Event", "Maintenance", "Offer"}
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute("CREATE TABLE IF NOT EXISTS custom_categories (server_id TEXT, category TEXT, PRIMARY KEY (server_id, category))")
-        async with conn.execute("SELECT category FROM custom_categories WHERE server_id=?", (server_id,)) as cursor:
-            custom = {row[0] async for row in cursor}
-    allowed_categories = built_in | custom
-
-    if category not in allowed_categories:
-        await ctx.send(f"Category must be one of: {', '.join(allowed_categories)}.")
-        return
-
-    timing_type = timing_type.lower()
-    if timing_type not in ("start", "end"):
-        await ctx.send("timing_type must be 'start' or 'end'.")
-        return
-
-    try:
-        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-            await conn.execute(
-                "INSERT INTO notification_timings (server_id, category, timing_type, timing_minutes) VALUES (?, ?, ?, ?)",
-                (server_id, category, timing_type, minutes)
-            )
-            await conn.commit()
-        await ctx.send(f"Added notification timing for `{category}` `{timing_type}`: {minutes} minutes before event.")
-    except Exception:
-        await ctx.send(f"Notification timing `{category}` `{timing_type}` `{minutes}` min already exists.")
-    await update_notification_timing_message(ctx.guild)
-
-@bot.command()
-@commands.has_permissions(manage_guild=True)
-async def clear_notification_timing(ctx, category: str, timing_type: str):
-    timing_type = timing_type.lower()
-    if timing_type not in ("start", "end"):
-        await ctx.send("timing_type must be 'start' or 'end'.")
-        return
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute(
-            "DELETE FROM notification_timings WHERE server_id=? AND category=? AND timing_type=?",
-            (str(ctx.guild.id), category, timing_type)
-        )
-        await conn.commit()
-    await ctx.send(f"Cleared all `{timing_type}` notification timings for category `{category}`.")
-    await update_notification_timing_message(ctx.guild)
-
-@bot.command()
-@commands.has_permissions(manage_channels=True)
-async def set_notification_timing_channel(ctx, channel: discord.TextChannel):
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute("INSERT OR REPLACE INTO notification_timing_channel (server_id, channel_id) VALUES (?, ?)",
-                           (str(ctx.guild.id), str(channel.id)))
-        await conn.commit()
-    await ctx.send(f"Notification timing status channel set to {channel.mention}.")
-    await update_notification_timing_message(ctx.guild)
-
-@bot.command()
 @commands.has_permissions(administrator=True)
 async def clear_pending_notifications(ctx):
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute("DELETE FROM pending_notifications")
         await conn.commit()
     await ctx.send("Cleared all pending notifications.")
-    await update_all_pending_notifications_embeds(ctx.guild)
-
-@bot.command()
-@commands.has_permissions(manage_channels=True)
-async def set_pending_notifications_channel(ctx, channel: discord.TextChannel):
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS pending_notifications_channel (
-                server_id TEXT,
-                profile TEXT,
-                channel_id TEXT,
-                message_id TEXT,
-                PRIMARY KEY (server_id, profile)
-            )
-        """)
-        await conn.execute("DELETE FROM pending_notifications_channel WHERE server_id=?", (str(ctx.guild.id),))
-        for profile in ["AK", "HSR", "ZZZ","STRI","WUWA"]:
-            await conn.execute(
-                "INSERT OR REPLACE INTO pending_notifications_channel (server_id, profile, channel_id, message_id) VALUES (?, ?, ?, NULL)",
-                (str(ctx.guild.id), profile, str(channel.id))
-            )
-        await conn.commit()
-    await ctx.send(f"Pending notifications channel set to {channel.mention}.")
     await update_all_pending_notifications_embeds(ctx.guild)
 
 async def debug_log(message, bot=None, important=False):
@@ -768,116 +616,3 @@ async def debug_log(message, bot=None, important=False):
         except Exception as e:
             print(f"Failed to send debug DM: {e}")
 
-# In your refresh_pending_notifications command:
-@bot.command(name="refresh_pending_notifications")
-@commands.has_permissions(administrator=True)
-async def refresh_pending_notifications(ctx):
-    """Clears all pending notifications and recreates them from current events, including region times for HSR/ZZZ."""
-    from database_handler import update_timer_channel
-    server_id = str(ctx.guild.id)
-    await debug_log(f"Starting refresh_pending_notifications for server {server_id}", bot, important=True)
-
-    # Delete all pending notifications for this server
-    try:
-        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-            await conn.execute("DELETE FROM pending_notifications WHERE server_id=?", (server_id,))
-            await conn.commit()
-        await debug_log("Deleted all pending notifications.", bot)
-    except Exception as e:
-        await debug_log(f"Error deleting pending notifications: {e}", bot, important=True)
-        await ctx.send("Error deleting pending notifications.")
-        return
-
-    # Recreate pending notifications from current events
-    try:
-        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-            async with conn.execute("""
-                SELECT title, start_date, end_date, category, profile,
-                       asia_start, asia_end, america_start, america_end, europe_start, europe_end
-                FROM user_data WHERE server_id=?
-            """, (server_id,)) as cursor:
-                events = await cursor.fetchall()
-        await debug_log(f"Fetched {len(events)} events from user_data.", bot)
-    except Exception as e:
-        await debug_log(f"Error fetching events: {e}", bot, important=True)
-        await ctx.send("Error fetching events.")
-        return
-
-    # --- Clear all event messages in timer channels for this server ---
-    try:
-        async with aiosqlite.connect(NOTIF_DB_PATH) as conn2:
-            async with conn2.execute("SELECT timer_channel_id FROM config WHERE server_id=?", (server_id,)) as cursor:
-                timer_channels = {row[0] async for row in cursor}
-            async with conn2.execute("SELECT event_id, channel_id, message_id FROM event_messages WHERE server_id=?", (server_id,)) as cursor:
-                event_msgs = await cursor.fetchall()
-            await debug_log(f"Found {len(event_msgs)} event messages to check for deletion.", bot)
-            for event_id, channel_id, message_id in event_msgs:
-                if channel_id in timer_channels:
-                    guild = ctx.guild
-                    channel = guild.get_channel(int(channel_id))
-                    if channel:
-                        try:
-                            msg = await channel.fetch_message(int(message_id))
-                            await msg.delete()
-                            await debug_log(f"Deleted message {message_id} in channel {channel_id}.", bot)
-                        except Exception as e:
-                            await debug_log(f"Failed to delete message {message_id} in channel {channel_id}: {e}", bot)
-                    # Remove from DB
-                    async with aiosqlite.connect(NOTIF_DB_PATH) as c2c:
-                        await c2c.execute("DELETE FROM event_messages WHERE event_id=? AND channel_id=?", (event_id, channel_id))
-                        await c2c.commit()
-            await conn2.commit()
-    except Exception as e:
-        await debug_log(f"Error clearing event messages: {e}", bot, important=True)
-
-    recreated = 0
-    for title, start_unix, end_unix, category, profile, asia_start, asia_end, america_start, america_end, europe_start, europe_end in events:
-        profile_upper = profile.upper()
-        try:
-            if profile_upper in ("HSR", "ZZZ"):
-                event = {
-                    'server_id': server_id,
-                    'category': category,
-                    'profile': profile,
-                    'title': title,
-                    'start_date': str(start_unix),
-                    'end_date': str(end_unix),
-                    'america_start': america_start,
-                    'america_end': america_end,
-                    'europe_start': europe_start,
-                    'europe_end': europe_end,
-                    'asia_start': asia_start,
-                    'asia_end': asia_end,
-                }
-                await schedule_notifications_for_event(event)
-                await debug_log(f"Scheduled notification for {title} [{profile_upper}].", bot)
-            else:
-                event = {
-                    'server_id': server_id,
-                    'category': category,
-                    'profile': profile,
-                    'title': title,
-                    'start_date': str(start_unix),
-                    'end_date': str(end_unix)
-                }
-                await schedule_notifications_for_event(event)
-                recreated += 1
-                await debug_log(f"Scheduled notification for {title} [{profile_upper}].", bot)
-        except Exception as e:
-            await debug_log(f"Error scheduling event {title} [{profile_upper}]: {e}", bot, important=True)
-
-    # --- Re-post timer channel messages for all profiles ---
-    try:
-        async with aiosqlite.connect(NOTIF_DB_PATH) as conn3:
-            async with conn3.execute("SELECT profile FROM config WHERE server_id=?", (server_id,)) as cursor:
-                profiles = [row[0] async for row in cursor]
-        for profile in profiles:
-            await update_timer_channel(ctx.guild, bot, profile=profile)
-            await debug_log(f"Updated timer channel for profile {profile}.", bot)
-    except Exception as e:
-        await debug_log(f"Error updating timer channels: {e}", bot, important=True)
-
-    await remove_duplicate_pending_notifications()
-
-    await ctx.send(f"Cleared all pending notifications and recreated {recreated} from current events.")
-    await debug_log(f"Finished refresh_pending_notifications for server {server_id}. Recreated {recreated} events.", bot, important=True)
