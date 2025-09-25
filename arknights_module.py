@@ -3,6 +3,7 @@ import aiosqlite
 import asyncio
 import discord
 from discord.ext import commands
+from discord import app_commands, ui, Interaction
 from modules import *
 from bot import bot
 from datetime import datetime, timezone, timedelta
@@ -398,12 +399,16 @@ def parse_category_ak(text):
         return "Maintenance"
     return None
 
+# Timezone
+AK_TIMEZONE="UTC-7"
+
 async def parse_dates_ak(ctx, text):
     """
     Parses Arknights event/maintenance tweets for start and end times.
-    If only one date is found, prompts the user for event duration and calculates the end date.
+    Always applies AK_TIMEZONE (UTC-7) to all parsed times, ignoring any timezone in the tweet.
     Returns (start, end) as strings if found, otherwise None for missing.
     """
+    import re
     current_year = datetime.now().year
 
     def ensure_year(date_str):
@@ -417,53 +422,56 @@ async def parse_dates_ak(ctx, text):
             return f"{month_day}, {current_year}, {time_part}{rest}"
         return date_str
 
-    # 1. Range with dash or en-dash and optional UTC
+    # Remove all (UTC...) or (GMT...) or timezones in parentheses
+    text_no_tz = re.sub(r'\([Uu][Tt][CcGg][^)]*\)', '', text)
+
+    # 1. Range with dash or en-dash
     match = re.search(
-        r'(?:during|between)?\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
-        text, re.IGNORECASE)
+        r'(?:during|between)?\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2})\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2})',
+        text_no_tz, re.IGNORECASE)
     if match:
         start = ensure_year(match.group(1).strip())
         end = ensure_year(match.group(2).strip())
+        # Always append AK_TIMEZONE
+        start = f"{start} ({AK_TIMEZONE})"
+        end = f"{end} ({AK_TIMEZONE})"
         return start, end
 
-    # 2. Maintenance with single date and time range (e.g. May 8, 2025, 10:00-10:10 (UTC-7))
+    # 2. Maintenance with single date and time range (e.g. May 8, 2025, 10:00-10:10)
     match = re.search(
-        r'on\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?),?\s*(\d{2}:\d{2})\s*[-–]\s*(\d{2}:\d{2})\s*\((UTC[+-]\d+)\)',
-        text, re.IGNORECASE)
+        r'on\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?),?\s*(\d{2}:\d{2})\s*[-–]\s*(\d{2}:\d{2})',
+        text_no_tz, re.IGNORECASE)
     if match:
         date = ensure_year(match.group(1).strip())
         start_time = match.group(2).strip()
         end_time = match.group(3).strip()
-        tz = match.group(4).strip()
-        start = f"{date}, {start_time} ({tz})"
-        end = f"{date}, {end_time} ({tz})"
+        start = f"{date}, {start_time} ({AK_TIMEZONE})"
+        end = f"{date}, {end_time} ({AK_TIMEZONE})"
         return start, end
-    
+
     # 2.5. Lax date-time range
     match = re.search(
-    r'([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{1,2}:\d{2})\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{1,2}:\d{2})(?:\s*\((UTC[+-]\d+)\))?',
-    text, re.IGNORECASE)
+        r'([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{1,2}:\d{2})\s*[-–]\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{1,2}:\d{2})',
+        text_no_tz, re.IGNORECASE)
     if match:
         start = ensure_year(match.group(1).strip())
         end = ensure_year(match.group(2).strip())
-        tz = match.group(3)
-        if tz:
-            start += f" ({tz})"
-            end += f" ({tz})"
+        start = f"{start} ({AK_TIMEZONE})"
+        end = f"{end} ({AK_TIMEZONE})"
         return start, end
 
-    # 3. Fallback: single date/time with UTC or missing year
+    # 3. Fallback: single date/time, prompt for duration
     match = re.search(
-        r'([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2}(?:\s*\(UTC[+-]\d+\))?)',
-        text, re.IGNORECASE)
+        r'([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?,?\s*\d{2}:\d{2})',
+        text_no_tz, re.IGNORECASE)
     if match:
         date = ensure_year(match.group(1).strip())
+        date = f"{date} ({AK_TIMEZONE})"
         if ctx is None:
             # Can't prompt, just return what we have
             return date, None
         # Prompt user for duration
         await ctx.send("Kanami only found 1 date in the tweet... How many days does this event last for? (Enter a number, e.g. `14`)")
-
         def check(m): return m.author == ctx.author and m.channel == ctx.channel
         try:
             msg = await bot.wait_for("message", timeout=60.0, check=check)
@@ -479,14 +487,9 @@ async def parse_dates_ak(ctx, text):
             await ctx.send("Could not parse the start date. Cancelling.")
             return date, None
 
-        # Add days, set time to 03:59 of the same timezone as start
         end_dt = dt + timedelta(days=days)
         end_dt = end_dt.replace(hour=3, minute=59)
-        # Try to extract timezone from the original string
-        tz_match = re.search(r'\(UTC[+-]\d+\)', date)
-        tz_str = tz_match.group(0) if tz_match else ""
-        # Format end date in the same style as start
-        end_str = end_dt.strftime("%B %d, %Y, %H:%M") + f" {tz_str}".strip()
+        end_str = end_dt.strftime("%B %d, %Y, %H:%M") + f" ({AK_TIMEZONE})"
         return date, end_str
 
     return None, None
