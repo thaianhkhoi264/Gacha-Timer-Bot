@@ -758,7 +758,6 @@ async def add_ak_event(ctx, event_data):
 
     # Prepare event dict for notification_handler
     event_for_notification = {
-        'server_id': MAIN_SERVER_ID,
         'category': event_data['category'],
         'profile': "AK",
         'title': event_data['title'],
@@ -1046,7 +1045,6 @@ async def ak_edit(ctx, title: str, item: str, *, value: str):
     if updated:
         new_title, new_start, new_end, new_category, new_profile = updated
         event_for_notification = {
-            'server_id': MAIN_SERVER_ID,
             'category': new_category,
             'profile': new_profile,
             'title': new_title,

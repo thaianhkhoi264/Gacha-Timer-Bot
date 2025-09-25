@@ -8,10 +8,10 @@ import time
 import aiosqlite
 import os
 
-from global_config import NOTIFICATION_CHANNELS, PROFILE_COLORS, GAME_PROFILES
+from global_config import *
 
 # --- Ensure notification DB and tables exist ---
-NOTIF_DB_PATH = os.path.join("data", "notifications.db")
+NOTIF_DB_PATH = os.path.join("data", "notification_data.db")
 
 async def init_notification_db():
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
@@ -61,14 +61,6 @@ async def init_notification_db():
             message_id TEXT,
             PRIMARY KEY (server_id, profile, message_id)
         )''')
-        # Role reaction emoji-role mapping
-        await conn.execute('''CREATE TABLE IF NOT EXISTS role_reactions (
-            server_id TEXT,
-            message_id TEXT,
-            emoji TEXT,
-            role_id TEXT,
-            PRIMARY KEY (server_id, emoji)
-        )''')
         await conn.commit()
 
 PROFILE_EMOJIS = {
@@ -77,6 +69,7 @@ PROFILE_EMOJIS = {
     "AK": "<:Game_AK:1384176253342449816>",
     "STRI": "<:Game_Strinova:1384176243708264468>",
     "WUWA": "<:Game_WUWA:1384186019901083720>",
+    "UMA": "<:Game_UMA:1394905581328007240>",
 }
 
 REGION_EMOJIS = {
@@ -208,12 +201,15 @@ async def update_notification_timing_message(guild):
         pass
 
 async def schedule_notifications_for_event(event):
-    send_log(event['server_id'], f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
+    """
+    Schedules notifications for an event using only profile-based channels.
+    """
+    send_log(MAIN_SERVER_ID, f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute("SELECT timing_type, timing_minutes FROM notification_timings WHERE server_id=? AND category=?",
-                                (event['server_id'], event['category'])) as cursor:
+                                (str(MAIN_SERVER_ID), event['category'])) as cursor:
             timings = await cursor.fetchall()
-        send_log(event['server_id'], f"Found timings for event: {timings}")
+        send_log(MAIN_SERVER_ID, f"Found timings for event: {timings}")
 
         HYV_PROFILES = {"HSR", "ZZZ"}
         if event['profile'].upper() in HYV_PROFILES:
@@ -231,14 +227,14 @@ async def schedule_notifications_for_event(event):
                     notify_unix = event_time_unix - timing_minutes * 60
                     if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
                         async with conn.execute(
-                            "SELECT 1 FROM pending_notifications WHERE server_id=? AND category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=? AND region=?",
-                            (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, region)
+                            "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=? AND region=?",
+                            (event['category'], event['profile'], event['title'], timing_type, notify_unix, region)
                         ) as check_cursor:
                             exists = await check_cursor.fetchone()
                         if not exists:
                             await conn.execute(
-                                "INSERT INTO pending_notifications (server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent, region) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
-                                (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix, region)
+                                "INSERT INTO pending_notifications (category, profile, title, timing_type, notify_unix, event_time_unix, sent, region) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                                (event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix, region)
                             )
         else:
             for timing_type, timing_minutes in timings:
@@ -246,71 +242,71 @@ async def schedule_notifications_for_event(event):
                 notify_unix = event_time_unix - timing_minutes * 60
                 if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
                     async with conn.execute(
-                        "SELECT 1 FROM pending_notifications WHERE server_id=? AND category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
-                        (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix)
+                        "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                        (event['category'], event['profile'], event['title'], timing_type, notify_unix)
                     ) as check_cursor:
                         exists = await check_cursor.fetchone()
                     if not exists:
                         await conn.execute(
-                            "INSERT INTO pending_notifications (server_id, category, profile, title, timing_type, notify_unix, event_time_unix, sent) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
-                            (event['server_id'], event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix)
+                            "INSERT INTO pending_notifications (category, profile, title, timing_type, notify_unix, event_time_unix, sent) VALUES (?, ?, ?, ?, ?, ?, 0)",
+                            (event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix)
                         )
                         send_log(
-                            event['server_id'],
+                            MAIN_SERVER_ID,
                             f"Scheduled notification for `{event['title']}` at <t:{notify_unix}:F> / <t:{notify_unix}:R> (timing_type: {timing_type})"
                         )
                 else:
                     send_log(
-                        event['server_id'],
+                        MAIN_SERVER_ID,
                         f"Skipped scheduling notification for `{event['title']}` (notify_unix <t:{notify_unix}:F> / <t:{notify_unix}:R> is in the past)"
                     )
         await conn.commit()
-    guild = bot.get_guild(int(event['server_id']))
+    guild = bot.get_guild(MAIN_SERVER_ID)
     await update_pending_notifications_embed_for_profile(guild, event['profile'])
 
-async def delete_notifications_for_event(server_id, title, category, profile):
+async def delete_notifications_for_event(title, category, profile):
     """
-    Deletes all pending notifications for a specific event.
+    Deletes all pending notifications for a specific event (profile-based).
     """
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute(
-            "DELETE FROM pending_notifications WHERE server_id=? AND title=? AND category=? AND profile=?",
-            (str(server_id), title, category, profile)
+            "DELETE FROM pending_notifications WHERE title=? AND category=? AND profile=?",
+            (title, category, profile)
         )
         await conn.commit()
 
 async def send_notification(event, timing_type):
     """
-    Sends a notification to the correct channel, using global_config.py for channel lookup.
+    Sends a notification to the correct profile-specific channel, using global_config.py for channel lookup.
     """
-    # Use global_config.py for channel lookup first
-    server_id = int(event['server_id'])
-    channel_id = NOTIFICATION_CHANNELS.get(server_id)
+    from global_config import NOTIFICATION_CHANNELS, MAIN_SERVER_ID
+
+    profile = event['profile'].upper()
+    channel_id = NOTIFICATION_CHANNELS.get(profile)
     if not channel_id:
-        send_log(event['server_id'], f"No notification channel set for server {event['server_id']}")
+        send_log(event.get('server_id', 'N/A'), f"No notification channel set for profile {profile}")
         return
 
-    guild = bot.get_guild(server_id)
-    channel = guild.get_channel(channel_id) if channel_id else None
+    guild = bot.get_guild(MAIN_SERVER_ID)
+    channel = guild.get_channel(channel_id)
     if not channel:
-        send_log(event['server_id'], f"No notification channel set for server {event['server_id']}")
+        send_log(event.get('server_id', 'N/A'), f"No notification channel found for profile {profile}")
         return
 
     HYV_PROFILES = {"HSR", "ZZZ"}
-    profile = event['profile'].upper()
     if profile in HYV_PROFILES:
         region = event.get('region')
         if not region:
-            send_log(event['server_id'], f"No region found for notification: {event['title']}")
+            send_log(event.get('server_id', 'N/A'), f"No region found for notification: {event['title']}")
             return
 
         combined_role_name = f"{profile} {region}"
         role = discord.utils.get(guild.roles, name=combined_role_name)
         if role:
             role_mention = role.mention
-            send_log(event['server_id'], f"Found combined role for {profile} {region}: {role_mention}")
+            send_log(event.get('server_id', 'N/A'), f"Found combined role for {profile} {region}: {role_mention}")
         else:
-            send_log(event['server_id'], f"No combined role found for {profile} {region}")
+            send_log(event.get('server_id', 'N/A'), f"No combined role found for {profile} {region}")
             return
         unix_time = None
         if region == "NA":
@@ -326,27 +322,25 @@ async def send_notification(event, timing_type):
             await channel.send(
                 f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
             )
-            send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
+            send_log(event.get('server_id', 'N/A'), f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
         except Exception as e:
-            send_log(event['server_id'], f"Failed to send notification for {profile} {region}: {e}")
+            send_log(event.get('server_id', 'N/A'), f"Failed to send notification for {profile} {region}: {e}")
     else:
         emoji = PROFILE_EMOJIS.get(profile)
         role_mention = ""
         if emoji:
-            async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-                async with conn.execute("SELECT role_id FROM role_reactions WHERE server_id=? AND emoji=?", (event['server_id'], emoji)) as cursor:
-                    role_row = await cursor.fetchone()
-                if role_row:
-                    role = guild.get_role(int(role_row[0]))
-                    if role:
-                        role_mention = role.mention
-                        send_log(event['server_id'], f"Found role for profile {profile}: {role_mention}")
-                    else:
-                        send_log(event['server_id'], f"Role ID {role_row[0]} not found in guild for profile {profile}")
+            role_id = ROLE_IDS.get(profile)
+            if role_id:
+                role = guild.get_role(role_id)
+                if role:
+                    role_mention = role.mention
+                    send_log(event.get('server_id', 'N/A'), f"Found role for profile {profile}: {role_mention}")
                 else:
-                    send_log(event['server_id'], f"No role_id found for emoji {emoji} (profile {profile})")
+                    send_log(event.get('server_id', 'N/A'), f"Role ID {role_id} not found in guild for profile {profile}")
+            else:
+                send_log(event.get('server_id', 'N/A'), f"No role_id found for profile {profile}")
         else:
-            send_log(event['server_id'], f"No emoji found for profile {profile}")
+            send_log(event.get('server_id', 'N/A'), f"No emoji found for profile {profile}")
 
         unix_time = event['start_date'] if timing_type == "start" else event['end_date']
         time_str = "starting" if timing_type == "start" else "ending"
@@ -354,9 +348,9 @@ async def send_notification(event, timing_type):
             await channel.send(
                 f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
             )
-            send_log(event['server_id'], f"Notification sent to channel {channel_id} for event {event['title']}")
+            send_log(event.get('server_id', 'N/A'), f"Notification sent to channel {channel_id} for event {event['title']}")
         except Exception as e:
-            send_log(event['server_id'], f"Failed to send notification: {e}")
+            send_log(event.get('server_id', 'N/A'), f"Failed to send notification: {e}")
 
 async def load_and_schedule_pending_notifications(bot):
     """
@@ -398,15 +392,11 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
     import math
 
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        # Get the channel for pending notifications for this profile
-        async with conn.execute(
-            "SELECT channel_id FROM pending_notifications_channel WHERE server_id=? AND profile=?",
-            (str(guild.id), profile)
-        ) as cursor:
-            row = await cursor.fetchone()
-        if not row:
+        # Get the channel for pending notifications for this profile from global_config
+        from global_config import PENDING_NOTIFICATIONS_CHANNELS
+        channel_id = PENDING_NOTIFICATIONS_CHANNELS.get(profile)
+        if not channel_id:
             return
-        channel_id = row[0]
         channel = guild.get_channel(int(channel_id))
         if not channel:
             return
@@ -415,9 +405,9 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
         async with conn.execute("""
             SELECT title, category, timing_type, notify_unix, event_time_unix, region
             FROM pending_notifications
-            WHERE server_id=? AND profile=? AND notify_unix > ?
+            WHERE profile=? AND notify_unix > ?
             ORDER BY event_time_unix ASC, notify_unix ASC
-        """, (str(guild.id), profile, now)) as cursor:
+        """, (profile, now)) as cursor:
             rows = await cursor.fetchall()
 
         color = PROFILE_COLORS.get(profile, discord.Color.default())
@@ -553,228 +543,111 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
         await conn.commit()
 
 async def update_combined_roles(member):
-    """Assigns/removes combined roles based on the user's game and region roles."""
-    games = ["HSR", "ZZZ"]
-    regions = ["NA", "EU", "ASIA"]
+    """
+    Assigns/removes combined roles based on the user's game and region roles.
+    Only applies to HSR, ZZZ, WUWA.
+    """
+    games = ["HSR", "ZZZ", "WUWA"]
+    regions = ["America", "Europe", "Asia"]
     guild = member.guild
-    user_roles = [r.name for r in member.roles]
+    user_role_ids = {r.id for r in member.roles}
 
     for game in games:
-        has_game = game in user_roles
+        game_role_id = ROLE_IDS.get(game)
+        has_game = game_role_id in user_role_ids
         for region in regions:
-            has_region = region in user_roles
-            combined_role = discord.utils.get(guild.roles, name=f"{game} {region}")
-            if combined_role:
+            region_role_id = REGIONAL_ROLE_IDS.get(region)
+            has_region = region_role_id in user_role_ids
+            combined_role_id = COMBINED_REGIONAL_ROLE_IDS.get((game, region))
+            if combined_role_id:
+                combined_role = guild.get_role(combined_role_id)
+                if not combined_role:
+                    continue
                 if has_game and has_region:
                     if combined_role not in member.roles:
                         await member.add_roles(combined_role, reason="Auto combined role update")
                 else:
                     if combined_role in member.roles:
                         await member.remove_roles(combined_role, reason="Auto combined role update")
-
 # Listeners for reaction roles
 @bot.event
 async def on_raw_reaction_add(payload):
     if payload.member is None or payload.member.bot:
         return
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        async with conn.execute(
-            "SELECT role_id FROM role_reactions WHERE server_id=? AND message_id=? AND emoji=?",
-            (str(payload.guild_id), str(payload.message_id), str(payload.emoji))
-        ) as cursor:
-            row = await cursor.fetchone()
-    if row:
-        guild = bot.get_guild(payload.guild_id)
-        role = guild.get_role(int(row[0]))
-        if role:
-            member = guild.get_member(payload.user_id)
-            if member:
-                await member.add_roles(role, reason="Role reaction add")
-                await update_combined_roles(member)
-                channel = guild.get_channel(payload.channel_id)
-                if channel:
-                    try:
-                        confirm_msg = await channel.send(f"{member.mention}, Kanami will notify you about `{role.name}` news!")
-                        await asyncio.sleep(5)
-                        await confirm_msg.delete()
-                    except Exception:
-                        pass
+    guild = bot.get_guild(payload.guild_id)
+    if not guild:
+        return
+
+    # Profile roles
+    for profile, emoji in PROFILE_EMOJIS.items():
+        if str(payload.emoji) == emoji:
+            role_id = ROLE_IDS.get(profile)
+            if role_id:
+                role = guild.get_role(role_id)
+                if role:
+                    await payload.member.add_roles(role, reason="Profile role reaction add")
+    # Region roles
+    for region, emoji in REGION_EMOJIS.items():
+        if str(payload.emoji) == emoji:
+            role_id = REGIONAL_ROLE_IDS.get(region.upper())
+            if role_id:
+                role = guild.get_role(role_id)
+                if role:
+                    await payload.member.add_roles(role, reason="Region role reaction add")
+    # After adding, update combined roles
+    await update_combined_roles(payload.member)
 
 @bot.event
 async def on_raw_reaction_remove(payload):
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        async with conn.execute(
-            "SELECT role_id FROM role_reactions WHERE server_id=? AND message_id=? AND emoji=?",
-            (str(payload.guild_id), str(payload.message_id), str(payload.emoji))
-        ) as cursor:
-            row = await cursor.fetchone()
-    if row:
-        guild = bot.get_guild(payload.guild_id)
-        role = guild.get_role(int(row[0]))
-        if role:
-            member = guild.get_member(payload.user_id)
-            if member:
-                await member.remove_roles(role, reason="Role reaction remove")
-                await update_combined_roles(member)
-                channel = guild.get_channel(payload.channel_id)
-                if channel:
-                    try:
-                        confirm_msg = await channel.send(f"{member.mention}, Kanami won't notify you about `{role.name}` anymore...")
-                        await asyncio.sleep(5)
-                        await confirm_msg.delete()
-                    except Exception:
-                        pass
-
-
-# Assign a role to a profile for reaction roles
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def assign_profile_role(ctx, profile: str, *, role: discord.Role):
-    profile = profile.upper()
-    if profile not in PROFILE_EMOJIS:
-        await ctx.send(f"Profile must be one of: {', '.join(PROFILE_EMOJIS.keys())}")
+    guild = bot.get_guild(payload.guild_id)
+    if not guild:
+        return
+    member = guild.get_member(payload.user_id)
+    if not member:
         return
 
-    emoji = PROFILE_EMOJIS[profile]
-    guild = ctx.guild
-
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute(
-            "INSERT OR REPLACE INTO role_reactions (server_id, message_id, emoji, role_id) VALUES (?, ?, ?, ?)",
-            (str(guild.id), None, emoji, str(role.id))
-        )
-        await conn.commit()
-    await ctx.send(f"Assigned role {role.mention} to profile `{profile}` with emoji {emoji}.")
-
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def assign_region_role(ctx, region: str, *, role: discord.Role):
-    region = region.upper()
-    if region not in REGION_EMOJIS:
-        await ctx.send(f"Region must be one of: {', '.join(REGION_EMOJIS.keys())}")
-        return
-
-    emoji = REGION_EMOJIS[region]
-    guild = ctx.guild
-
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute(
-            "INSERT OR REPLACE INTO role_reactions (server_id, message_id, emoji, role_id) VALUES (?, ?, ?, ?)",
-            (str(guild.id), None, emoji, str(role.id))
-        )
-        await conn.commit()
-    await ctx.send(f"Assigned role {role.mention} to region `{region}` with emoji {emoji}.")
-
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def delete_role(ctx, *, role_name: str):
-    guild = ctx.guild
-    role = discord.utils.get(guild.roles, name=role_name)
-    if not role:
-        await ctx.send(f"Role `{role_name}` does not exist.")
-        return
-
-    try:
-        await role.delete()
-        await ctx.send(f"Role `{role_name}` deleted.")
-        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-            await conn.execute("DELETE FROM role_reactions WHERE server_id=? AND role_id=?", (str(guild.id), str(role.id)))
-            await conn.commit()
-    except discord.Forbidden:
-        await ctx.send("I don't have permission to delete roles.")
-    except Exception as e:
-        await ctx.send(f"An error occurred: {e}")
+    # Profile roles
+    for profile, emoji in PROFILE_EMOJIS.items():
+        if str(payload.emoji) == emoji:
+            role_id = ROLE_IDS.get(profile)
+            if role_id:
+                role = guild.get_role(role_id)
+                if role:
+                    await member.remove_roles(role, reason="Profile role reaction remove")
+    # Region roles
+    for region, emoji in REGION_EMOJIS.items():
+        if str(payload.emoji) == emoji:
+            role_id = REGIONAL_ROLE_IDS.get(region.upper())
+            if role_id:
+                role = guild.get_role(role_id)
+                if role:
+                    await member.remove_roles(role, reason="Region role reaction remove")
+    # After removing, update combined roles
+    await update_combined_roles(member)
 
 @bot.command()
 @commands.has_permissions(manage_roles=True)
 async def create_role_reaction(ctx):
+    """
+    Sends a message for users to react and get profile/region roles.
+    Uses hardcoded role IDs and emojis from global_config.py.
+    """
     guild = ctx.guild
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        async with conn.execute(
-            "SELECT emoji, role_id FROM role_reactions WHERE server_id=? AND role_id IS NOT NULL",
-            (str(guild.id),)
-        ) as cursor:
-            rows = await cursor.fetchall()
 
-    profile_rows = [row for row in rows if row[0] in PROFILE_EMOJIS.values()]
-    region_rows = [row for row in rows if row[0] in REGION_EMOJIS.values()]
-
-    # Profile roles message
-    if profile_rows:
-        msg1 = await ctx.send("React to this message to get notification roles for each game.")
-        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-            for emoji, role_id in profile_rows:
-                await msg1.add_reaction(emoji)
-                await conn.execute("UPDATE role_reactions SET message_id=? WHERE server_id=? AND emoji=?",
-                                   (str(msg1.id), str(guild.id), emoji))
-            await conn.commit()
-    else:
-        await ctx.send("No profiles with assigned roles found. Use the assign_profile_role command first.")
-
-    # Region roles message
-    if region_rows:
-        msg2 = await ctx.send("React to this message to get your region role. (This only matters for Hoyoverse Games)")
-        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-            for emoji, role_id in region_rows:
-                await msg2.add_reaction(emoji)
-                await conn.execute("UPDATE role_reactions SET message_id=? WHERE server_id=? AND emoji=?",
-                                   (str(msg2.id), str(guild.id), emoji))
-            await conn.commit()
-    else:
-        await ctx.send("No regions with assigned roles found. Use the assign_profile_role command for regions too.")    
-
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def update_role_reaction(ctx):
-    guild = ctx.guild
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        async with conn.execute("SELECT DISTINCT message_id FROM role_reactions WHERE server_id=? AND message_id IS NOT NULL", (str(guild.id),)) as cursor:
-            row = await cursor.fetchone()
-        old_message_id = row[0] if row else None
-
-        async with conn.execute("SELECT emoji, role_id FROM role_reactions WHERE server_id=? AND role_id IS NOT NULL", (str(guild.id),)) as cursor:
-            rows = await cursor.fetchall()
-
-    # Delete the old message if it exists
-    if old_message_id:
-        for channel in guild.text_channels:
-            try:
-                old_msg = await channel.fetch_message(int(old_message_id))
-                if old_msg.author == guild.me:
-                    await old_msg.delete()
-                    break
-            except Exception:
-                continue
-
-    if not rows:
-        await ctx.send("No roles with emojis found. Use the create_role command first.")
-        return
-
-    # Create new role reaction message
-    msg = await ctx.send("React to this message to get notification for each game.")
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        for emoji, role_id in rows:
-            await msg.add_reaction(emoji)
-            await conn.execute("UPDATE role_reactions SET message_id=? WHERE server_id=? AND emoji=?",
-                               (str(msg.id), str(guild.id), emoji))
-        await conn.commit()
-    await ctx.send("Role reaction message updated!")
-
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def create_combined_roles(ctx):
-    """Creates 6 combined roles for HSR and ZZZ with each region."""
-    guild = ctx.guild
-    games = ["HSR", "ZZZ"]
-    regions = ["NA", "EU", "ASIA"]
-    created = []
-    for game in games:
-        for region in regions:
-            role_name = f"{game} {region}"
-            if not discord.utils.get(guild.roles, name=role_name):
-                role = await guild.create_role(name=role_name)
-                created.append(role_name)
-    await ctx.send(f"Created roles: {', '.join(created) if created else 'All roles already exist.'}")
+    # Profile roles
+    profile_msg = await ctx.send("React to this message to get notification roles for each game.")
+    for profile, emoji in PROFILE_EMOJIS.items():
+        role_id = ROLE_IDS.get(profile)
+        if role_id:
+            await profile_msg.add_reaction(emoji)
+    # Region roles
+    region_msg = await ctx.send("React to this message to get your region role. (This only matters for Star Rail, Zenless Zone Zero and Wuthering Waves)")
+    for region, emoji in REGION_EMOJIS.items():
+        role_id = REGIONAL_ROLE_IDS.get(region.upper())
+        if role_id:
+            await region_msg.add_reaction(emoji)
+    await ctx.send("React to the above messages to assign yourself roles!")
+    
 
 @bot.command()
 @commands.has_permissions(administrator=True)

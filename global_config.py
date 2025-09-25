@@ -20,13 +20,18 @@ LISTENER_CHANNELS = {
     "ZZZ": 0,
     "AK": 0,
     "STRI": 0,
-    "WUWA": 0,
+    "WUWA": 0,    
 }
 
 # Notification channels (by server)
 # Format: {server_id: channel_id}
 NOTIFICATION_CHANNELS = {
-    MAIN_SERVER_ID: 0
+    "HSR": 0,
+    "ZZZ": 0,
+    "AK": 0,  
+    "STRI": 0,
+    "WUWA": 0,
+    "UMA": 0,
 }
 
 # Ongoing Events channels (main server only, by profile)
@@ -49,6 +54,39 @@ UPCOMING_EVENTS_CHANNELS = {
     "STRI": 0,
     "WUWA": 0,
     "UMA": 0,
+}
+
+# Role IDs (by profile)
+# Format: {profile: role_id}
+ROLE_IDS = {
+    "HSR": 0,
+    "ZZZ": 0,
+    "AK": 0,
+    "STRI": 0,
+    "WUWA": 0,
+    "UMA": 0
+}
+
+# Role IDs (by region)
+# Format: {region: role_id}
+REGIONAL_ROLE_IDS = {
+    "Asia": 0,
+    "America": 0,
+    "Europe": 0,
+}
+
+# Combined Regional Role IDs (by profile and region)
+# Format: {profile: role_id}
+COMBINED_REGIONAL_ROLE_IDS = {
+        ("HSR", "America"): 0,
+        ("HSR", "Europe"):  0,
+        ("HSR", "Asia"):    0,
+        ("ZZZ", "America"): 0,
+        ("ZZZ", "Europe"):  0,
+        ("ZZZ", "Asia"):    0,
+        ("WUWA", "America"):0,
+        ("WUWA", "Europe"): 0,
+        ("WUWA", "Asia"):   0,
 }
 
 # Commands/Announcement channel
