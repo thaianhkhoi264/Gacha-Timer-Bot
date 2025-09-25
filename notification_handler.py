@@ -393,8 +393,9 @@ async def update_pending_notifications_embed_for_profile(guild, profile):
 
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         # Get the channel for pending notifications for this profile from global_config
-        from global_config import PENDING_NOTIFICATIONS_CHANNELS
-        channel_id = PENDING_NOTIFICATIONS_CHANNELS.get(profile)
+        # from global_config import PENDING_NOTIFICATIONS_CHANNELS
+        # channel_id = PENDING_NOTIFICATIONS_CHANNELS.get(profile)
+        channel_id = None
         if not channel_id:
             return
         channel = guild.get_channel(int(channel_id))
