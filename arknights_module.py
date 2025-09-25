@@ -846,11 +846,21 @@ async def arknights_on_message(message, force=False):
 
     # Only skip classification if not forced
     if not force:
+        ak_logger.info(f"LLM classification input tweet_text:\n{tweet_text}")
         is_event = await is_ak_event_tweet(tweet_text)
         ak_logger.info(f"on_message: LLM classified as event? {is_event}")
         if not is_event:
             ak_logger.info("on_message: Tweet not classified as event, skipping.")
+            try:
+                await message.add_reaction("❌")
+            except Exception:
+                pass
             return False
+        else:
+            try:
+                await message.add_reaction("✅")
+            except Exception:
+                pass
     else:
         ak_logger.info("on_message: Force=True, skipping classification.")
 
@@ -892,6 +902,7 @@ async def ak_read_test(ctx, link: str):
 
     # Check if it's an event tweet
     await ctx.send("Checking if the tweet is an event...")
+    ak_logger.info(f"LLM classification input tweet_text:\n{tweet_text}")
     is_event = await is_ak_event_tweet(tweet_text)
     await ctx.send(f"Classification: {'Event' if is_event else 'Filler'}")
 

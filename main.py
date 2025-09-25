@@ -431,8 +431,8 @@ async def on_message(message):
         return  # Ignore messages from the bot itself
 
     # Call the tweet listener function to handle Twitter/X messages
-    if await tweet_listener_on_message(message):
-        return
+    # if await tweet_listener_on_message(message):
+    #     return
 
     # Call the shadowverse handler to process Shadowverse messages
     if await shadowverse_handler.shadowverse_on_message(message):
@@ -453,24 +453,18 @@ async def on_message(message):
 
 @bot.event
 async def on_reaction_add(reaction, user):
-    from global_config import OWNER_USER_ID, LISTENER_CHANNELS
-    from arknights_module import arknights_on_message
-    # Only proceed if the reactor is the owner
-    if user.id != OWNER_USER_ID:
+    # Only respond to ❌ emoji, ignore bot reactions
+    if user.bot:
         return
-
-    # Only proceed if the reaction is in the AK listener channel
-    channel = reaction.message.channel
-    if channel.id != LISTENER_CHANNELS["AK"]:
-        return
-
-    # Only proceed if the emoji is :exclamation:
-    if str(reaction.emoji) not in ("❗", ":exclamation:"):
-        return
-
-    # Force process the message as an AK event tweet
-    # We'll add a 'force' parameter to arknights_on_message
-    await arknights_on_message(reaction.message, force=True)
+    if str(reaction.emoji) == "❌":
+        message = reaction.message
+        # Optionally, check if this is a tweet message in a listener channel
+        from global_config import LISTENER_CHANNELS
+        if message.channel.id not in LISTENER_CHANNELS.values():
+            return
+        # Call arknights_on_message with force=True to re-read
+        from arknights_module import arknights_on_message
+        await arknights_on_message(message, force=True)
 
 @bot.command() # "assign" command to assign the bot to announce its readiness in this channel
 @commands.has_permissions(manage_channels=True)
