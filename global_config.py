@@ -20,13 +20,18 @@ LISTENER_CHANNELS = {
     "ZZZ": 1385187400589906020,
     "AK": 1385187480646713364,
     "STRI": 1385187533977157643,
-    "WUWA": 1385187549194223666,
+    "WUWA": 1385187549194223666,    
 }
 
 # Notification channels (by server)
 # Format: {server_id: channel_id}
 NOTIFICATION_CHANNELS = {
-    MAIN_SERVER_ID: 1417202133530443859
+    "HSR": 1419711421763162283,
+    "ZZZ": 1419711446081863713,
+    "AK": 1419711343958687835,  
+    "STRI": 1419711382529769645,
+    "WUWA": 1419711476423458947,
+    "UMA": 1419711507842732072,
 }
 
 # Ongoing Events channels (main server only, by profile)
@@ -49,6 +54,39 @@ UPCOMING_EVENTS_CHANNELS = {
     "STRI": 1417203690279932107,
     "WUWA": 1417203942353272882,
     "UMA": 1417203965308964966,
+}
+
+# Role IDs (by profile)
+# Format: {profile: role_id}
+ROLE_IDS = {
+    "HSR": 1419710461301096508,
+    "ZZZ": 1419710407249232024,
+    "AK": 1419709704204058715,
+    "STRI": 1419710297584701632,
+    "WUWA": 1419710664821309440,
+    "UMA": 1419710615248965754
+}
+
+# Role IDs (by region)
+# Format: {region: role_id}
+REGIONAL_ROLE_IDS = {
+    "Asia": 1419716022046429245,
+    "America": 1419715948214091886,
+    "Europe": 1419715991813754991,
+}
+
+# Combined Regional Role IDs (by profile and region)
+# Format: {profile: role_id}
+COMBINED_REGIONAL_ROLE_IDS = {
+        ("HSR", "America"): 1419716124794421258,
+        ("HSR", "Europe"):  1419716153189601321,
+        ("HSR", "Asia"):    1419716172043256000,
+        ("ZZZ", "America"): 1419716204985061396,
+        ("ZZZ", "Europe"):  1419716225130299412,
+        ("ZZZ", "Asia"):    1419716242419351746,
+        ("WUWA", "America"):1419716257216991282,
+        ("WUWA", "Europe"): 1419716271611576421,
+        ("WUWA", "Asia"):   1419716304239333457,
 }
 
 # Commands/Announcement channel
