@@ -13,6 +13,7 @@ from tweet_listener import tweet_listener_on_message
 
 from arknights_module import *
 import reminder_module
+import control_panel
 
 import aiosqlite
 import discord
