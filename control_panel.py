@@ -308,9 +308,4 @@ async def ensure_control_panels():
     for profile in CONTROL_PANEL_CHANNELS:
         await update_control_panel_messages(profile)
 
-# Register persistent views for each profile
-for profile in CONTROL_PANEL_CHANNELS:
-    bot.add_view(AddEventView(profile))
-    # RemoveEventView/EditEventView/PendingNotifView are dynamic
-
 # --- End of control_panel.py ---
