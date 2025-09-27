@@ -10,6 +10,7 @@ from discord.ui import View, Select
 from discord import app_commands
 from discord.ext import commands
 from tweet_listener import tweet_listener_on_message
+from global_config import *
 
 from arknights_module import *
 import reminder_module
@@ -412,6 +413,11 @@ async def on_ready():
     if not hasattr(bot, "_notif_db_initialized"):
         bot._notif_db_initialized = True
         await notification_handler.init_notification_db()
+        
+    import control_panel
+    if hasattr(control_panel, "AddEventView"):
+        for profile in CONTROL_PANEL_CHANNELS:
+            bot.add_view(control_panel.AddEventView(profile))
 
     bot.loop.create_task(init_ak_db())
     await load_scheduled_ak_update_tasks()
