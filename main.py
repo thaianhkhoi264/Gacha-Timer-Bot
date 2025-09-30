@@ -419,7 +419,7 @@ async def on_ready():
         for profile in CONTROL_PANEL_CHANNELS:
             bot.add_view(control_panel.AddEventView(profile))
 
-    bot.loop.create_task(init_ak_db())
+    asyncio.create_task(init_ak_db())
     await load_scheduled_ak_update_tasks()
     await periodic_ak_cleanup()
 
@@ -427,9 +427,10 @@ async def on_ready():
     
     await ml_handler.check_llm_table()  # Ensure LLM table exists
 
-    bot.loop.create_task(notification_loop())
-    bot.loop.create_task(send_daily_report())
-    bot.loop.create_task(expired_event_cleanup_task())
+    asyncio.create_task(notification_loop())
+    asyncio.create_task(send_daily_report())
+    asyncio.create_task(expired_event_cleanup_task())
+    asyncio.create_task(reminder_module.daily_reminder_task())
 
 @bot.event # Checks for "good girl" and "good boy" in messages
 async def on_message(message):
@@ -639,8 +640,5 @@ def handle_shutdown(*args):
 
 signal.signal(signal.SIGINT, lambda s, f: handle_shutdown())
 signal.signal(signal.SIGTERM, lambda s, f: handle_shutdown())
-
-# Start the daily reminder task
-bot.loop.create_task(reminder_module.daily_reminder_task())
 
 bot.run(token,log_handler=handler, log_level=logging.DEBUG)
