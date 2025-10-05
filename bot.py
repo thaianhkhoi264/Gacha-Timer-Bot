@@ -24,7 +24,7 @@ for handler in logging.root.handlers[:]:
 
 # Set up logging to file only
 logging.basicConfig(
-    level=logging.DEBUG,  # or INFO
+    level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     filename="discord.log",
     filemode="a"
