@@ -386,29 +386,29 @@ async def on_ready():
                 except Exception:
                     pass
 
-    for guild in bot.guilds:
-        async with aiosqlite.connect('kanami_data.db') as conn:
-            async with conn.execute("SELECT profile FROM config WHERE server_id=?", (str(guild.id),)) as cursor:
-                profiles = [row[0] async for row in cursor]
-        if not profiles:
-            continue
-        for profile in profiles:
-            await database_handler.update_timer_channel(guild, bot, profile=profile)
+    # for guild in bot.guilds:
+    #     async with aiosqlite.connect('kanami_data.db') as conn:
+    #         async with conn.execute("SELECT profile FROM config WHERE server_id=?", (str(guild.id),)) as cursor:
+    #             profiles = [row[0] async for row in cursor]
+    #     if not profiles:
+    #         continue
+    #     for profile in profiles:
+    #         await database_handler.update_timer_channel(guild, bot, profile=profile)
 
-    # After updating all timer channels for all profiles in all guilds
-    async with aiosqlite.connect('kanami_data.db') as conn:
-        async with conn.execute("SELECT server_id, announce_channel_id FROM announce_config") as cursor:
-            rows = await cursor.fetchall()
-    for server_id, channel_id in rows:
-        guild = bot.get_guild(int(server_id))
-        if guild:
-            channel = guild.get_channel(int(channel_id))
-            if channel:
-                emoji = "<:KanamiHeart:1374409597628186624>"
-                try:
-                    await channel.send(f"Timer channel updates are complete. {emoji}")
-                except Exception:
-                    pass
+    # # After updating all timer channels for all profiles in all guilds
+    # async with aiosqlite.connect('kanami_data.db') as conn:
+    #     async with conn.execute("SELECT server_id, announce_channel_id FROM announce_config") as cursor:
+    #         rows = await cursor.fetchall()
+    # for server_id, channel_id in rows:
+    #     guild = bot.get_guild(int(server_id))
+    #     if guild:
+    #         channel = guild.get_channel(int(channel_id))
+    #         if channel:
+    #             emoji = "<:KanamiHeart:1374409597628186624>"
+    #             try:
+    #                 await channel.send(f"Timer channel updates are complete. {emoji}")
+    #             except Exception:
+    #                 pass
 
     if not hasattr(bot, "_notif_db_initialized"):
         bot._notif_db_initialized = True
@@ -643,4 +643,4 @@ def handle_shutdown(*args):
 signal.signal(signal.SIGINT, lambda s, f: handle_shutdown())
 signal.signal(signal.SIGTERM, lambda s, f: handle_shutdown())
 
-bot.run(token,log_handler=handler, log_level=logging.DEBUG)
+bot.run(token,log_handler=handler, log_level=logging.INFO)
