@@ -264,12 +264,19 @@ class PendingNotifView(discord.ui.View):
 # --- Control Panel Message Management ---
 
 async def update_control_panel_messages(profile):
+    # Debug: Show profile and channel ID
+    print(f"[ControlPanel] Updating control panel for profile: {profile}")
     channel_id = CONTROL_PANEL_CHANNELS.get(profile)
+    print(f"[ControlPanel] Channel ID from config: {channel_id}")
     if not channel_id:
+        print(f"[ControlPanel] No channel ID found for profile {profile}.")
         return
     guild = bot.get_guild(MAIN_SERVER_ID)
-    channel = guild.get_channel(channel_id)
+    print(f"[ControlPanel] Guild object: {guild} (ID: {MAIN_SERVER_ID})")
+    channel = guild.get_channel(channel_id) if guild else None
+    print(f"[ControlPanel] Channel object: {channel}")
     if not channel:
+        print(f"[ControlPanel] Channel {channel_id} not found in guild {MAIN_SERVER_ID}.")
         return
 
     # Clean up old control panel messages
@@ -277,14 +284,17 @@ async def update_control_panel_messages(profile):
         if msg.author == bot.user:
             try:
                 await msg.delete()
-            except Exception:
-                pass
+                print(f"[ControlPanel] Deleted old control panel message: {msg.id}")
+            except Exception as e:
+                print(f"[ControlPanel] Failed to delete message {msg.id}: {e}")
 
     # Add Event
+    print(f"[ControlPanel] Sending Add Event view for profile {profile}...")
     await channel.send("**Add Event**", view=AddEventView(profile))
 
     # Remove Event
     events = await get_events(profile)
+    print(f"[ControlPanel] Found {len(events)} events for profile {profile}.")
     await channel.send("**Remove Event**", view=RemoveEventView(profile, events))
 
     # Edit Event
@@ -293,17 +303,13 @@ async def update_control_panel_messages(profile):
     # Pending Notifications (one per event)
     for event in events:
         notifs = await get_pending_notifications_for_event(profile, event["id"])
+        print(f"[ControlPanel] Event '{event['title']}' has {len(notifs)} pending notifications.")
         if not notifs:
             continue
         await channel.send(f"**Pending Notifications for {event['title']}**", view=PendingNotifView(profile, event, notifs))
+    print(f"[ControlPanel] Finished updating control panel for profile {profile}.")
 
 # --- Startup Task ---
-
-@bot.event
-async def on_ready():
-    print(f"Bot ready as {bot.user}")
-    await ensure_control_panels()
-
 async def ensure_control_panels():
     for profile in CONTROL_PANEL_CHANNELS:
         await update_control_panel_messages(profile)

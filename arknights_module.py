@@ -1073,6 +1073,51 @@ async def ak_edit(ctx, title: str, item: str, *, value: str):
             print(f"[Arknights] Failed to schedule update tasks after edit: {e}")
     await arknights_update_timers()
 
+# --- Test Notification Command ---
+@commands.has_permissions(administrator=True)
+@bot.command(name="ak_test_notification")
+async def ak_test_notification(ctx):
+    """
+    Sends a test notification for Arknights to the AK notification channel.
+    Prints debug info about the channel, role, and message sending.
+    """
+    from global_config import MAIN_SERVER_ID, NOTIFICATION_CHANNELS, ROLE_IDS
+    import discord
+
+    guild = bot.get_guild(MAIN_SERVER_ID)
+    debug_lines = []
+
+    if not guild:
+        debug_lines.append(f"[DEBUG] Guild {MAIN_SERVER_ID} not found.")
+        await ctx.send("\n".join(debug_lines))
+        return
+
+    channel_id = NOTIFICATION_CHANNELS.get("AK")
+    debug_lines.append(f"[DEBUG] AK notification channel ID: {channel_id}")
+
+    channel = guild.get_channel(channel_id) if channel_id else None
+    debug_lines.append(f"[DEBUG] Channel object: {channel}")
+
+    role_id = ROLE_IDS.get("AK")
+    debug_lines.append(f"[DEBUG] AK role ID: {role_id}")
+
+    role = guild.get_role(role_id) if role_id else None
+    debug_lines.append(f"[DEBUG] Role object: {role}")
+
+    unix_time = int(datetime.now().timestamp()) + 60  # 1 minute from now
+    try:
+        msg = await channel.send(
+            f"{role.mention if role else ''}, the **Banner** event **Test Notification** is starting <t:{unix_time}:R>!"
+        )
+        debug_lines.append(f"[DEBUG] Notification sent! Message ID: {msg.id}")
+        await ctx.send("Test notification sent to AK notification channel.")
+    except Exception as e:
+        debug_lines.append(f"[DEBUG] Failed to send notification: {e}")
+        await ctx.send("Failed to send test notification.")
+
+    # Send debug info to the invoking channel
+    await ctx.send("\n".join(debug_lines))
+
 # --- Manual Refresh Command ---
 
 @commands.has_permissions(manage_guild=True)
