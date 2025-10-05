@@ -419,6 +419,8 @@ async def on_ready():
         for profile in CONTROL_PANEL_CHANNELS:
             bot.add_view(control_panel.AddEventView(profile))
 
+    await control_panel.ensure_control_panels()
+
     asyncio.create_task(init_ak_db())
     await load_scheduled_ak_update_tasks()
     await periodic_ak_cleanup()
