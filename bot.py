@@ -2,10 +2,11 @@ from modules import *
 from discord.ext import commands
 import discord
 import logging
+import sys
 import os
 from dotenv import load_dotenv
 
-bot_version = "2.5.1"
+bot_version = "2.5.2"
 assigned_channels = {}
 
 load_dotenv()
@@ -18,14 +19,22 @@ intents.members = True
 
 bot = commands.Bot(command_prefix='Kanami ', intents=intents, help_command=None)
 
-# Remove all handlers from the root logger
-for handler in logging.root.handlers[:]:
-    logging.root.removeHandler(handler)
+# Create a logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
-# Set up logging to file only
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    filename="discord.log",
-    filemode="a"
-)
+# File handler (keeps discord.log)
+file_handler = logging.FileHandler("discord.log", mode="a")
+file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+logger.addHandler(file_handler)
+
+# Stream handler (prints to stdout, visible in journalctl)
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+logger.addHandler(stream_handler)
+
+# Silence discord.py internal debug logs
+logging.getLogger("discord.http").setLevel(logging.WARNING)
+logging.getLogger("discord.gateway").setLevel(logging.WARNING)
+logging.getLogger("discord.client").setLevel(logging.WARNING)
+logging.getLogger("discord").setLevel(logging.INFO)
