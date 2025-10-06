@@ -313,5 +313,11 @@ async def update_control_panel_messages(profile):
 async def ensure_control_panels():
     for profile in CONTROL_PANEL_CHANNELS:
         await update_control_panel_messages(profile)
+        
+@bot.command()
+async def test_control_panel(ctx):
+    import control_panel
+    await control_panel.update_control_panel_messages("AK")
+    await ctx.send("Triggered control panel update for AK.")
 
 # --- End of control_panel.py ---
