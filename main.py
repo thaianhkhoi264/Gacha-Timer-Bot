@@ -417,9 +417,12 @@ async def on_ready():
     import control_panel
     if hasattr(control_panel, "AddEventView"):
         for profile in CONTROL_PANEL_CHANNELS:
+            print(f"[DEBUG] Adding view for profile: {profile}")
             bot.add_view(control_panel.AddEventView(profile))
 
+    print("[DEBUG] About to call ensure_control_panels...")
     await control_panel.ensure_control_panels()
+    print("[DEBUG] ensure_control_panels completed.")
 
     asyncio.create_task(init_ak_db())
     await load_scheduled_ak_update_tasks()
