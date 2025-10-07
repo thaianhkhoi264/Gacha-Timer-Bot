@@ -81,9 +81,9 @@ ROLE_IDS = {
 # Role IDs (by region)
 # Format: {region: role_id}
 REGIONAL_ROLE_IDS = {
-    "Asia": 1419716022046429245,
-    "America": 1419715948214091886,
-    "Europe": 1419715991813754991,
+    "ASIA": 1419716022046429245,
+    "AMERICA": 1419715948214091886,
+    "EUROPE": 1419715991813754991,
 }
 
 # Combined Regional Role IDs (by profile and region)
