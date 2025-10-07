@@ -597,7 +597,7 @@ async def create_role_reaction(ctx):
     # Region roles
     region_msg = await ctx.send("React to this message to get your region role. (This only matters for Star Rail, Zenless Zone Zero and Wuthering Waves)")
     for region, emoji in REGION_EMOJIS.items():
-        role_id = REGIONAL_ROLE_IDS.get(region.upper())
+        role_id = REGIONAL_ROLE_IDS.get(region)
         if role_id:
             await region_msg.add_reaction(emoji)
     
