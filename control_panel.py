@@ -166,25 +166,46 @@ class RemoveEventSelect(discord.ui.Select):
     def __init__(self, profile, events):
         options = [discord.SelectOption(label=f"{e['title']} ({e['category']})", value=str(e['id'])) for e in events]
         super().__init__(placeholder="Select event to remove...", min_values=1, max_values=1, options=options, custom_id=f"remove_event_select_{profile}")
+        self.profile = profile
+
+    async def callback(self, interaction: discord.Interaction):
+        event_id = self.values[0]
+        # Create a new view with a confirmation button
+        confirm_view = RemoveEventConfirmView(self.profile, int(event_id))
+        await interaction.response.edit_message(content=f"Selected event ID: {event_id}. Click the button below to confirm removal.", view=confirm_view)
+
+class RemoveEventConfirmView(discord.ui.View):
+    def __init__(self, profile, event_id):
+        super().__init__(timeout=None)
+        self.profile = profile
+        self.event_id = event_id
+
+    @discord.ui.button(label="Confirm Remove", style=discord.ButtonStyle.red, custom_id="remove_event_confirm")
+    async def remove_event_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await remove_event_by_id(self.profile, self.event_id)
+        await interaction.response.send_message("Event removed!", ephemeral=True)
+        await update_control_panel_messages(self.profile)
 
 class RemoveEventView(discord.ui.View):
     def __init__(self, profile, events):
         super().__init__(timeout=None)
         self.profile = profile
         self.add_item(RemoveEventSelect(profile, events))
-        
-    @discord.ui.button(label="Remove Event", style=discord.ButtonStyle.red)
-    async def remove_event_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        select: RemoveEventSelect = self.children[0]
-        event_id = select.values[0]
-        await remove_event_by_id(self.profile, int(event_id))
-        await interaction.response.send_message("Event removed!", ephemeral=True)
-        await update_control_panel_messages(self.profile)
 
 class EditEventSelect(discord.ui.Select):
     def __init__(self, profile, events):
         options = [discord.SelectOption(label=f"{e['title']} ({e['category']})", value=str(e['id'])) for e in events]
         super().__init__(placeholder="Select event to edit...", min_values=1, max_values=1, options=options, custom_id=f"edit_event_select_{profile}")
+        self.profile = profile
+        self.events = {e['id']: e for e in events}
+
+    async def callback(self, interaction: discord.Interaction):
+        event_id = int(self.values[0])
+        event = self.events.get(event_id)
+        if not event:
+            await interaction.response.send_message("Event not found.", ephemeral=True)
+            return
+        await interaction.response.send_modal(EditEventModal(self.profile, event))
 
 class EditEventModal(discord.ui.Modal):
     def __init__(self, profile, event):
@@ -219,42 +240,45 @@ class EditEventView(discord.ui.View):
         super().__init__(timeout=None)
         self.profile = profile
         self.add_item(EditEventSelect(profile, events))
-        
-    @discord.ui.button(label="Edit Event", style=discord.ButtonStyle.blurple)
-    async def edit_event_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        select: EditEventSelect = self.children[0]
-        event_id = select.values[0]
-        event = await get_event_by_id(self.profile, int(event_id))
-        if not event:
-            await interaction.response.send_message("Event not found.", ephemeral=True)
-            return
-        await interaction.response.send_modal(EditEventModal(self.profile, event))
 
 class PendingNotifSelect(discord.ui.Select):
-    def __init__(self, notifs, profile):
+    def __init__(self, notifs, profile, event):
         options = [discord.SelectOption(label=f"{n['timing_type']} <t:{n['notify_unix']}:F>", value=str(n['id'])) for n in notifs]
         super().__init__(placeholder="Select pending notification...", min_values=1, max_values=1, options=options, custom_id=f"pending_notif_select_{profile}")
+        self.profile = profile
+        self.event = event
+
+    async def callback(self, interaction: discord.Interaction):
+        notif_id = self.values[0]
+        # Show action buttons after selection
+        action_view = PendingNotifActionView(self.profile, self.event, int(notif_id))
+        await interaction.response.edit_message(content=f"Selected notification ID: {notif_id}. Choose an action below.", view=action_view)
+
+class PendingNotifActionView(discord.ui.View):
+    def __init__(self, profile, event, notif_id):
+        super().__init__(timeout=None)
+        self.profile = profile
+        self.event = event
+        self.notif_id = notif_id
+
+    @discord.ui.button(label="Remove Selected", style=discord.ButtonStyle.red, custom_id="remove_pending_confirm")
+    async def remove_pending_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await remove_pending_notification(self.notif_id)
+        await interaction.response.send_message("Pending notification removed!", ephemeral=True)
+        await update_control_panel_messages(self.profile)
+
+    @discord.ui.button(label="Refresh All", style=discord.ButtonStyle.blurple, custom_id="refresh_pending_confirm")
+    async def refresh_pending_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await refresh_pending_notifications_for_event(self.profile, self.event["id"])
+        await interaction.response.send_message("Pending notifications refreshed!", ephemeral=True)
+        await update_control_panel_messages(self.profile)
 
 class PendingNotifView(discord.ui.View):
     def __init__(self, profile, event, notifs):
         super().__init__(timeout=None)
         self.profile = profile
         self.event = event
-        self.add_item(PendingNotifSelect(notifs, profile))
-
-    @discord.ui.button(label="Remove Selected", style=discord.ButtonStyle.red)
-    async def remove_pending_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        select: PendingNotifSelect = self.children[0]
-        notif_id = select.values[0]
-        await remove_pending_notification(int(notif_id))
-        await interaction.response.send_message("Pending notification removed!", ephemeral=True)
-        await update_control_panel_messages(self.profile)
-
-    @discord.ui.button(label="Refresh All", style=discord.ButtonStyle.blurple)
-    async def refresh_pending_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await refresh_pending_notifications_for_event(self.profile, self.event["id"])
-        await interaction.response.send_message("Pending notifications refreshed!", ephemeral=True)
-        await update_control_panel_messages(self.profile)
+        self.add_item(PendingNotifSelect(notifs, profile, event))
 
 # --- Control Panel Message Management ---
 
