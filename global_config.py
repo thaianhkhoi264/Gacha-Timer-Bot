@@ -89,15 +89,15 @@ REGIONAL_ROLE_IDS = {
 # Combined Regional Role IDs (by profile and region)
 # Format: {profile: role_id}
 COMBINED_REGIONAL_ROLE_IDS = {
-        ("HSR", "America"): 0,
-        ("HSR", "Europe"):  0,
-        ("HSR", "Asia"):    0,
-        ("ZZZ", "America"): 0,
-        ("ZZZ", "Europe"):  0,
-        ("ZZZ", "Asia"):    0,
-        ("WUWA", "America"):0,
-        ("WUWA", "Europe"): 0,
-        ("WUWA", "Asia"):   0,
+        ("HSR", "AMERICA"): 0,
+        ("HSR", "EUROPE"):  0,
+        ("HSR", "ASIA"):    0,
+        ("ZZZ", "AMERICA"): 0,
+        ("ZZZ", "EUROPE"):  0,
+        ("ZZZ", "ASIA"):    0,
+        ("WUWA", "AMERICA"):0,
+        ("WUWA", "EUROPE"): 0,
+        ("WUWA", "ASIA"):   0,
 }
 
 # Commands/Announcement channel
