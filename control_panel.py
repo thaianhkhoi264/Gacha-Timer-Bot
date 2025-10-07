@@ -156,7 +156,6 @@ class AddEventView(discord.ui.View):
     def __init__(self, profile):
         super().__init__(timeout=None)
         self.profile = profile
-        self.add_item(discord.ui.Button(label="Add Event", style=discord.ButtonStyle.green, custom_id=f"add_event_submit_{profile}"))
 
     @discord.ui.button(label="Add Event", style=discord.ButtonStyle.green)
     async def add_event_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
