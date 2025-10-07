@@ -482,7 +482,7 @@ async def update_combined_roles(member):
     Only applies to HSR, ZZZ, WUWA.
     """
     games = ["HSR", "ZZZ", "WUWA"]
-    regions = ["America", "Europe", "Asia"]
+    regions = ["AMERICA", "EUROPE", "ASIA"]
     guild = member.guild
     user_role_ids = {r.id for r in member.roles}
 
