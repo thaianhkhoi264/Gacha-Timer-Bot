@@ -485,24 +485,40 @@ async def update_combined_roles(member):
     regions = ["AMERICA", "EUROPE", "ASIA"]
     guild = member.guild
     user_role_ids = {r.id for r in member.roles}
+    
+    print(f"[DEBUG] Updating combined roles for {member.display_name}")
+    print(f"[DEBUG] User has {len(user_role_ids)} roles")
 
     for game in games:
         game_role_id = ROLE_IDS.get(game)
         has_game = game_role_id in user_role_ids
+        print(f"[DEBUG] Game {game}: role_id={game_role_id}, has_game={has_game}")
+        
         for region in regions:
             region_role_id = REGIONAL_ROLE_IDS.get(region)
             has_region = region_role_id in user_role_ids
+            print(f"[DEBUG] Region {region}: role_id={region_role_id}, has_region={has_region}")
+            
             combined_role_id = COMBINED_REGIONAL_ROLE_IDS.get((game, region))
+            print(f"[DEBUG] Looking for combined role: ({game}, {region}) -> ID {combined_role_id}")
+            
             if combined_role_id:
                 combined_role = guild.get_role(combined_role_id)
+                print(f"[DEBUG] Combined role object: {combined_role}")
+                
                 if not combined_role:
+                    print(f"[DEBUG] ERROR: Combined role ID {combined_role_id} not found in guild!")
                     continue
+                    
                 if has_game and has_region:
                     if combined_role not in member.roles:
                         await member.add_roles(combined_role, reason="Auto combined role update")
+                        print(f"[DEBUG] ✅ Added {combined_role.name} to {member.display_name}")
                 else:
                     if combined_role in member.roles:
                         await member.remove_roles(combined_role, reason="Auto combined role update")
+                        print(f"[DEBUG] ❌ Removed {combined_role.name} from {member.display_name}")
+                        
 # Listeners for reaction roles
 @bot.event
 async def on_raw_reaction_add(payload):
