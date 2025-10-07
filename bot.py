@@ -6,7 +6,7 @@ import sys
 import os
 from dotenv import load_dotenv
 
-bot_version = "2.5.2"
+bot_version = "2.5.3"
 assigned_channels = {}
 
 load_dotenv()

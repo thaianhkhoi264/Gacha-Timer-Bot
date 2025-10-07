@@ -37,6 +37,10 @@ async def init_notification_db():
             message_id TEXT,
             PRIMARY KEY (profile, message_id)
         )''')
+        await conn.execute('''CREATE TABLE IF NOT EXISTS role_reaction_messages (
+            type TEXT PRIMARY KEY,
+            message_id TEXT
+        )''')
         await conn.commit()
 
 PROFILE_EMOJIS = {
@@ -504,6 +508,14 @@ async def update_combined_roles(member):
 async def on_raw_reaction_add(payload):
     if payload.member is None or payload.member.bot:
         return
+    
+    # Check if this is a tracked role reaction message
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return  # Not a role reaction message
+    
     guild = bot.get_guild(payload.guild_id)
     if not guild:
         return
@@ -532,6 +544,15 @@ async def on_raw_reaction_remove(payload):
     guild = bot.get_guild(payload.guild_id)
     if not guild:
         return
+
+    # Check if this is a tracked role reaction message
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
+            row = await cursor.fetchone()
+    
+    if not row:
+        return  # Not a role reaction message
+        
     member = guild.get_member(payload.user_id)
     if not member:
         return
@@ -544,6 +565,7 @@ async def on_raw_reaction_remove(payload):
                 role = guild.get_role(role_id)
                 if role:
                     await member.remove_roles(role, reason="Profile role reaction remove")
+    
     # Region roles
     for region, emoji in REGION_EMOJIS.items():
         if str(payload.emoji) == emoji:
@@ -552,6 +574,7 @@ async def on_raw_reaction_remove(payload):
                 role = guild.get_role(role_id)
                 if role:
                     await member.remove_roles(role, reason="Region role reaction remove")
+    
     # After removing, update combined roles
     await update_combined_roles(member)
 
@@ -570,12 +593,20 @@ async def create_role_reaction(ctx):
         role_id = ROLE_IDS.get(profile)
         if role_id:
             await profile_msg.add_reaction(emoji)
+    
     # Region roles
     region_msg = await ctx.send("React to this message to get your region role. (This only matters for Star Rail, Zenless Zone Zero and Wuthering Waves)")
     for region, emoji in REGION_EMOJIS.items():
         role_id = REGIONAL_ROLE_IDS.get(region.upper())
         if role_id:
             await region_msg.add_reaction(emoji)
+    
+    # Save message IDs to database
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("profile", str(profile_msg.id)))
+        await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("region", str(region_msg.id)))
+        await conn.commit()
+    
     await ctx.send("React to the above messages to assign yourself roles!")
     
 
