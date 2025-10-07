@@ -89,15 +89,15 @@ REGIONAL_ROLE_IDS = {
 # Combined Regional Role IDs (by profile and region)
 # Format: {profile: role_id}
 COMBINED_REGIONAL_ROLE_IDS = {
-        ("HSR", "America"): 1419716124794421258,
-        ("HSR", "Europe"):  1419716153189601321,
-        ("HSR", "Asia"):    1419716172043256000,
-        ("ZZZ", "America"): 1419716204985061396,
-        ("ZZZ", "Europe"):  1419716225130299412,
-        ("ZZZ", "Asia"):    1419716242419351746,
-        ("WUWA", "America"):1419716257216991282,
-        ("WUWA", "Europe"): 1419716271611576421,
-        ("WUWA", "Asia"):   1419716304239333457,
+        ("HSR", "AMERICA"): 1419716124794421258,
+        ("HSR", "EUROPE"):  1419716153189601321,
+        ("HSR", "ASIA"):    1419716172043256000,
+        ("ZZZ", "AMERICA"): 1419716204985061396,
+        ("ZZZ", "EUROPE"):  1419716225130299412,
+        ("ZZZ", "ASIA"):    1419716242419351746,
+        ("WUWA", "AMERICA"):1419716257216991282,
+        ("WUWA", "EUROPE"): 1419716271611576421,
+        ("WUWA", "ASIA"):   1419716304239333457,
 }
 
 # Commands/Announcement channel
