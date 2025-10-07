@@ -172,8 +172,7 @@ class RemoveEventView(discord.ui.View):
         super().__init__(timeout=None)
         self.profile = profile
         self.add_item(RemoveEventSelect(profile, events))
-        self.add_item(discord.ui.Button(label="Remove Event", style=discord.ButtonStyle.red, custom_id=f"remove_event_submit_{profile}"))
-
+        
     @discord.ui.button(label="Remove Event", style=discord.ButtonStyle.red)
     async def remove_event_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
         select: RemoveEventSelect = self.children[0]
@@ -220,8 +219,7 @@ class EditEventView(discord.ui.View):
         super().__init__(timeout=None)
         self.profile = profile
         self.add_item(EditEventSelect(profile, events))
-        self.add_item(discord.ui.Button(label="Edit Event", style=discord.ButtonStyle.blurple, custom_id=f"edit_event_submit_{profile}"))
-
+        
     @discord.ui.button(label="Edit Event", style=discord.ButtonStyle.blurple)
     async def edit_event_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
         select: EditEventSelect = self.children[0]
@@ -243,8 +241,6 @@ class PendingNotifView(discord.ui.View):
         self.profile = profile
         self.event = event
         self.add_item(PendingNotifSelect(notifs, profile))
-        self.add_item(discord.ui.Button(label="Remove Selected", style=discord.ButtonStyle.red, custom_id=f"remove_pending_submit_{profile}"))
-        self.add_item(discord.ui.Button(label="Refresh All", style=discord.ButtonStyle.blurple, custom_id=f"refresh_pending_submit_{profile}"))
 
     @discord.ui.button(label="Remove Selected", style=discord.ButtonStyle.red)
     async def remove_pending_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
