@@ -413,12 +413,6 @@ async def on_ready():
     if not hasattr(bot, "_notif_db_initialized"):
         bot._notif_db_initialized = True
         await notification_handler.init_notification_db()
-        
-    import control_panel
-    if hasattr(control_panel, "AddEventView"):
-        for profile in CONTROL_PANEL_CHANNELS:
-            print(f"[DEBUG] Adding view for profile: {profile}")
-            bot.add_view(control_panel.AddEventView(profile))
 
     print("[DEBUG] About to call ensure_control_panels...")
     await control_panel.ensure_control_panels()
