@@ -360,6 +360,7 @@ def get_latest_commit_message():
         return result.stdout.strip()
     except Exception:
         return "No commit info"
+
 @bot.event
 async def on_ready():
     print(f"Kanami is ready to go!")
@@ -387,38 +388,33 @@ async def on_ready():
                 except Exception:
                     pass
 
-    # for guild in bot.guilds:
-    #     async with aiosqlite.connect('kanami_data.db') as conn:
-    #         async with conn.execute("SELECT profile FROM config WHERE server_id=?", (str(guild.id),)) as cursor:
-    #             profiles = [row[0] async for row in cursor]
-    #     if not profiles:
-    #         continue
-    #     for profile in profiles:
-    #         await database_handler.update_timer_channel(guild, bot, profile=profile)
-
-    # # After updating all timer channels for all profiles in all guilds
-    # async with aiosqlite.connect('kanami_data.db') as conn:
-    #     async with conn.execute("SELECT server_id, announce_channel_id FROM announce_config") as cursor:
-    #         rows = await cursor.fetchall()
-    # for server_id, channel_id in rows:
-    #     guild = bot.get_guild(int(server_id))
-    #     if guild:
-    #         channel = guild.get_channel(int(channel_id))
-    #         if channel:
-    #             emoji = "<:KanamiHeart:1374409597628186624>"
-    #             try:
-    #                 await channel.send(f"Timer channel updates are complete. {emoji}")
-    #             except Exception:
-    #                 pass
-
     if not hasattr(bot, "_notif_db_initialized"):
         bot._notif_db_initialized = True
         await notification_handler.init_notification_db()
 
+    # Register persistent views BEFORE ensure_control_panels
+    print("[DEBUG] Registering persistent views...")
+    for profile in CONTROL_PANEL_CHANNELS:
+        bot.add_view(control_panel.AddEventView(profile))
+    print("[DEBUG] Persistent views registered.")
+
+    # Create background tasks FIRST (so they start immediately)
+    print("[DEBUG] Creating background tasks...")
+    asyncio.create_task(reminder_module.daily_reminder_task())
+    print("[DEBUG] Reminder task created.")
+    asyncio.create_task(notification_loop())
+    print("[DEBUG] Notification loop task created.")
+    asyncio.create_task(send_daily_report())
+    print("[DEBUG] Daily report task created.")
+    asyncio.create_task(expired_event_cleanup_task())
+    print("[DEBUG] Expired event cleanup task created.")
+
+    # Now initialize control panels
     print("[DEBUG] About to call ensure_control_panels...")
     await control_panel.ensure_control_panels()
     print("[DEBUG] ensure_control_panels completed.")
 
+    # Initialize AK DB and tasks
     asyncio.create_task(init_ak_db())
     await load_scheduled_ak_update_tasks()
     await periodic_ak_cleanup()
@@ -426,11 +422,6 @@ async def on_ready():
     await shadowverse_handler.init_sv_db()
     
     await ml_handler.check_llm_table()  # Ensure LLM table exists
-
-    asyncio.create_task(notification_loop())
-    asyncio.create_task(send_daily_report())
-    asyncio.create_task(expired_event_cleanup_task())
-    asyncio.create_task(reminder_module.daily_reminder_task())
 
 @bot.event # Checks for "good girl" and "good boy" in messages
 async def on_message(message):
