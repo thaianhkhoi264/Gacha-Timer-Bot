@@ -143,8 +143,7 @@ async def run_update_after_delay(update_unix, delay):
 async def load_scheduled_ak_update_tasks():
     """
     Loads all pending scheduled update tasks from the DB and schedules them in memory.
-    If a task is already past its scheduled time, execute it immediately and mark as done.
-    Call this once on bot startup.
+    Executes ONE update on startup to refresh the dashboard, then marks all overdue tasks as done.
     """
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         now = int(datetime.now(timezone.utc).timestamp())
@@ -154,26 +153,33 @@ async def load_scheduled_ak_update_tasks():
         ) as cursor:
             tasks = [row[0] async for row in cursor]
         
-        for update_unix in tasks:
-            if update_unix <= now:
-                # Task is overdue, execute immediately
-                ak_logger.info(f"Executing overdue update task for {update_unix} (<t:{update_unix}:F>)")
-                main_guild = bot.get_guild(MAIN_SERVER_ID)
-                if main_guild:
-                    await arknights_update_timers(main_guild)
-                # Mark as done
+        # Check if there are any overdue tasks
+        overdue_tasks = [t for t in tasks if t <= now]
+        future_tasks = [t for t in tasks if t > now]
+        
+        if overdue_tasks:
+            # Execute ONE update to refresh the dashboard
+            ak_logger.info(f"Found {len(overdue_tasks)} overdue tasks. Executing one update to refresh dashboard...")
+            main_guild = bot.get_guild(MAIN_SERVER_ID)
+            if main_guild:
+                await arknights_update_timers(main_guild)
+            
+            # Mark all overdue tasks as done (without executing each individually)
+            for update_unix in overdue_tasks:
                 await conn.execute(
                     "UPDATE scheduled_update_tasks SET status='done' WHERE update_unix=?",
                     (update_unix,)
                 )
-                await conn.commit()
-            else:
-                # Task is in the future, schedule normally
-                delay = update_unix - now
-                if update_unix not in SCHEDULED_UPDATE_TASKS:
-                    ak_logger.info(f"Scheduling future update task for {update_unix} (<t:{update_unix}:F>), delay={delay}s")
-                    SCHEDULED_UPDATE_TASKS[update_unix] = asyncio.create_task(run_update_after_delay(update_unix, delay))
-
+            await conn.commit()
+            ak_logger.info(f"Marked {len(overdue_tasks)} overdue tasks as done.")
+        
+        # Schedule future tasks
+        for update_unix in future_tasks:
+            delay = update_unix - now
+            if update_unix not in SCHEDULED_UPDATE_TASKS:
+                ak_logger.info(f"Scheduling future update task for {update_unix} (<t:{update_unix}:F>), delay={delay}s")
+                SCHEDULED_UPDATE_TASKS[update_unix] = asyncio.create_task(run_update_after_delay(update_unix, delay))
+                
 async def cleanup_old_update_tasks():
     """
     Deletes scheduled_update_tasks that are marked as 'done' and are older than 1 day.

@@ -7,9 +7,12 @@ from global_config import *
 USER_ID = 443416461457883136  # Naito's User ID
 MESSAGE = "It's time to sleep little boy <:KanamiAnger:1406653154111524924>"
 
+print("[Reminder] Module loaded.")
+
 async def daily_reminder_task():
+    print("[Reminder] Task function called, waiting for bot to be ready...")
     await bot.wait_until_ready()
-    print("[Reminder] Task started and bot is ready.")
+    print("[Reminder] Bot is ready, starting reminder loop.")
     tz = pytz.timezone("US/Eastern")
     
     while not bot.is_closed():
