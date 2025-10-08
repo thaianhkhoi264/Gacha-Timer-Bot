@@ -143,17 +143,36 @@ async def run_update_after_delay(update_unix, delay):
 async def load_scheduled_ak_update_tasks():
     """
     Loads all pending scheduled update tasks from the DB and schedules them in memory.
+    If a task is already past its scheduled time, execute it immediately and mark as done.
     Call this once on bot startup.
     """
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         now = int(datetime.now(timezone.utc).timestamp())
         async with conn.execute(
-            "SELECT update_unix FROM scheduled_update_tasks WHERE update_unix > ? AND status='pending'",
-            (now,)
+            "SELECT update_unix FROM scheduled_update_tasks WHERE status='pending'",
+            ()
         ) as cursor:
-            async for row in cursor:
-                update_unix = row[0]
-                await schedule_update_task(update_unix)
+            tasks = [row[0] async for row in cursor]
+        
+        for update_unix in tasks:
+            if update_unix <= now:
+                # Task is overdue, execute immediately
+                ak_logger.info(f"Executing overdue update task for {update_unix} (<t:{update_unix}:F>)")
+                main_guild = bot.get_guild(MAIN_SERVER_ID)
+                if main_guild:
+                    await arknights_update_timers(main_guild)
+                # Mark as done
+                await conn.execute(
+                    "UPDATE scheduled_update_tasks SET status='done' WHERE update_unix=?",
+                    (update_unix,)
+                )
+                await conn.commit()
+            else:
+                # Task is in the future, schedule normally
+                delay = update_unix - now
+                if update_unix not in SCHEDULED_UPDATE_TASKS:
+                    ak_logger.info(f"Scheduling future update task for {update_unix} (<t:{update_unix}:F>), delay={delay}s")
+                    SCHEDULED_UPDATE_TASKS[update_unix] = asyncio.create_task(run_update_after_delay(update_unix, delay))
 
 async def cleanup_old_update_tasks():
     """
