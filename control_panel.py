@@ -157,10 +157,9 @@ class AddEventView(discord.ui.View):
         super().__init__(timeout=None)
         self.profile = profile
 
-    @discord.ui.button(label="Add Event", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Add Event", style=discord.ButtonStyle.green, custom_id="add_event_submit")
     async def add_event_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        profile = self.profile
-        await interaction.response.send_modal(AddEventModal(profile))
+        await interaction.response.send_modal(AddEventModal(self.profile))
 
 class RemoveEventSelect(discord.ui.Select):
     def __init__(self, profile, events):
