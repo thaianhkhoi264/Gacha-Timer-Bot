@@ -6,7 +6,7 @@ import aiosqlite
 from llama_cpp import Llama
 
 # Load the quantized model once (thread-safe, low RAM usage)
-llm = Llama(model_path="./qwen3-1.7b-q4_k_m.gguf", n_ctx=1024, n_threads=4) 
+llm = Llama(model_path="./qwen3-1.7b-q4_k_m.gguf", n_ctx=1024, n_threads=4, verbose = False) 
 async def run_llm_inference(text):
     print("[DEBUG] run_llm_inference: called with text:", repr(text)[:100])
     try:

@@ -16,6 +16,7 @@ from arknights_module import *
 import reminder_module
 import control_panel
 
+import sys
 import aiosqlite
 import discord
 import signal
@@ -633,11 +634,16 @@ async def set_timer_channel(ctx, channel: discord.TextChannel, profile: str = No
         await conn.commit()
     await ctx.send(f"{channel.mention} is now set for timer updates for **{profile}**.")
 
-def handle_shutdown(*args):
-    loop = asyncio.get_event_loop()
-    loop.create_task(shutdown_message())
+def handle_shutdown(signum, frame):
+    print(f"[Shutdown] Received signal {signum}, shutting down gracefully...")
+    asyncio.create_task(shutdown_and_exit())
 
-signal.signal(signal.SIGINT, lambda s, f: handle_shutdown())
-signal.signal(signal.SIGTERM, lambda s, f: handle_shutdown())
+async def shutdown_and_exit():
+    await shutdown_message()
+    await bot.close()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, handle_shutdown)
+signal.signal(signal.SIGTERM, handle_shutdown)
 
 bot.run(token,log_handler=handler, log_level=logging.INFO)
