@@ -212,8 +212,9 @@ async def delete_notifications_for_event(title, category, profile):
 async def send_notification(event, timing_type):
     """
     Sends a notification to the correct profile-specific channel, using global_config.py for channel lookup.
+    For HYV games, uses combined regional roles from COMBINED_REGIONAL_ROLE_IDS.
     """
-    from global_config import NOTIFICATION_CHANNELS, MAIN_SERVER_ID
+    from global_config import NOTIFICATION_CHANNELS, MAIN_SERVER_ID, COMBINED_REGIONAL_ROLE_IDS
 
     profile = event['profile'].upper()
     channel_id = NOTIFICATION_CHANNELS.get(profile)
@@ -227,30 +228,39 @@ async def send_notification(event, timing_type):
         send_log(event.get('server_id', 'N/A'), f"No notification channel found for profile {profile}")
         return
 
-    HYV_PROFILES = {"HSR", "ZZZ"}
+    HYV_PROFILES = {"HSR", "ZZZ", "WUWA"}
     if profile in HYV_PROFILES:
         region = event.get('region')
         if not region:
             send_log(event.get('server_id', 'N/A'), f"No region found for notification: {event['title']}")
             return
 
-        combined_role_name = f"{profile} {region}"
-        role = discord.utils.get(guild.roles, name=combined_role_name)
-        if role:
-            role_mention = role.mention
-            send_log(event.get('server_id', 'N/A'), f"Found combined role for {profile} {region}: {role_mention}")
-        else:
-            send_log(event.get('server_id', 'N/A'), f"No combined role found for {profile} {region}")
+        # Use combined role ID from global_config
+        combined_role_id = COMBINED_REGIONAL_ROLE_IDS.get((profile, region.upper()))
+        if not combined_role_id:
+            send_log(event.get('server_id', 'N/A'), f"No combined role ID found for {profile} {region}")
             return
+        
+        role = guild.get_role(combined_role_id)
+        if not role:
+            send_log(event.get('server_id', 'N/A'), f"Combined role ID {combined_role_id} not found in guild for {profile} {region}")
+            return
+        
+        role_mention = role.mention
+        send_log(event.get('server_id', 'N/A'), f"Found combined role for {profile} {region}: {role_mention}")
+        
+        # Get the correct time based on region
         unix_time = None
-        if region == "NA":
+        if region.upper() == "NA":
             unix_time = event.get('america_start') if timing_type == "start" else event.get('america_end')
-        elif region == "EU":
+        elif region.upper() == "EU":
             unix_time = event.get('europe_start') if timing_type == "start" else event.get('europe_end')
-        elif region == "ASIA":
+        elif region.upper() == "ASIA":
             unix_time = event.get('asia_start') if timing_type == "start" else event.get('asia_end')
+        
         if not unix_time:
             unix_time = event['start_date'] if timing_type == "start" else event['end_date']
+        
         time_str = "starting" if timing_type == "start" else "ending"
         try:
             await channel.send(
@@ -260,6 +270,7 @@ async def send_notification(event, timing_type):
         except Exception as e:
             send_log(event.get('server_id', 'N/A'), f"Failed to send notification for {profile} {region}: {e}")
     else:
+        # Non-HYV profiles (AK, STRI, UMA, etc.)
         emoji = PROFILE_EMOJIS.get(profile)
         role_mention = ""
         if emoji:
