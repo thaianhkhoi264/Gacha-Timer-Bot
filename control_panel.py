@@ -121,7 +121,7 @@ async def refresh_pending_notifications_for_event(profile, event_id):
 
 class AddEventModal(discord.ui.Modal):
     def __init__(self, profile):
-        super().s__init__(title=f"Add {profile} Event")
+        super().__init__(title=f"Add {profile} Event")
         self.profile = profile
         self.title_input = discord.ui.TextInput(
             label="Event Title",

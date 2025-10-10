@@ -382,7 +382,7 @@ async def on_ready():
             if channel:
                 try:
                     await channel.send(
-                        f"Kanami is ready to go! 123 (version {bot_version})\n"
+                        f"Kanami is ready to go! (version {bot_version})\n"
                         f"Latest commit: `{commit_msg}`"
                     )
                 except Exception:
