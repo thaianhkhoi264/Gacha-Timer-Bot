@@ -1152,6 +1152,29 @@ async def ak_refresh(ctx):
     await arknights_update_timers()
     await ctx.send("Arknights event dashboards have been refreshed.")
 
+# --- Auto-Refresh on Notification ---
+
+async def arknights_notification_refresh(message):
+    """
+    Call this from main.py's on_message to auto-refresh dashboard when bot posts notifications.
+    Returns True if message was in AK notification channel and refresh was triggered.
+    """
+    from global_config import NOTIFICATION_CHANNELS
+    
+    # Only trigger for bot's own messages
+    if not message.author.bot or message.author.id != bot.user.id:
+        return False
+    
+    # Check if message is in AK notification channel
+    ak_notif_channel_id = NOTIFICATION_CHANNELS.get("AK")
+    if not ak_notif_channel_id or message.channel.id != ak_notif_channel_id:
+        return False
+    
+    ak_logger.info("[Auto-Refresh] Bot sent notification in AK channel, refreshing dashboard...")
+    await arknights_update_timers()
+    ak_logger.info("[Auto-Refresh] Dashboard refreshed for AK.")
+    return True
+
 # --- Dump DB Command ---
 
 @bot.command(name="ak_dump_db")

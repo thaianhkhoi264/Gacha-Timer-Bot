@@ -439,6 +439,10 @@ async def on_message(message):
     # Call the games' module to process tweet messages
     if await arknights_on_message(message, force=False):
         return
+    
+    # Check for games' notification refresh
+    if await arknights_notification_refresh(message):
+        return
 
     if "good girl" in message.content.lower():
         emoji = "<:KanamiHeart:1374409597628186624>"
