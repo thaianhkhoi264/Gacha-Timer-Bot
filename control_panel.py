@@ -135,22 +135,17 @@ class AddEventModal(discord.ui.Modal):
             style=discord.TextStyle.short,
             required=True
         )
-        self.category_input = discord.ui.TextInput(
-            label="Category (Banner/Event/Maintenance)",
-            style=discord.TextStyle.short,
-            required=True
-        )
         self.start_input = discord.ui.TextInput(
-            label=f"Start Date (YYYY-MM-DD HH:MM in {default_tz})",
+            label=f"Start Date (YYYY-MM-DD HH:MM)",
             style=discord.TextStyle.short,
             required=True,
-            placeholder=f"e.g. 2025-10-15 10:00 ({default_tz})"
+            placeholder=f"e.g. 2025-10-15 10:00"
         )
         self.end_input = discord.ui.TextInput(
-            label=f"End Date (YYYY-MM-DD HH:MM in {default_tz})",
+            label=f"End Date (YYYY-MM-DD HH:MM)",
             style=discord.TextStyle.short,
             required=True,
-            placeholder=f"e.g. 2025-10-29 03:59 ({default_tz})"
+            placeholder=f"e.g. 2025-10-29 03:59"
         )
         self.image_input = discord.ui.TextInput(
             label="Image URL (optional)",
@@ -159,52 +154,27 @@ class AddEventModal(discord.ui.Modal):
             placeholder="https://example.com/image.png"
         )
         self.add_item(self.title_input)
-        self.add_item(self.category_input)
         self.add_item(self.start_input)
         self.add_item(self.end_input)
         self.add_item(self.image_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Parse dates with profile's default timezone
-        import dateparser
-        tz = PROFILE_CONFIG[self.profile]["TIMEZONE"]
-        
-        # Add timezone to date strings
-        start_with_tz = f"{self.start_input.value} ({tz})"
-        end_with_tz = f"{self.end_input.value} ({tz})"
-        
-        # Parse to UNIX timestamps
-        start_dt = dateparser.parse(start_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
-        end_dt = dateparser.parse(end_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
-        
-        if not start_dt or not end_dt:
-            await interaction.response.send_message("Failed to parse dates. Please use format: YYYY-MM-DD HH:MM", ephemeral=True)
-            return
-        
-        start_unix = int(start_dt.timestamp())
-        end_unix = int(end_dt.timestamp())
-        
         # Get image URL (if provided)
         image_url = self.image_input.value.strip() if self.image_input.value else None
         
-        event_data = {
-            "title": self.title_input.value,
-            "category": self.category_input.value,
-            "start": str(start_unix),
-            "end": str(end_unix),
-            "image": image_url
-        }
-        
-        class DummyCtx:
-            author = interaction.user
-            guild = interaction.guild
-            async def send(self, msg, **kwargs):
-                await interaction.followup.send(msg, **kwargs)
-        
-        await interaction.response.defer(ephemeral=True)
-        await PROFILE_CONFIG[self.profile]["add_event"](DummyCtx(), event_data)
-        await interaction.followup.send("Event added successfully!", ephemeral=True)
-        await update_control_panel_messages(self.profile)
+        # Show the options select view (category and timezone)
+        options_view = EventOptionsSelectView(
+            self.profile,
+            self.title_input.value,
+            self.start_input.value,
+            self.end_input.value,
+            image_url
+        )
+        await interaction.response.send_message(
+            "Select the category and timezone for this event:",
+            view=options_view,
+            ephemeral=True
+        )
 
 class AddEventView(discord.ui.View):
     def __init__(self, profile):
@@ -214,7 +184,150 @@ class AddEventView(discord.ui.View):
     @discord.ui.button(label="Add Event", style=discord.ButtonStyle.green, custom_id="add_event_submit")
     async def add_event_submit(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(AddEventModal(self.profile))
+
+# --- Event Options Select View (Category & Timezone) ---
+
+class CategorySelect(discord.ui.Select):
+    def __init__(self, parent_view, current_category=None):
+        options = [
+            discord.SelectOption(
+                label="Banner",
+                value="Banner",
+                description="Limited-time character or item banner",
+                default=(current_category == "Banner")
+            ),
+            discord.SelectOption(
+                label="Event",
+                value="Event",
+                description="In-game event with rewards or story",
+                default=(current_category == "Event")
+            ),
+            discord.SelectOption(
+                label="Maintenance",
+                value="Maintenance",
+                description="Scheduled server maintenance",
+                default=(current_category == "Maintenance")
+            ),
+        ]
+        super().__init__(
+            placeholder="Select category...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="category_select"
+        )
+        self.parent_view = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        self.parent_view.selected_category = self.values[0]
+        await interaction.response.defer()
+
+class TimezoneSelect(discord.ui.Select):
+    def __init__(self, parent_view):
+        options = [
+            discord.SelectOption(label="UTC (GMT+0)", value="UTC", description="Coordinated Universal Time"),
+            discord.SelectOption(label="UTC-7 (PDT)", value="UTC-7", description="Pacific Daylight Time"),
+            discord.SelectOption(label="America/New_York (EDT)", value="America/New_York", description="Eastern Time"),
+            discord.SelectOption(label="Europe/Berlin (CEST)", value="Europe/Berlin", description="Central European Time"),
+            discord.SelectOption(label="Asia/Shanghai (CST)", value="Asia/Shanghai", description="China Standard Time"),
+            discord.SelectOption(label="Asia/Tokyo (JST)", value="Asia/Tokyo", description="Japan Standard Time"),
+        ]
+        super().__init__(
+            placeholder="Select timezone...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="timezone_select"
+        )
+        self.parent_view = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        self.parent_view.selected_timezone = self.values[0]
+        await interaction.response.defer()
+
+class EventOptionsSelectView(discord.ui.View):
+    def __init__(self, profile, title, start, end, image, is_edit=False, event_id=None, current_category=None):
+        super().__init__(timeout=180)
+        self.profile = profile
+        self.title = title
+        self.start = start
+        self.end = end
+        self.image = image
+        self.is_edit = is_edit
+        self.event_id = event_id
+        self.selected_category = current_category or "Event"
+        self.selected_timezone = PROFILE_CONFIG[profile]["TIMEZONE"]
         
+        self.add_item(CategorySelect(self, current_category))
+        self.add_item(TimezoneSelect(self))
+        self.add_item(ConfirmEventButton(self))
+
+class ConfirmEventButton(discord.ui.Button):
+    def __init__(self, parent_view):
+        super().__init__(
+            label="Confirm",
+            style=discord.ButtonStyle.green,
+            custom_id="confirm_event_button"
+        )
+        self.parent_view = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        import dateparser
+        
+        # Add timezone to date strings
+        start_with_tz = f"{self.parent_view.start} ({self.parent_view.selected_timezone})"
+        end_with_tz = f"{self.parent_view.end} ({self.parent_view.selected_timezone})"
+        
+        # Parse to UNIX timestamps
+        start_dt = dateparser.parse(start_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+        end_dt = dateparser.parse(end_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+        
+        if not start_dt or not end_dt:
+            await interaction.response.send_message(
+                "Failed to parse dates. Please use format: YYYY-MM-DD HH:MM",
+                ephemeral=True
+            )
+            return
+        
+        start_unix = int(start_dt.timestamp())
+        end_unix = int(end_dt.timestamp())
+        
+        if self.parent_view.is_edit:
+            # Update existing event
+            await update_event(
+                self.parent_view.profile,
+                self.parent_view.event_id,
+                self.parent_view.title,
+                self.parent_view.selected_category,
+                str(start_unix),
+                str(end_unix),
+                self.parent_view.image
+            )
+            await interaction.response.send_message("Event updated successfully!", ephemeral=True)
+        else:
+            # Add new event
+            event_data = {
+                "title": self.parent_view.title,
+                "category": self.parent_view.selected_category,
+                "start": str(start_unix),
+                "end": str(end_unix),
+                "image": self.parent_view.image
+            }
+            
+            class DummyCtx:
+                author = interaction.user
+                guild = interaction.guild
+                async def send(self, msg, **kwargs):
+                    await interaction.followup.send(msg, **kwargs)
+            
+            await interaction.response.defer(ephemeral=True)
+            await PROFILE_CONFIG[self.parent_view.profile]["add_event"](DummyCtx(), event_data)
+            await interaction.followup.send("Event added successfully!", ephemeral=True)
+        
+        await update_control_panel_messages(self.parent_view.profile)
+
+# --- Remove Event Components ---
+
 class RemoveEventSelect(discord.ui.Select):
     def __init__(self, profile, events):
         options = [discord.SelectOption(label=f"{e['title']} ({e['category']})", value=str(e['id'])) for e in events]
@@ -265,6 +378,7 @@ class EditEventModal(discord.ui.Modal):
         super().__init__(title=f"Edit {profile} Event")
         self.profile = profile
         self.event_id = event["id"]
+        self.current_category = event["category"]
         tz = PROFILE_CONFIG[profile]["TIMEZONE"]
         
         self.title_input = discord.ui.TextInput(
@@ -273,20 +387,14 @@ class EditEventModal(discord.ui.Modal):
             style=discord.TextStyle.short, 
             required=True
         )
-        self.category_input = discord.ui.TextInput(
-            label="Category", 
-            default=event["category"], 
-            style=discord.TextStyle.short, 
-            required=True
-        )
         self.start_input = discord.ui.TextInput(
-            label=f"Start Date (YYYY-MM-DD HH:MM in {tz})", 
+            label=f"Start Date (YYYY-MM-DD HH:MM)", 
             default="", 
             style=discord.TextStyle.short, 
             required=True
         )
         self.end_input = discord.ui.TextInput(
-            label=f"End Date (YYYY-MM-DD HH:MM in {tz})", 
+            label=f"End Date (YYYY-MM-DD HH:MM)", 
             default="", 
             style=discord.TextStyle.short, 
             required=True
@@ -307,45 +415,30 @@ class EditEventModal(discord.ui.Modal):
             self.end_input.default = str(event["end"])
         
         self.add_item(self.title_input)
-        self.add_item(self.category_input)
         self.add_item(self.start_input)
         self.add_item(self.end_input)
         self.add_item(self.image_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        import dateparser
-        tz = PROFILE_CONFIG[self.profile]["TIMEZONE"]
-        
-        # Add timezone to date strings
-        start_with_tz = f"{self.start_input.value} ({tz})"
-        end_with_tz = f"{self.end_input.value} ({tz})"
-        
-        # Parse to UNIX timestamps
-        start_dt = dateparser.parse(start_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
-        end_dt = dateparser.parse(end_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
-        
-        if not start_dt or not end_dt:
-            await interaction.response.send_message("Failed to parse dates. Please use format: YYYY-MM-DD HH:MM", ephemeral=True)
-            return
-        
-        start_unix = int(start_dt.timestamp())
-        end_unix = int(end_dt.timestamp())
-        
         # Get image URL (if provided)
         image_url = self.image_input.value.strip() if self.image_input.value else None
         
-        # Update event with image
-        await update_event(
-            self.profile, 
-            self.event_id, 
-            self.title_input.value, 
-            self.category_input.value, 
-            str(start_unix), 
-            str(end_unix),
-            image_url
+        # Show the options select view (category and timezone)
+        options_view = EventOptionsSelectView(
+            self.profile,
+            self.title_input.value,
+            self.start_input.value,
+            self.end_input.value,
+            image_url,
+            is_edit=True,
+            event_id=self.event_id,
+            current_category=self.current_category
         )
-        await interaction.response.send_message("Event updated!", ephemeral=True)
-        await update_control_panel_messages(self.profile)
+        await interaction.response.send_message(
+            "Select the category and timezone for this event:",
+            view=options_view,
+            ephemeral=True
+        )
 
 class EditEventView(discord.ui.View):
     def __init__(self, profile, events):
