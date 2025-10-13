@@ -98,6 +98,7 @@ async def schedule_update_task(update_unix):
     Schedules arknights_update_timers at update_unix.
     Avoids scheduling if a task exists within ±15 minutes.
     """
+    ak_logger.info(f"[schedule_update_task] Attempting to schedule update for unix {update_unix}")
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         min_time = update_unix - 900
         max_time = update_unix + 900
@@ -106,18 +107,25 @@ async def schedule_update_task(update_unix):
             (min_time, max_time)
         ) as cursor:
             if await cursor.fetchone():
+                ak_logger.info(f"[schedule_update_task] Task already exists within ±15min window for {update_unix}")
                 return  # Task already scheduled in this window
         await conn.execute(
             "INSERT OR IGNORE INTO scheduled_update_tasks (update_unix) VALUES (?)",
             (update_unix,)
         )
         await conn.commit()
+        ak_logger.info(f"[schedule_update_task] Inserted task into DB for unix {update_unix}")
 
     delay = update_unix - int(datetime.now(timezone.utc).timestamp())
+    ak_logger.info(f"[schedule_update_task] Calculated delay: {delay}s for unix {update_unix}")
     if delay > 0:
         if update_unix in SCHEDULED_UPDATE_TASKS:
+            ak_logger.info(f"[schedule_update_task] Task already scheduled in memory for {update_unix}")
             return  # Already scheduled in memory
         SCHEDULED_UPDATE_TASKS[update_unix] = asyncio.create_task(run_update_after_delay(update_unix, delay))
+        ak_logger.info(f"[schedule_update_task] Created asyncio task for unix {update_unix} with delay {delay}s")
+    else:
+        ak_logger.info(f"[schedule_update_task] Delay is negative ({delay}s), not scheduling for unix {update_unix}")
 
 async def periodic_ak_cleanup():
     # Periodically clean up old scheduled update tasks
@@ -126,12 +134,17 @@ async def periodic_ak_cleanup():
         await asyncio.sleep(86400)  # Run once every 24 hours
 
 async def run_update_after_delay(update_unix, delay):
+    ak_logger.info(f"[run_update_after_delay] Task scheduled for {delay}s (at unix {update_unix})")
     await asyncio.sleep(delay)
+    ak_logger.info(f"[run_update_after_delay] Executing scheduled update for unix {update_unix}")
     # Always use the main server for dashboard updates
     from global_config import MAIN_SERVER_ID
     guild = bot.get_guild(MAIN_SERVER_ID)
     if guild:
         await arknights_update_timers(guild)
+        ak_logger.info(f"[run_update_after_delay] Completed dashboard update for unix {update_unix}")
+    else:
+        ak_logger.error(f"[run_update_after_delay] Could not find main guild {MAIN_SERVER_ID}")
     # Mark as done in DB
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         await conn.execute(
@@ -139,6 +152,7 @@ async def run_update_after_delay(update_unix, delay):
             (update_unix,)
         )
         await conn.commit()
+    ak_logger.info(f"[run_update_after_delay] Marked task as done in DB for unix {update_unix}")
 
 async def load_scheduled_ak_update_tasks():
     """
@@ -810,6 +824,11 @@ async def add_ak_event(ctx, event_data):
         f"Start: <t:{event_data['start']}:F>\nEnd: <t:{event_data['end']}:F>"
     )
     
+    # Refresh dashboard after adding event
+    ak_logger.info("[add_ak_event] Refreshing dashboard after adding event...")
+    await arknights_update_timers()
+    ak_logger.info("[add_ak_event] Dashboard refresh completed.")
+    
 # --- Command to Manually Add Event from Tweet Link ---
 
 @bot.command()
@@ -838,6 +857,7 @@ async def ak_read(ctx, link: str):
     await add_ak_event(ctx, event_data)
     # No need to send another confirmation; add_ak_event already does.
     await arknights_update_timers()
+    ak_logger.info("[ak_read] Dashboard refresh completed.")
 
 async def arknights_on_message(message, force=False):
     """
@@ -991,7 +1011,11 @@ async def ak_remove(ctx, *, title: str):
     )
 
     await ctx.send(f"Deleted event '{event_title}' and its notifications.")
+    
+    # Refresh dashboard after removing event
+    ak_logger.info("[ak_remove] Refreshing dashboard after removing event...")
     await arknights_update_timers()
+    ak_logger.info("[ak_remove] Dashboard refresh completed.")
 
 # --- Edit Event Command ---
 
@@ -1096,7 +1120,11 @@ async def ak_edit(ctx, title: str, item: str, *, value: str):
             await schedule_update_task(int(new_end))
         except Exception as e:
             print(f"[Arknights] Failed to schedule update tasks after edit: {e}")
+    
+    # Refresh dashboard after editing event
+    ak_logger.info("[ak_edit] Refreshing dashboard after editing event...")
     await arknights_update_timers()
+    ak_logger.info("[ak_edit] Dashboard refresh completed.")
 
 # --- Test Notification Command ---
 @commands.has_permissions(administrator=True)
