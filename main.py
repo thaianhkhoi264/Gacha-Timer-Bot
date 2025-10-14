@@ -4,6 +4,7 @@ import utilities
 import notification_handler
 import shadowverse_handler
 import ml_handler
+import hsr_scraper  # Import to register scraper commands
 from bot import bot, bot_version, token, handler, logging
 from database_handler import init_db
 from discord.ui import View, Select
@@ -408,6 +409,8 @@ async def on_ready():
     print("[DEBUG] Daily report task created.")
     asyncio.create_task(expired_event_cleanup_task())
     print("[DEBUG] Expired event cleanup task created.")
+    asyncio.create_task(hsr_scraper.periodic_hsr_scraping_task())
+    print("[DEBUG] HSR periodic scraping task created.")
 
     # Now initialize control panels
     print("[DEBUG] About to call ensure_control_panels...")

@@ -1,15 +1,81 @@
 # Gacha Timer Bot - Project Status & Context
 
 **Last Updated**: October 14, 2025  
-**Current Phase**: HSR Scraper Implementation Complete
+**Current Phase**: HSR Scraper Database Integration Complete
 
 ## Project Overview
 Kanami (the Discord bot) is a multi-game event tracking and notification system. The bot monitors gacha game events, sends reminders, and provides a control panel interface for managing timers.
 
 ## Recent Major Updates
 
-### 1. Control Panel Improvements (Completed)
-**Problem**: Control panel had UX issues and didn't auto-update when events were added externally.
+### 1. HSR Scraper Database Integration (Completed - October 14, 2025)
+**Goal**: Store scraped Prydwen data in a dedicated database for later use in event creation.
+
+**Implementation**:
+- ✅ **Database Schema**: Created `hsr_prydwen_data.db` in `data/` directory
+- ✅ **Event Mapping**: Maps Prydwen event types to bot categories (Banner/Event/Maintenance)
+- ✅ **Save Function**: `save_events_to_db()` stores/updates scraped events
+- ✅ **Database Commands**: Added `!hsr_scrape_and_save` and `!dump_hsr_prydwen_db`
+
+**Database Structure**:
+```sql
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,          -- Banner/Event/Maintenance (for bot logic)
+    type TEXT NOT NULL,               -- character_banner, memory_of_chaos, etc.
+    start_date TEXT,
+    end_date TEXT,
+    time_remaining TEXT,
+    description TEXT,
+    image TEXT,                       -- Reserved for future image scraping
+    css_class TEXT,
+    scraped_at TEXT NOT NULL,
+    UNIQUE(title, type, start_date)
+)
+```
+
+**Event Type Mapping**:
+| Prydwen Type | Bot Category |
+|--------------|--------------|
+| character_banner, light_cone_banner | Banner |
+| memory_of_chaos, pure_fiction, apocalyptic_shadow | Event |
+| planar_fissure, relic_event, battle_pass | Event |
+| maintenance | Maintenance |
+
+**New Commands**:
+- `!hsr_scrape_and_save`: Scrapes Prydwen and saves to database
+- `!dump_hsr_prydwen_db`: Shows all events in database (with detailed text file)
+
+**Files Modified**:
+- `hsr_scraper.py`: Added database functions, Discord commands
+
+**Next Steps**:
+- [ ] Integrate database with hsr_module.py for automatic event creation
+- [ ] Add image scraping from Prydwen
+- [ ] Implement automatic daily scraping task
+
+### 2. Control Panel Bug Fixes (Completed - October 14, 2025)
+**Problems Fixed**:
+- ✅ **Message Duplication**: Control panel now cleans up old messages on restart
+- ✅ **Event Names**: Remove confirmation shows event name instead of ID
+- ✅ **Ghost Notifications**: Added cleanup for notifications without events
+- ✅ **Missing Notifications**: Added validation to re-schedule missing notifications
+- ✅ **Edit Interaction Failure**: Fixed timezone/category select causing "This interaction failed"
+
+**Implementation**:
+- `cleanup_old_control_panel_messages()`: Deletes untracked messages on startup
+- `cleanup_ghost_notifications()`: Removes notifications for deleted events
+- `validate_event_notifications()`: Ensures all events have proper notifications
+- Fixed dropdown selects to use `edit_message()` instead of `defer()`
+- Added `!cleanup_notifications` command for manual maintenance
+
+**Files Modified**:
+- `control_panel.py`: Message cleanup, event name display, interaction fixes
+- `notification_handler.py`: Ghost cleanup, validation functions
+- `main.py`: Integrated cleanup on bot startup
+
+### 3. Control Panel UX Improvements (Completed)
 
 **Solutions Implemented**:
 - ✅ **Timezone in Modal**: Added timezone display in AddEventModal labels (e.g., "Start Date (YYYY-MM-DD HH:MM in UTC-7)")
@@ -22,10 +88,10 @@ Kanami (the Discord bot) is a multi-game event tracking and notification system.
   - `ak_edit()` - after edit
 
 **Files Modified**:
-- `control_panel.py`: Added timezone labels, image fields, message editing system
+- `control_panel.py`: Added timezone labels, image fields, message editing system, dropdown selects
 - `arknights_module.py`: Added 4 control panel update trigger points
 
-### 2. HSR Scraper Creation (Completed)
+### 4. HSR Scraper Creation (Completed)
 **Goal**: Automatically scrape Honkai Star Rail event data from https://www.prydwen.gg/star-rail/
 
 **Implementation**:

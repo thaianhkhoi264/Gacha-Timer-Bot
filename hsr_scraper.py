@@ -8,6 +8,8 @@ from playwright.sync_api import sync_playwright
 import os
 from datetime import datetime
 import logging
+import aiosqlite
+import asyncio
 
 # Setup logging
 logger = logging.getLogger("hsr_scraper")
@@ -36,11 +38,531 @@ logger.propagate = True
 # Configuration
 PRYDWEN_URL = "https://www.prydwen.gg/star-rail/"
 SAVE_DIR = os.path.join("data", "hsr_scraper")
+DB_PATH = os.path.join("data", "hsr_prydwen_data.db")
+
+# Event type to category mapping (for bot logic)
+EVENT_TYPE_TO_CATEGORY = {
+    "character_banner": "Banner",
+    "light_cone_banner": "Banner",
+    "standard_banner": "Banner",
+    "memory_of_chaos": "Event",
+    "pure_fiction": "Event",
+    "apocalyptic_shadow": "Event",
+    "planar_fissure": "Event",
+    "relic_event": "Event",
+    "battle_pass": "Event",
+    "login_event": "Event",
+    "other_event": "Event",
+    "maintenance": "Maintenance",
+}
+
+async def init_prydwen_db():
+    """Initialize the HSR Prydwen database with the events table."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL,
+                type TEXT NOT NULL,
+                status TEXT,
+                na_start_date TEXT,
+                na_end_date TEXT,
+                eu_start_date TEXT,
+                eu_end_date TEXT,
+                asia_start_date TEXT,
+                asia_end_date TEXT,
+                time_remaining TEXT,
+                description TEXT,
+                image TEXT,
+                css_class TEXT,
+                scraped_at TEXT NOT NULL,
+                UNIQUE(title, type)
+            )
+        ''')
+        await conn.commit()
+    logger.info(f"Prydwen database initialized at {DB_PATH}")
+
+async def save_events_to_db(events):
+    """
+    Save scraped events to the database with regional time support.
+    
+    Args:
+        events (list): List of event dictionaries with regional fields:
+            - name/title: Event name
+            - type: Event type
+            - status: "ongoing" or "upcoming"
+            - na_start_date, na_end_date: NA region times
+            - eu_start_date, eu_end_date: EU region times
+            - asia_start_date, asia_end_date: Asia region times
+            - time_remaining: Time until end (optional)
+            - description: Event description (optional)
+            - image: Image URL (optional)
+            - css_class: CSS classes (optional)
+    
+    Returns:
+        dict: Statistics about saved events (added, updated, errors)
+    """
+    await init_prydwen_db()
+    
+    stats = {"added": 0, "updated": 0, "errors": 0}
+    scraped_at = datetime.now().isoformat()
+    
+    async with aiosqlite.connect(DB_PATH) as conn:
+        for event in events:
+            try:
+                # Map type to category
+                event_type = event.get('type', 'other_event')
+                category = EVENT_TYPE_TO_CATEGORY.get(event_type, 'Event')
+                title = event.get('name', event.get('title', ''))
+                
+                # Check if event exists (by title and type only)
+                async with conn.execute(
+                    "SELECT id FROM events WHERE title=? AND type=?",
+                    (title, event_type)
+                ) as cursor:
+                    existing = await cursor.fetchone()
+                
+                if existing:
+                    # Update existing event with new regional times
+                    await conn.execute('''
+                        UPDATE events SET
+                            category=?, status=?,
+                            na_start_date=?, na_end_date=?,
+                            eu_start_date=?, eu_end_date=?,
+                            asia_start_date=?, asia_end_date=?,
+                            time_remaining=?, description=?,
+                            image=?, css_class=?, scraped_at=?
+                        WHERE id=?
+                    ''', (
+                        category,
+                        event.get('status', 'unknown'),
+                        event.get('na_start_date', ''),
+                        event.get('na_end_date', ''),
+                        event.get('eu_start_date', ''),
+                        event.get('eu_end_date', ''),
+                        event.get('asia_start_date', ''),
+                        event.get('asia_end_date', ''),
+                        event.get('time_remaining', ''),
+                        event.get('description', ''),
+                        event.get('image', ''),
+                        event.get('css_class', ''),
+                        scraped_at,
+                        existing[0]
+                    ))
+                    stats["updated"] += 1
+                    logger.info(f"Updated event: {title} ({event.get('status', 'unknown')})")
+                else:
+                    # Insert new event with regional times
+                    await conn.execute('''
+                        INSERT INTO events (
+                            title, category, type, status,
+                            na_start_date, na_end_date,
+                            eu_start_date, eu_end_date,
+                            asia_start_date, asia_end_date,
+                            time_remaining, description, image, css_class, scraped_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        title,
+                        category,
+                        event_type,
+                        event.get('status', 'unknown'),
+                        event.get('na_start_date', ''),
+                        event.get('na_end_date', ''),
+                        event.get('eu_start_date', ''),
+                        event.get('eu_end_date', ''),
+                        event.get('asia_start_date', ''),
+                        event.get('asia_end_date', ''),
+                        event.get('time_remaining', ''),
+                        event.get('description', ''),
+                        event.get('image', ''),
+                        event.get('css_class', ''),
+                        scraped_at
+                    ))
+                    stats["added"] += 1
+                    logger.info(f"Added new event: {title} ({event.get('status', 'unknown')})")
+            
+            except Exception as e:
+                stats["errors"] += 1
+                logger.error(f"Error saving event {event.get('name', event.get('title', 'Unknown'))}: {e}")
+        
+        await conn.commit()
+    
+    logger.info(f"Database save complete: {stats['added']} added, {stats['updated']} updated, {stats['errors']} errors")
+    return stats
+
+async def get_all_events_from_db():
+    """
+    Retrieve all events from the database with regional time support.
+    
+    Returns:
+        list: List of event dictionaries with regional fields
+    """
+    await init_prydwen_db()
+    
+    events = []
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute('''
+            SELECT id, title, category, type, status,
+                   na_start_date, na_end_date,
+                   eu_start_date, eu_end_date,
+                   asia_start_date, asia_end_date,
+                   time_remaining, description, image, css_class, scraped_at
+            FROM events
+            ORDER BY na_start_date DESC
+        ''') as cursor:
+            async for row in cursor:
+                events.append({
+                    'id': row[0],
+                    'title': row[1],
+                    'category': row[2],
+                    'type': row[3],
+                    'status': row[4],
+                    'na_start_date': row[5],
+                    'na_end_date': row[6],
+                    'eu_start_date': row[7],
+                    'eu_end_date': row[8],
+                    'asia_start_date': row[9],
+                    'asia_end_date': row[10],
+                    'time_remaining': row[11],
+                    'description': row[12],
+                    'image': row[13],
+                    'css_class': row[14],
+                    'scraped_at': row[15]
+                })
+    
+    return events
 
 def ensure_save_directory():
     """Creates the save directory if it doesn't exist."""
     os.makedirs(SAVE_DIR, exist_ok=True)
     logger.info(f"Save directory ensured: {SAVE_DIR}")
+
+def extract_events_from_html(html_content, region="NA"):
+    """
+    Extract events from a single region's HTML.
+    
+    Args:
+        html_content (str): HTML content for a specific region
+        region (str): Region name ("NA", "EU", or "Asia")
+    
+    Returns:
+        tuple: (ongoing_events, upcoming_events) - two lists of event dicts
+    """
+    import re
+    logger.info(f"Extracting events from {region} HTML...")
+    
+    # Find the Current and Upcoming sections
+    # Pattern: <h5>Current</h5> ... content ... <h5>Upcoming</h5> ... content
+    current_section = ""
+    upcoming_section = ""
+    
+    # Split by h5 headers
+    h5_pattern = r'<h5[^>]*>(.*?)</h5>(.*?)(?=<h5|$)'
+    sections = re.findall(h5_pattern, html_content, re.DOTALL | re.IGNORECASE)
+    
+    for header, content in sections:
+        clean_header = re.sub(r'<.*?>', '', header).strip()
+        if clean_header.lower() == 'current':
+            current_section = content
+        elif clean_header.lower() == 'upcoming':
+            upcoming_section = content
+    
+    # Extract events from each section
+    ongoing_events = extract_events_from_section(current_section, "ongoing", region)
+    upcoming_events = extract_events_from_section(upcoming_section, "upcoming", region)
+    
+    logger.info(f"{region}: Found {len(ongoing_events)} ongoing, {len(upcoming_events)} upcoming events")
+    return ongoing_events, upcoming_events
+
+def extract_events_from_section(section_html, status, region):
+    """
+    Extract individual events from a section (Current or Upcoming).
+    
+    Args:
+        section_html (str): HTML content of the section
+        status (str): "ongoing" or "upcoming"
+        region (str): Region name ("NA", "EU", or "Asia")
+    
+    Returns:
+        list: List of event dicts with extracted data
+    """
+    import re
+    events = []
+    
+    # Find all accordion-item divs
+    # Pattern: <div class="[something] accordion-item">...</div>
+    accordion_pattern = r'<div class="([^"]*accordion-item[^"]*)"[^>]*>(.*?)</div>\s*</div>\s*</div>'
+    items = re.findall(accordion_pattern, section_html, re.DOTALL)
+    
+    for item_class, item_content in items:
+        # Extract event name
+        name_match = re.search(r'<div class="event-name">([^<]+)</div>', item_content)
+        if not name_match:
+            continue  # Skip items without event name
+        event_name = name_match.group(1).strip()
+        
+        # Extract time remaining
+        time_match = re.search(r'<span class="time">([^<]+)</span>', item_content)
+        time_remaining = time_match.group(1).strip() if time_match else ""
+        
+        # Extract duration with date range
+        duration_match = re.search(r'<p class="duration">.*?:\s*([^<]+)</p>', item_content, re.DOTALL)
+        duration_text = duration_match.group(1).strip() if duration_match else ""
+        
+        # Parse dates from duration text
+        # Common formats:
+        # "2025/10/08 04:00:00 – 2025/10/20 03:59:00 (server time)"
+        # "After the V3.6 update – 2025/10/15 11:59 (server time)"
+        # "2025/10/15 12:00 – 2025/11/04 15:00 (server time)"
+        
+        start_date = ""
+        end_date = ""
+        
+        # Look for date patterns
+        date_pattern = r'(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}(?::\d{2})?)'
+        dates = re.findall(date_pattern, duration_text)
+        
+        if len(dates) >= 2:
+            start_date = dates[0]
+            end_date = dates[1]
+        elif len(dates) == 1:
+            # Only one date found (usually end date)
+            end_date = dates[0]
+            # Try to extract start from "After the V3.6 update" pattern
+            if "after" in duration_text.lower() and "update" in duration_text.lower():
+                start_date = "After update"
+        
+        # Determine event type from CSS class
+        event_type = determine_event_type(item_class, event_name)
+        
+        events.append({
+            'name': event_name,
+            'type': event_type,
+            'status': status,
+            f'{region.lower()}_start_date': start_date,
+            f'{region.lower()}_end_date': end_date,
+            'time_remaining': time_remaining,
+            'duration_text': duration_text,
+            'css_class': item_class
+        })
+    
+    return events
+
+def determine_event_type(css_class, event_name):
+    """Determine event type from CSS class or name."""
+    css_lower = css_class.lower()
+    name_lower = event_name.lower()
+    
+    # Character banners
+    if any(x in css_lower for x in ['evernight', 'the-herta', 'saber', 'archer', 'character']):
+        return 'character_banner'
+    
+    # Weapon/Light Cone banners
+    if any(x in css_lower for x in ['weapon', 'light-cone', 'lightcone']):
+        return 'weapon_banner'
+    
+    # Standard/Permanent banners
+    if any(x in name_lower for x in ['standard', 'permanent', 'departure']):
+        return 'standard_banner'
+    
+    # Events by specific keywords
+    if 'memory of chaos' in name_lower or 'memory-of-chaos' in css_lower:
+        return 'memory_of_chaos'
+    if 'pure fiction' in name_lower or 'pure-fiction' in css_lower:
+        return 'pure_fiction'
+    if 'apocalyptic shadow' in name_lower or 'apo' in css_lower:
+        return 'apocalyptic_shadow'
+    if 'planar fissure' in name_lower or 'planar-fissure' in css_lower:
+        return 'planar_fissure'
+    if 'nameless honor' in name_lower or 'nameless-honor' in css_lower:
+        return 'battle_pass'
+    if 'gift of odyssey' in name_lower or 'odyssey' in css_lower:
+        return 'login_event'
+    
+    # Default to other_event
+    return 'other_event'
+
+def extract_events_from_regional_html(regional_html):
+    """
+    Extract events from all three regional HTMLs (NA, EU, Asia) and merge them.
+    
+    Args:
+        regional_html (dict): Dict with keys "NA", "EU", "Asia" containing HTML content
+    
+    Returns:
+        list: List of event dicts with regional time fields and status
+    """
+    import re
+    logger.info("Extracting events from regional HTML...")
+    
+    # Extract from each region
+    na_ongoing, na_upcoming = extract_events_from_html(regional_html.get("NA", ""), "NA")
+    eu_ongoing, eu_upcoming = extract_events_from_html(regional_html.get("EU", ""), "EU")
+    asia_ongoing, asia_upcoming = extract_events_from_html(regional_html.get("Asia", ""), "Asia")
+    
+    # Combine all events
+    all_na_events = na_ongoing + na_upcoming
+    all_eu_events = eu_ongoing + eu_upcoming
+    all_asia_events = asia_ongoing + asia_upcoming
+    
+    # Merge events by name
+    merged_events = {}
+    
+    # Process NA events as base
+    for event in all_na_events:
+        key = (event['name'], event['type'])
+        merged_events[key] = event.copy()
+    
+    # Merge EU times
+    for event in all_eu_events:
+        key = (event['name'], event['type'])
+        if key in merged_events:
+            merged_events[key]['eu_start_date'] = event['eu_start_date']
+            merged_events[key]['eu_end_date'] = event['eu_end_date']
+        else:
+            # Event only in EU (shouldn't happen, but handle it)
+            merged_events[key] = event.copy()
+            merged_events[key]['na_start_date'] = ""
+            merged_events[key]['na_end_date'] = ""
+    
+    # Merge Asia times
+    for event in all_asia_events:
+        key = (event['name'], event['type'])
+        if key in merged_events:
+            merged_events[key]['asia_start_date'] = event['asia_start_date']
+            merged_events[key]['asia_end_date'] = event['asia_end_date']
+        else:
+            # Event only in Asia (shouldn't happen, but handle it)
+            merged_events[key] = event.copy()
+            merged_events[key]['na_start_date'] = ""
+            merged_events[key]['na_end_date'] = ""
+            merged_events[key]['eu_start_date'] = ""
+            merged_events[key]['eu_end_date'] = ""
+    
+    # Convert to list and clean up
+    result = []
+    for event in merged_events.values():
+        # Ensure all regional fields exist
+        for region in ['na', 'eu', 'asia']:
+            if f'{region}_start_date' not in event:
+                event[f'{region}_start_date'] = ""
+            if f'{region}_end_date' not in event:
+                event[f'{region}_end_date'] = ""
+        
+        # Remove temporary fields
+        event.pop('duration_text', None)
+        
+        result.append(event)
+    
+    logger.info(f"Merged {len(result)} unique events with regional times")
+    return result
+
+def scrape_prydwen_with_regions(save_html=True, headless=True):
+    """
+    Scrapes the Prydwen Star Rail homepage with regional time support.
+    Clicks through NA/EU/Asia buttons to collect times for all regions.
+    
+    Args:
+        save_html (bool): If True, saves the HTML for each region
+        headless (bool): If True, runs browser in headless mode
+    
+    Returns:
+        dict: {"NA": html_content, "EU": html_content, "Asia": html_content}, or None if scraping fails
+    """
+    logger.info(f"Starting multi-region scrape of {PRYDWEN_URL}")
+    
+    try:
+        with sync_playwright() as p:
+            # Launch browser
+            logger.info("Launching browser...")
+            browser = p.chromium.launch(headless=headless)
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+            )
+            page = context.new_page()
+            
+            # Navigate to the page
+            logger.info(f"Navigating to {PRYDWEN_URL}")
+            page.goto(PRYDWEN_URL, wait_until='domcontentloaded', timeout=60000)
+            
+            # Wait for page to fully load
+            logger.info("Waiting for page to fully load...")
+            page.wait_for_timeout(5000)
+            
+            # Collect HTML for each region
+            regional_html = {}
+            regions = ["NA", "EU", "Asia"]
+            
+            for region in regions:
+                logger.info(f"Switching to {region} region...")
+                
+                # Find and click the region button
+                try:
+                    # Try multiple selectors
+                    button_selectors = [
+                        f'button:text("{region}")',
+                        f'button:has-text("{region}")',
+                    ]
+                    
+                    button_clicked = False
+                    for selector in button_selectors:
+                        try:
+                            buttons = page.query_selector_all(selector)
+                            # Click all matching buttons (there might be multiple on the page)
+                            for button in buttons:
+                                if button.is_visible():
+                                    button.click()
+                                    button_clicked = True
+                                    logger.info(f"  Clicked {region} button")
+                        except Exception as e:
+                            continue
+                    
+                    if not button_clicked:
+                        logger.warning(f"  Could not find {region} button, using default times")
+                    
+                    # Wait for content to update after clicking
+                    page.wait_for_timeout(1000)
+                    
+                    # Get the HTML content for this region
+                    html_content = page.content()
+                    regional_html[region] = html_content
+                    logger.info(f"  Captured HTML for {region} ({len(html_content)} bytes)")
+                    
+                except Exception as e:
+                    logger.error(f"  Error switching to {region}: {e}")
+                    # Use current page content as fallback
+                    regional_html[region] = page.content()
+            
+            # Close browser
+            browser.close()
+            
+            # Save HTML if requested
+            if save_html:
+                ensure_save_directory()
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                for region, html_content in regional_html.items():
+                    filename = f"prydwen_starrail_{region}_{timestamp}.html"
+                    filepath = os.path.join(SAVE_DIR, filename)
+                    
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        f.write(html_content)
+                    logger.info(f"HTML saved to: {filepath}")
+                
+                # Save NA as "latest.html" for backward compatibility
+                if "NA" in regional_html:
+                    latest_filepath = os.path.join(SAVE_DIR, "latest.html")
+                    with open(latest_filepath, "w", encoding="utf-8") as f:
+                        f.write(regional_html["NA"])
+                    logger.info(f"NA HTML also saved to: {latest_filepath}")
+            
+            return regional_html
+    
+    except Exception as e:
+        logger.error(f"Scraping failed: {e}")
+        return None
 
 def scrape_prydwen(save_html=True, headless=True):
     """
@@ -352,3 +874,212 @@ if __name__ == "__main__":
     
     print("\n=== Test Complete ===")
     print(f"Check {os.path.join(SAVE_DIR, 'latest.html')} to inspect the HTML structure")
+
+# === Background Tasks ===
+
+async def periodic_hsr_scraping_task():
+    """
+    Background task that scrapes Prydwen HSR website every 24 hours.
+    Runs on bot startup and then repeats every 24 hours.
+    """
+    logger.info("HSR periodic scraping task started")
+    
+    # Run immediately on startup
+    await asyncio.sleep(5)  # Wait 5 seconds for bot to fully initialize
+    
+    while True:
+        try:
+            logger.info("Starting periodic HSR scrape...")
+            
+            # Run scraper in executor (Playwright is sync)
+            loop = asyncio.get_event_loop()
+            regional_html = await loop.run_in_executor(
+                None, 
+                scrape_prydwen_with_regions,
+                True,  # save_html
+                True   # headless
+            )
+            
+            if not regional_html or not any(regional_html.values()):
+                logger.error("Periodic scrape failed - no HTML returned")
+            else:
+                # Extract events
+                events = extract_events_from_regional_html(regional_html)
+                
+                if events:
+                    # Save to database
+                    stats = await save_events_to_db(events)
+                    logger.info(
+                        f"Periodic scrape complete: {len(events)} events, "
+                        f"{stats['added']} added, {stats['updated']} updated, {stats['errors']} errors"
+                    )
+                else:
+                    logger.warning("Periodic scrape: No events extracted")
+                    
+        except Exception as e:
+            logger.error(f"Error in periodic HSR scraping task: {e}")
+        
+        # Wait 24 hours before next scrape
+        logger.info("Next HSR scrape in 24 hours")
+        await asyncio.sleep(86400)  # 24 hours in seconds
+
+# === Discord Bot Commands ===
+
+# Import bot only if this module is imported by the bot
+try:
+    from bot import bot
+    from discord.ext import commands
+    import discord
+    
+    @bot.command(name="hsr_scrape_and_save")
+    @commands.has_permissions(administrator=True)
+    async def hsr_scrape_and_save_command(ctx):
+        """Scrapes Prydwen HSR website with regional times and saves events to database"""
+        await ctx.send("🔄 Scraping Prydwen Star Rail website (NA/EU/Asia regions)...")
+        
+        try:
+            # Run scraper in executor (Playwright is sync)
+            loop = asyncio.get_event_loop()
+            regional_html = await loop.run_in_executor(None, scrape_prydwen_with_regions, True, True)
+            
+            if not regional_html or not any(regional_html.values()):
+                await ctx.send("❌ Failed to scrape website")
+                return
+            
+            await ctx.send("📊 Extracting events from regional data...")
+            
+            # Extract events with regional times
+            events = extract_events_from_regional_html(regional_html)
+            
+            if not events:
+                await ctx.send("⚠️ No events found in scraped data")
+                return
+            
+            await ctx.send(f"💾 Saving {len(events)} events to database...")
+            
+            # Save to database
+            stats = await save_events_to_db(events)
+            
+            # Send results
+            embed = discord.Embed(
+                title="✅ HSR Prydwen Scrape Complete",
+                description=f"Successfully scraped {len(events)} events from Prydwen\n(with NA, EU, and Asia regional times)",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Added", value=str(stats['added']), inline=True)
+            embed.add_field(name="Updated", value=str(stats['updated']), inline=True)
+            embed.add_field(name="Errors", value=str(stats['errors']), inline=True)
+            
+            # Count ongoing vs upcoming
+            ongoing = sum(1 for e in events if e.get('status') == 'ongoing')
+            upcoming = sum(1 for e in events if e.get('status') == 'upcoming')
+            embed.add_field(name="Ongoing", value=str(ongoing), inline=True)
+            embed.add_field(name="Upcoming", value=str(upcoming), inline=True)
+            
+            embed.set_footer(text=f"Database: {DB_PATH}")
+            
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in scrape command: {e}")
+            await ctx.send(f"❌ Error during scraping: {str(e)}")
+    
+    @bot.command(name="dump_hsr_prydwen_db")
+    @commands.has_permissions(administrator=True)
+    async def dump_hsr_prydwen_db_command(ctx):
+        """Dumps all events from the HSR Prydwen database with regional times"""
+        await ctx.send("📊 Fetching events from Prydwen database...")
+        
+        try:
+            events = await get_all_events_from_db()
+            
+            if not events:
+                await ctx.send("⚠️ No events found in database")
+                return
+            
+            # Create embed with event summary
+            embed = discord.Embed(
+                title="HSR Prydwen Database Dump",
+                description=f"Total events: {len(events)}\n(with NA/EU/Asia regional times)",
+                color=discord.Color.blue()
+            )
+            
+            # Group by status
+            ongoing = [e for e in events if e.get('status') == 'ongoing']
+            upcoming = [e for e in events if e.get('status') == 'upcoming']
+            
+            # Show ongoing events
+            if ongoing:
+                event_list = "\n".join([
+                    f"• **{e['title']}** ({e['type']})\n  NA End: `{e.get('na_end_date', 'N/A')}`"
+                    for e in ongoing[:5]  # Show first 5
+                ])
+                if len(ongoing) > 5:
+                    event_list += f"\n... and {len(ongoing) - 5} more"
+                
+                embed.add_field(
+                    name=f"🟢 Ongoing ({len(ongoing)})",
+                    value=event_list or "None",
+                    inline=False
+                )
+            
+            # Show upcoming events
+            if upcoming:
+                event_list = "\n".join([
+                    f"• **{e['title']}** ({e['type']})\n  NA Start: `{e.get('na_start_date', 'N/A')}`"
+                    for e in upcoming[:5]  # Show first 5
+                ])
+                if len(upcoming) > 5:
+                    event_list += f"\n... and {len(upcoming) - 5} more"
+                
+                embed.add_field(
+                    name=f"🔵 Upcoming ({len(upcoming)})",
+                    value=event_list or "None",
+                    inline=False
+                )
+            
+            embed.set_footer(text=f"Database: {DB_PATH}")
+            await ctx.send(embed=embed)
+            
+            # Send detailed text file if too many events
+            if len(events) > 10:
+                import io
+                output = io.StringIO()
+                output.write(f"HSR Prydwen Database Dump\n")
+                output.write(f"Total Events: {len(events)}\n")
+                output.write(f"Database: {DB_PATH}\n")
+                output.write(f"Generated: {datetime.now().isoformat()}\n\n")
+                
+                for event in events:
+                    output.write(f"{'='*80}\n")
+                    output.write(f"ID: {event['id']}\n")
+                    output.write(f"Title: {event['title']}\n")
+                    output.write(f"Category: {event['category']}\n")
+                    output.write(f"Type: {event['type']}\n")
+                    output.write(f"Status: {event.get('status', 'unknown')}\n")
+                    output.write(f"NA Start: {event.get('na_start_date', 'N/A')}\n")
+                    output.write(f"NA End: {event.get('na_end_date', 'N/A')}\n")
+                    output.write(f"EU Start: {event.get('eu_start_date', 'N/A')}\n")
+                    output.write(f"EU End: {event.get('eu_end_date', 'N/A')}\n")
+                    output.write(f"Asia Start: {event.get('asia_start_date', 'N/A')}\n")
+                    output.write(f"Asia End: {event.get('asia_end_date', 'N/A')}\n")
+                    output.write(f"Time Remaining: {event.get('time_remaining', 'N/A')}\n")
+                    desc = event.get('description', '')
+                    if desc and len(desc) > 100:
+                        output.write(f"Description: {desc[:100]}...\n")
+                    elif desc:
+                        output.write(f"Description: {desc}\n")
+                    output.write(f"Scraped At: {event.get('scraped_at', 'N/A')}\n")
+                    output.write(f"\n")
+                
+                output.seek(0)
+                file = discord.File(output, filename="hsr_prydwen_dump.txt")
+                await ctx.send("📄 Detailed dump with regional times:", file=file)
+            
+        except Exception as e:
+            logger.error(f"Error in dump command: {e}")
+            await ctx.send(f"❌ Error dumping database: {str(e)}")
+
+except ImportError:
+    # bot.py not available, skip command registration
+    logger.info("Bot not available, skipping command registration")
