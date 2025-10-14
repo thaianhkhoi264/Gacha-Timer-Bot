@@ -209,6 +209,114 @@ async def delete_notifications_for_event(title, category, profile):
         )
         await conn.commit()
 
+async def cleanup_ghost_notifications():
+    """
+    Removes pending notifications for events that no longer exist in any profile database.
+    This should be called periodically or on bot startup.
+    """
+    from arknights_module import AK_DB_PATH
+    # Add HSR_DB_PATH, ZZZ_DB_PATH etc as you add more modules
+    
+    print("[NotificationHandler] Cleaning up ghost notifications...")
+    
+    # Collect all valid events from all profile databases
+    valid_events = set()  # (profile, title, category)
+    
+    # Check AK database
+    try:
+        async with aiosqlite.connect(AK_DB_PATH) as conn:
+            async with conn.execute("SELECT profile, title, category FROM events") as cursor:
+                async for row in cursor:
+                    valid_events.add((row[0], row[1], row[2]))
+    except Exception as e:
+        print(f"[NotificationHandler] Error reading AK database: {e}")
+    
+    # TODO: Add other profile databases here as they're implemented
+    # async with aiosqlite.connect(HSR_DB_PATH) as conn:
+    #     async with conn.execute("SELECT profile, title, category FROM events") as cursor:
+    #         async for row in cursor:
+    #             valid_events.add((row[0], row[1], row[2]))
+    
+    # Remove notifications that don't match any valid event
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        async with conn.execute("SELECT DISTINCT profile, title, category FROM pending_notifications") as cursor:
+            pending_events = [row async for row in cursor]
+        
+        removed_count = 0
+        for profile, title, category in pending_events:
+            if (profile, title, category) not in valid_events:
+                await conn.execute(
+                    "DELETE FROM pending_notifications WHERE profile=? AND title=? AND category=?",
+                    (profile, title, category)
+                )
+                removed_count += 1
+                print(f"[NotificationHandler] Removed ghost notifications for: {title} ({category}) [{profile}]")
+        
+        await conn.commit()
+    
+    print(f"[NotificationHandler] Ghost notification cleanup complete. Removed {removed_count} ghost events.")
+    return removed_count
+
+async def validate_event_notifications():
+    """
+    Ensures all events have proper pending notifications scheduled.
+    Re-schedules missing notifications for existing events.
+    """
+    from arknights_module import AK_DB_PATH
+    # Add HSR_DB_PATH, ZZZ_DB_PATH etc as you add more modules
+    
+    print("[NotificationHandler] Validating event notifications...")
+    
+    # Collect all events from all profile databases
+    all_events = []
+    
+    # Check AK database
+    try:
+        async with aiosqlite.connect(AK_DB_PATH) as conn:
+            async with conn.execute("SELECT profile, title, category, start_date, end_date FROM events") as cursor:
+                async for row in cursor:
+                    all_events.append({
+                        'profile': row[0],
+                        'title': row[1],
+                        'category': row[2],
+                        'start_date': row[3],
+                        'end_date': row[4]
+                    })
+    except Exception as e:
+        print(f"[NotificationHandler] Error reading AK database: {e}")
+    
+    # TODO: Add other profile databases here as they're implemented
+    
+    # For each event, check if it has all expected notifications
+    fixed_count = 0
+    for event in all_events:
+        expected_timings = get_notification_timings(event['category'])
+        
+        # Check what notifications exist for this event
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            async with conn.execute("""
+                SELECT timing_type, COUNT(*) 
+                FROM pending_notifications 
+                WHERE profile=? AND title=? AND category=?
+                GROUP BY timing_type
+            """, (event['profile'], event['title'], event['category'])) as cursor:
+                existing = {row[0]: row[1] async for row in cursor}
+        
+        # Check if all expected timings are present
+        missing = False
+        for timing_type, timing_minutes in expected_timings:
+            if timing_type not in existing:
+                missing = True
+                break
+        
+        if missing:
+            print(f"[NotificationHandler] Event '{event['title']}' missing notifications. Re-scheduling...")
+            await schedule_notifications_for_event(event)
+            fixed_count += 1
+    
+    print(f"[NotificationHandler] Notification validation complete. Fixed {fixed_count} events.")
+    return fixed_count
+
 async def send_notification(event, timing_type):
     """
     Sends a notification to the correct profile-specific channel, using global_config.py for channel lookup.
@@ -655,6 +763,20 @@ async def clear_pending_notifications(ctx):
         await conn.execute("DELETE FROM pending_notifications")
         await conn.commit()
     await ctx.send("Cleared all pending notifications.")
+    await update_all_pending_notifications_embeds(ctx.guild)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def cleanup_notifications(ctx):
+    """Removes ghost notifications and validates event notifications."""
+    await ctx.send("Running notification maintenance...")
+    ghost_count = await cleanup_ghost_notifications()
+    fixed_count = await validate_event_notifications()
+    await ctx.send(
+        f"✅ **Notification Maintenance Complete**\n"
+        f"• Removed {ghost_count} ghost notification(s)\n"
+        f"• Fixed {fixed_count} event(s) with missing notifications"
+    )
     await update_all_pending_notifications_embeds(ctx.guild)
 
 async def debug_log(message, bot=None, important=False):

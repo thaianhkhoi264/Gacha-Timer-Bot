@@ -171,7 +171,7 @@ class AddEventModal(discord.ui.Modal):
             image_url
         )
         await interaction.response.send_message(
-            "Select the category and timezone for this event:",
+            f"**Category:** Event (default)\n**Timezone:** {PROFILE_CONFIG[self.profile]['TIMEZONE']} (default)\n\nSelect category and timezone, then click **Confirm**.",
             view=options_view,
             ephemeral=True
         )
@@ -220,7 +220,11 @@ class CategorySelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         self.parent_view.selected_category = self.values[0]
-        await interaction.response.defer()
+        # Update the message to show selection feedback
+        await interaction.response.edit_message(
+            content=f"**Category:** {self.values[0]}\n**Timezone:** {self.parent_view.selected_timezone}\n\nClick **Confirm** when ready.",
+            view=self.parent_view
+        )
 
 class TimezoneSelect(discord.ui.Select):
     def __init__(self, parent_view):
@@ -243,7 +247,11 @@ class TimezoneSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         self.parent_view.selected_timezone = self.values[0]
-        await interaction.response.defer()
+        # Update the message to show selection feedback
+        await interaction.response.edit_message(
+            content=f"**Category:** {self.parent_view.selected_category}\n**Timezone:** {self.values[0]}\n\nClick **Confirm** when ready.",
+            view=self.parent_view
+        )
 
 class EventOptionsSelectView(discord.ui.View):
     def __init__(self, profile, title, start, end, image, is_edit=False, event_id=None, current_category=None):
@@ -333,23 +341,32 @@ class RemoveEventSelect(discord.ui.Select):
         options = [discord.SelectOption(label=f"{e['title']} ({e['category']})", value=str(e['id'])) for e in events]
         super().__init__(placeholder="Select event to remove...", min_values=1, max_values=1, options=options, custom_id=f"remove_event_select_{profile}")
         self.profile = profile
+        self.events = {e['id']: e for e in events}
 
     async def callback(self, interaction: discord.Interaction):
-        event_id = self.values[0]
-        # Create a new view with a confirmation button
-        confirm_view = RemoveEventConfirmView(self.profile, int(event_id))
-        await interaction.response.edit_message(content=f"Selected event ID: {event_id}. Click the button below to confirm removal.", view=confirm_view)
+        event_id = int(self.values[0])
+        event = self.events.get(event_id)
+        if not event:
+            await interaction.response.send_message("Event not found.", ephemeral=True)
+            return
+        # Create a new view with a confirmation button, passing event name
+        confirm_view = RemoveEventConfirmView(self.profile, event_id, event['title'])
+        await interaction.response.edit_message(
+            content=f"Are you sure you want to remove **{event['title']}**? Click the button below to confirm.",
+            view=confirm_view
+        )
 
 class RemoveEventConfirmView(discord.ui.View):
-    def __init__(self, profile, event_id):
+    def __init__(self, profile, event_id, event_title):
         super().__init__(timeout=None)
         self.profile = profile
         self.event_id = event_id
+        self.event_title = event_title
 
     @discord.ui.button(label="Confirm Remove", style=discord.ButtonStyle.red, custom_id="remove_event_confirm")
     async def remove_event_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await remove_event_by_id(self.profile, self.event_id)
-        await interaction.response.send_message("Event removed!", ephemeral=True)
+        await interaction.response.send_message(f"Event **{self.event_title}** removed successfully!", ephemeral=True)
         await update_control_panel_messages(self.profile)
 
 class RemoveEventView(discord.ui.View):
@@ -435,7 +452,7 @@ class EditEventModal(discord.ui.Modal):
             current_category=self.current_category
         )
         await interaction.response.send_message(
-            "Select the category and timezone for this event:",
+            f"**Category:** {self.current_category}\n**Timezone:** {PROFILE_CONFIG[self.profile]['TIMEZONE']} (default)\n\nSelect category and timezone, then click **Confirm**.",
             view=options_view,
             ephemeral=True
         )
@@ -490,6 +507,38 @@ class PendingNotifView(discord.ui.View):
 # Store control panel message IDs: {profile: {"add": msg_id, "remove": msg_id, "edit": msg_id, "notifs": {event_id: msg_id}}}
 CONTROL_PANEL_MESSAGE_IDS = {}
 
+async def cleanup_old_control_panel_messages(channel, profile):
+    """
+    Deletes all messages in the control panel channel that are not tracked in CONTROL_PANEL_MESSAGE_IDS.
+    This prevents duplicate messages on bot restart.
+    """
+    print(f"[ControlPanel] Cleaning up old messages for profile: {profile}")
+    tracked_ids = set()
+    
+    # Collect all tracked message IDs for this profile
+    if profile in CONTROL_PANEL_MESSAGE_IDS:
+        panel = CONTROL_PANEL_MESSAGE_IDS[profile]
+        if panel.get("add"):
+            tracked_ids.add(int(panel["add"]))
+        if panel.get("remove"):
+            tracked_ids.add(int(panel["remove"]))
+        if panel.get("edit"):
+            tracked_ids.add(int(panel["edit"]))
+        for event_id, msg_id in panel.get("notifs", {}).items():
+            tracked_ids.add(int(msg_id))
+    
+    # Fetch recent messages and delete untracked ones
+    try:
+        async for message in channel.history(limit=100):
+            if message.author == bot.user and message.id not in tracked_ids:
+                try:
+                    await message.delete()
+                    print(f"[ControlPanel] Deleted untracked message {message.id}")
+                except Exception as e:
+                    print(f"[ControlPanel] Failed to delete message {message.id}: {e}")
+    except Exception as e:
+        print(f"[ControlPanel] Error during cleanup: {e}")
+
 async def update_control_panel_messages(profile):
     """
     Updates control panel messages by editing existing ones instead of recreating.
@@ -512,6 +561,9 @@ async def update_control_panel_messages(profile):
     # Initialize message ID storage for this profile
     if profile not in CONTROL_PANEL_MESSAGE_IDS:
         CONTROL_PANEL_MESSAGE_IDS[profile] = {"add": None, "remove": None, "edit": None, "notifs": {}}
+    
+    # Clean up old messages not in database (prevent duplicates on restart)
+    await cleanup_old_control_panel_messages(channel, profile)
 
     events = await get_events(profile)
     print(f"[ControlPanel] Found {len(events)} events for profile {profile}.")

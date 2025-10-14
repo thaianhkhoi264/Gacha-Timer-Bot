@@ -413,6 +413,12 @@ async def on_ready():
     print("[DEBUG] About to call ensure_control_panels...")
     await control_panel.ensure_control_panels()
     print("[DEBUG] ensure_control_panels completed.")
+    
+    # Cleanup ghost notifications and validate event notifications
+    print("[DEBUG] Running notification maintenance...")
+    await notification_handler.cleanup_ghost_notifications()
+    await notification_handler.validate_event_notifications()
+    print("[DEBUG] Notification maintenance completed.")
 
     # Initialize AK DB and tasks
     asyncio.create_task(init_ak_db())
