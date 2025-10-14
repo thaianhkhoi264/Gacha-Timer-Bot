@@ -1,0 +1,392 @@
+# Gacha Timer Bot - Project Status & Context
+
+**Last Updated**: October 14, 2025  
+**Current Phase**: HSR Scraper Implementation Complete
+
+## Project Overview
+Kanami (the Discord bot) is a multi-game event tracking and notification system. The bot monitors gacha game events, sends reminders, and provides a control panel interface for managing timers.
+
+## Recent Major Updates
+
+### 1. Control Panel Improvements (Completed)
+**Problem**: Control panel had UX issues and didn't auto-update when events were added externally.
+
+**Solutions Implemented**:
+- ✅ **Timezone in Modal**: Added timezone display in AddEventModal labels (e.g., "Start Date (YYYY-MM-DD HH:MM in UTC-7)")
+- ✅ **Image URL Field**: Added `image_input` TextInput to both AddEventModal and EditEventModal
+- ✅ **Message Editing**: Replaced delete/recreate pattern with edit-in-place using `CONTROL_PANEL_MESSAGE_IDS` dictionary to avoid rate limits
+- ✅ **Auto-Update**: Added control panel update calls to:
+  - `add_ak_event()` - after event addition
+  - `arknights_update_timers()` - when events deleted
+  - `ak_remove()` - after removal
+  - `ak_edit()` - after edit
+
+**Files Modified**:
+- `control_panel.py`: Added timezone labels, image fields, message editing system
+- `arknights_module.py`: Added 4 control panel update trigger points
+
+### 2. HSR Scraper Creation (Completed)
+**Goal**: Automatically scrape Honkai Star Rail event data from https://www.prydwen.gg/star-rail/
+
+**Implementation**:
+- Created `hsr_scraper.py` using Playwright (handles JavaScript-rendered content)
+- Targets the "Event Timeline" section below "Active Codes"
+- Successfully extracts 14 events with full metadata
+
+**Technical Details**:
+- **Website Type**: Gatsby/React SPA with dynamic content loading
+- **HTML Size**: ~3.5MB fully rendered
+- **Scraping Method**: Playwright with Chromium browser
+- **Event Structure**: Bootstrap accordion components with collapse functionality
+- **Data Extraction**: Regex-based parsing of accordion items
+
+**Event Data Extracted**:
+```python
+{
+    "name": str,              # Event name
+    "type": str,              # Event category (character_banner, memory_of_chaos, etc.)
+    "css_class": str,         # CSS identifier from website
+    "time_remaining": str,    # Time until end (e.g., "1d 6h")
+    "start_date": str,        # YYYY-MM-DD HH:MM:SS or "After VX.X update"
+    "end_date": str,          # YYYY-MM-DD HH:MM:SS
+    "description": str        # Event description (truncated to 300 chars)
+}
+```
+
+**Event Types Recognized**:
+- `character_banner` - Limited character warps
+- `memory_of_chaos` - Memory of Chaos cycles
+- `pure_fiction` - Pure Fiction challenges
+- `apocalyptic_shadow` - Apocalyptic Shadow challenges
+- `planar_fissure` - Double Planar Ornament rewards
+- `battle_pass` - Nameless Honor
+- `login_event` - Gift of Odyssey
+- `relic_event` - Realm of the Strange
+- `other_event` - Miscellaneous events
+
+**Current Live Events** (as of Oct 14, 2025):
+- 4 character banners (Evil March Can't Hurt You, Re:Mahou Shoujo, Half Dan/Half Dragon, Anaxa Unchained)
+- 2 Memory of Chaos cycles (3.5 and 3.6)
+- 1 Pure Fiction (3.6)
+- 1 Apocalyptic Shadow (3.6)
+- 2 farming events (Planar Fissure, Realm of the Strange)
+- Battle pass and login rewards
+
+## Core Architecture
+
+### Bot Structure
+```
+main.py                  # Entry point, initializes bot
+bot.py                   # Discord bot setup, cog loading
+modules.py               # Combined module with commands
+database_handler.py      # SQLite database operations
+notification_handler.py  # Notification scheduling and sending
+control_panel.py         # Discord UI (Views, Modals, Buttons)
+utilities.py             # Helper functions
+global_config.py         # Configuration and constants
+```
+
+### Game-Specific Modules
+```
+arknights_module.py      # Arknights event tracking
+hsr_module.py            # Honkai Star Rail tracking
+hsr_scraper.py           # HSR web scraper (NEW)
+hoyo_module.py           # General HoYo games
+shadowverse_handler.py   # Shadowverse tracking
+uma_handler.py           # Uma Musume tracking
+```
+
+### Data Flow
+1. **Manual Entry**: Control panel → Database → Notifications
+2. **Automated (Planned)**: Scraper → Parser → Database → Notifications
+3. **Updates**: Database changes → Control panel refresh → User notifications
+
+## Database Schema
+
+### Events Table
+```sql
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY,
+    guild_id INTEGER,
+    channel_id INTEGER,
+    event_name TEXT,
+    start_time TEXT,
+    end_time TEXT,
+    game TEXT,
+    image_url TEXT,
+    event_type TEXT
+)
+```
+
+### Notifications Table
+```sql
+CREATE TABLE notifications (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    event_id INTEGER,
+    notification_time TEXT,
+    notified INTEGER DEFAULT 0,
+    FOREIGN KEY(event_id) REFERENCES events(id)
+)
+```
+
+## Key Features
+
+### Control Panel System
+- **Location**: `control_panel.py`
+- **Components**:
+  - `ControlPanel` (View): Main interface with event list and buttons
+  - `AddEventModal`: Modal for adding new events (with timezone label, image URL)
+  - `EditEventModal`: Modal for editing existing events (with image URL)
+  - `update_control_panel_messages()`: Edits existing messages instead of recreating
+  - `CONTROL_PANEL_MESSAGE_IDS`: Tracks message IDs for editing
+
+### Notification System
+- **Location**: `notification_handler.py`
+- **Features**:
+  - Background task checks every 60 seconds
+  - Sends DM notifications at scheduled times
+  - Marks notifications as sent to avoid duplicates
+  - Auto-deletes past events
+
+### HSR Scraper System
+- **Location**: `hsr_scraper.py`
+- **Key Functions**:
+  - `scrape_prydwen(save_html, headless)`: Main scraping function
+  - `scrape_and_extract_events(html)`: Extracts events from HTML
+  - `get_latest_saved_html()`: Loads cached HTML
+  - `analyze_html_structure(html)`: Debug/analysis helper
+
+**Usage Example**:
+```python
+from hsr_scraper import scrape_prydwen, scrape_and_extract_events
+
+# Scrape website
+html = scrape_prydwen(save_html=True, headless=True)
+
+# Extract events
+events = scrape_and_extract_events(html)
+
+# Filter for banners
+banners = [e for e in events if e['type'] == 'character_banner']
+```
+
+## File Organization
+
+### Essential Core Files (DO NOT DELETE)
+```
+bot.py                   # Bot initialization
+main.py                  # Entry point
+modules.py               # Command handlers
+database_handler.py      # Database operations
+notification_handler.py  # Notification system
+control_panel.py         # UI components
+utilities.py             # Helper functions
+global_config.py         # Configuration
+```
+
+### Game Module Files (DO NOT DELETE)
+```
+arknights_module.py      # Arknights functionality
+hsr_module.py            # HSR functionality
+hsr_scraper.py           # HSR web scraper
+hoyo_module.py           # HoYo games
+shadowverse_handler.py   # Shadowverse
+uma_handler.py           # Uma Musume
+twitter_handler.py       # Twitter integration
+tweet_listener.py        # Twitter listener
+ml_handler.py            # Machine learning (future)
+reminder_module.py       # Reminder functionality
+update_database.py       # Database maintenance
+```
+
+### Data Files (Keep)
+```
+kanami_data.db           # Main database
+data/hsr_scraper/latest.html  # Latest scraped HTML (for cache)
+requirements.txt         # Python dependencies
+event_image_map.json     # Event image mappings
+```
+
+### Documentation (Keep)
+```
+README.md                # Main project documentation
+PROJECT_STATUS.md        # This file - project context
+```
+
+### Analysis/Debug Files (SAFE TO DELETE)
+```
+analyze_html.py          # HTML analysis script (debug)
+extract_event_timeline.py # Event extraction test (debug)
+extract_events.py        # Event extraction test (debug)
+find_content_structure.py # Structure analysis (debug)
+parse_event_timeline.py  # Parser test script (debug)
+search_visible_data.py   # Data search script (debug)
+event_timeline_context.html # HTML snippet (debug)
+parsed_events.json       # Test output (debug)
+PRYDWEN_ANALYSIS.md      # Analysis notes (debug)
+HSR_SCRAPER_README.md    # Duplicate docs (debug)
+HSR_SCRAPER_USAGE.md     # Duplicate docs (debug)
+uma_timeline.html        # Old test file (debug)
+data/hsr_scraper/prydwen_starrail_*.html # Old snapshots (keep only latest.html)
+```
+
+## Integration Guide: HSR Scraper → HSR Module
+
+### Step 1: Import Scraper in hsr_module.py
+```python
+from hsr_scraper import scrape_prydwen, scrape_and_extract_events
+import asyncio
+```
+
+### Step 2: Create Update Function
+```python
+async def update_hsr_events_from_web(guild_id, channel_id):
+    """Fetch latest HSR events from Prydwen and add to database"""
+    
+    # Run scraper in thread pool (Playwright is sync)
+    loop = asyncio.get_event_loop()
+    html = await loop.run_in_executor(None, scrape_prydwen, True, True)
+    
+    if not html:
+        logger.error("Failed to scrape Prydwen")
+        return []
+    
+    # Extract events
+    all_events = scrape_and_extract_events(html)
+    
+    # Filter for relevant event types
+    relevant_types = ['character_banner', 'memory_of_chaos', 'pure_fiction', 'apocalyptic_shadow']
+    events = [e for e in all_events if e['type'] in relevant_types]
+    
+    # Add to database
+    added_events = []
+    for event in events:
+        if 'start_date' in event and 'end_date' in event:
+            try:
+                # Parse dates and add to database
+                start = datetime.strptime(event['start_date'], '%Y-%m-%d %H:%M:%S')
+                end = datetime.strptime(event['end_date'], '%Y-%m-%d %H:%M:%S')
+                
+                # Check if event already exists
+                existing = await db.get_event_by_name(event['name'], guild_id)
+                if not existing:
+                    await db.add_event(
+                        guild_id=guild_id,
+                        channel_id=channel_id,
+                        event_name=event['name'],
+                        start_time=start,
+                        end_time=end,
+                        game='hsr',
+                        event_type=event['type']
+                    )
+                    added_events.append(event['name'])
+            except Exception as e:
+                logger.error(f"Failed to add event {event['name']}: {e}")
+    
+    return added_events
+```
+
+### Step 3: Add Command
+```python
+@commands.command()
+async def hsr_update(ctx):
+    """Update HSR events from Prydwen website"""
+    await ctx.send("🔄 Fetching latest events from Prydwen...")
+    
+    added = await update_hsr_events_from_web(ctx.guild.id, ctx.channel.id)
+    
+    if added:
+        await ctx.send(f"✅ Added {len(added)} new events:\n" + "\n".join(f"- {e}" for e in added))
+    else:
+        await ctx.send("✅ No new events to add (all up to date)")
+```
+
+## Dependencies
+
+### Python Packages
+```
+discord.py              # Discord API
+aiosqlite              # Async SQLite
+playwright             # Web scraping
+python-dotenv          # Environment variables
+tweepy                 # Twitter API (optional)
+```
+
+### Installation
+```bash
+pip install -r requirements.txt
+python -m playwright install chromium
+```
+
+## Environment Variables
+```env
+DISCORD_BOT_TOKEN=your_token_here
+TIMEZONE=America/Los_Angeles  # Default timezone
+```
+
+## Next Steps (Planned)
+
+1. **Integrate HSR Scraper with hsr_module.py**
+   - Add `hsr_update` command to fetch events from Prydwen
+   - Implement automatic daily scraping
+   - Add event comparison to avoid duplicates
+
+2. **Image URL Extraction**
+   - Extract character images from Prydwen
+   - Store image URLs in database
+   - Display images in Discord embeds
+
+3. **Notification Enhancements**
+   - Multiple reminder times (24h, 1h before)
+   - Custom reminder messages
+   - Role mentions for important events
+
+4. **Control Panel V2**
+   - Pagination for large event lists
+   - Bulk operations (delete multiple, edit batch)
+   - Event filtering (by game, by type)
+
+## Troubleshooting
+
+### Scraper Issues
+- **Timeout**: Increase wait time in `scrape_prydwen()` (currently 5s)
+- **Empty events**: Website structure may have changed, check HTML
+- **Playwright error**: Run `python -m playwright install chromium`
+
+### Control Panel Issues
+- **Not updating**: Check if update calls exist in event modification functions
+- **Rate limit**: Using message editing instead of delete/recreate should prevent this
+- **Missing events**: Verify `CONTROL_PANEL_MESSAGE_IDS` tracking
+
+### Database Issues
+- **Lock errors**: Check for long-running transactions
+- **Missing events**: Verify database connection and table schema
+- **Duplicate notifications**: Check `notified` flag in notifications table
+
+## Development Notes
+
+### Code Style
+- Use `logger.info/error/debug` for logging
+- Async/await for Discord operations
+- Try/except blocks around external API calls
+- Type hints where applicable
+
+### Testing
+- Test scraper: `python hsr_scraper.py`
+- Test bot locally before deploying
+- Use test server for control panel changes
+
+### Git Workflow
+- Commit frequently with descriptive messages
+- Test before pushing to main
+- Keep documentation updated with major changes
+
+## Contact & Resources
+- Discord.py docs: https://discordpy.readthedocs.io/
+- Playwright docs: https://playwright.dev/python/
+- Prydwen HSR: https://www.prydwen.gg/star-rail/
+
+---
+
+**For GitHub Copilot**: This document provides full context on the current state of the Gacha Timer Bot project, including recent control panel improvements and the newly implemented HSR scraper. The scraper successfully extracts 14 events from Prydwen's Event Timeline using Playwright. Next step is integration with hsr_module.py for automated event tracking.

@@ -1,0 +1,51 @@
+[2025-10-14 03:42:25,338] [INFO] Starting scrape of https://www.prydwen.gg/star-rail/
+[2025-10-14 03:42:25,940] [INFO] Launching browser...
+[2025-10-14 03:42:25,966] [WARNING] No saved HTML found at data\hsr_scraper\latest.html
+[2025-10-14 03:43:31,891] [INFO] Starting scrape of https://www.prydwen.gg/star-rail/
+[2025-10-14 03:43:32,247] [INFO] Launching browser...
+[2025-10-14 03:43:32,631] [INFO] Navigating to https://www.prydwen.gg/star-rail/
+[2025-10-14 03:44:32,792] [ERROR] Error while scraping: Page.goto: Timeout 60000ms exceeded.
+Call log:
+  - navigating to "https://www.prydwen.gg/star-rail/", waiting until "networkidle"
+
+[2025-10-14 03:44:32,793] [WARNING] No saved HTML found at data\hsr_scraper\latest.html
+[2025-10-14 03:44:56,053] [INFO] Starting scrape of https://www.prydwen.gg/star-rail/
+[2025-10-14 03:44:56,406] [INFO] Launching browser...
+[2025-10-14 03:44:56,590] [INFO] Navigating to https://www.prydwen.gg/star-rail/
+[2025-10-14 03:44:57,150] [INFO] Waiting for page to fully load...
+[2025-10-14 03:45:02,343] [INFO] Successfully fetched HTML (3457620 bytes)
+[2025-10-14 03:45:02,469] [INFO] Save directory ensured: data\hsr_scraper
+[2025-10-14 03:45:02,477] [INFO] HTML saved to: data\hsr_scraper\prydwen_starrail_20251014_034502.html
+[2025-10-14 03:45:02,487] [INFO] HTML also saved to: data\hsr_scraper\latest.html
+[2025-10-14 03:45:02,626] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3457620 bytes)
+[2025-10-14 03:55:54,648] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3457620 bytes)
+[2025-10-14 03:56:08,163] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3457620 bytes)
+[2025-10-14 03:57:28,971] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3457620 bytes)
+[2025-10-14 04:01:44,082] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3457620 bytes)
+[2025-10-14 04:02:40,053] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3457620 bytes)
+[2025-10-14 04:03:49,493] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3457620 bytes)
+[2025-10-14 04:03:59,405] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3457620 bytes)
+[2025-10-14 04:05:10,023] [INFO] Starting scrape of https://www.prydwen.gg/star-rail/
+[2025-10-14 04:05:10,377] [INFO] Launching browser...
+[2025-10-14 04:05:10,549] [INFO] Navigating to https://www.prydwen.gg/star-rail/
+[2025-10-14 04:05:11,136] [INFO] Waiting for page to fully load...
+[2025-10-14 04:05:16,292] [INFO] Successfully fetched HTML (3458646 bytes)
+[2025-10-14 04:05:16,404] [INFO] Save directory ensured: data\hsr_scraper
+[2025-10-14 04:05:16,411] [INFO] HTML saved to: data\hsr_scraper\prydwen_starrail_20251014_040516.html
+[2025-10-14 04:05:16,420] [INFO] HTML also saved to: data\hsr_scraper\latest.html
+[2025-10-14 04:05:16,448] [INFO] Extracting events from Event Timeline section
+[2025-10-14 04:05:16,450] [INFO] Found 26 accordion items
+[2025-10-14 04:05:16,453] [INFO] Successfully extracted 14 events
+[2025-10-14 04:05:16,466] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3458646 bytes)
+[2025-10-14 04:05:25,170] [INFO] Starting scrape of https://www.prydwen.gg/star-rail/
+[2025-10-14 04:05:25,522] [INFO] Launching browser...
+[2025-10-14 04:05:25,670] [INFO] Navigating to https://www.prydwen.gg/star-rail/
+[2025-10-14 04:05:26,133] [INFO] Waiting for page to fully load...
+[2025-10-14 04:05:31,408] [INFO] Successfully fetched HTML (3449215 bytes)
+[2025-10-14 04:05:31,567] [INFO] Save directory ensured: data\hsr_scraper
+[2025-10-14 04:05:31,573] [INFO] HTML saved to: data\hsr_scraper\prydwen_starrail_20251014_040531.html
+[2025-10-14 04:05:31,580] [INFO] HTML also saved to: data\hsr_scraper\latest.html
+[2025-10-14 04:05:31,604] [INFO] Extracting events from Event Timeline section
+[2025-10-14 04:05:31,606] [INFO] Found 26 accordion items
+[2025-10-14 04:05:31,608] [INFO] Successfully extracted 14 events
+[2025-10-14 04:05:31,617] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3449215 bytes)
