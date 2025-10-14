@@ -310,6 +310,9 @@ async def arknights_update_timers(_guild=None):
     ongoing_channel = main_guild.get_channel(ONGOING_EVENTS_CHANNELS["AK"])
     upcoming_channel = main_guild.get_channel(UPCOMING_EVENTS_CHANNELS["AK"])
 
+    # Track if any events were deleted
+    events_deleted = False
+
     async with aiosqlite.connect(AK_DB_PATH) as conn:
         # Fetch all events, sorted by start time
         async with conn.execute(
@@ -328,6 +331,7 @@ async def arknights_update_timers(_guild=None):
                 await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["AK"], event["id"])
                 await conn.execute("DELETE FROM events WHERE id=?", (event["id"],))
                 await conn.commit()
+                events_deleted = True
                 continue
 
             # If event is ongoing
@@ -351,6 +355,16 @@ async def arknights_update_timers(_guild=None):
                     await upsert_event_message(main_guild, upcoming_channel, event, event["id"])
                 # Remove from ongoing channel if exists (shouldn't be, but for safety)
                 await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["AK"], event["id"])
+    
+    # Update control panel if events were deleted
+    if events_deleted:
+        ak_logger.info("[arknights_update_timers] Events were deleted, updating control panel...")
+        try:
+            from control_panel import update_control_panel_messages
+            await update_control_panel_messages("AK")
+            ak_logger.info("[arknights_update_timers] Control panel updated.")
+        except Exception as e:
+            ak_logger.error(f"[arknights_update_timers] Failed to update control panel: {e}")
 
 # --- Parsing Helpers (unchanged) ---
 def parse_title_ak(text):
@@ -829,6 +843,15 @@ async def add_ak_event(ctx, event_data):
     await arknights_update_timers()
     ak_logger.info("[add_ak_event] Dashboard refresh completed.")
     
+    # Update control panel to show new event in Remove/Edit/Notif panels
+    ak_logger.info("[add_ak_event] Updating control panel with new event...")
+    try:
+        from control_panel import update_control_panel_messages
+        await update_control_panel_messages("AK")
+        ak_logger.info("[add_ak_event] Control panel updated.")
+    except Exception as e:
+        ak_logger.error(f"[add_ak_event] Failed to update control panel: {e}")
+    
 # --- Command to Manually Add Event from Tweet Link ---
 
 @bot.command()
@@ -1016,6 +1039,15 @@ async def ak_remove(ctx, *, title: str):
     ak_logger.info("[ak_remove] Refreshing dashboard after removing event...")
     await arknights_update_timers()
     ak_logger.info("[ak_remove] Dashboard refresh completed.")
+    
+    # Update control panel to remove event from lists
+    ak_logger.info("[ak_remove] Updating control panel after removing event...")
+    try:
+        from control_panel import update_control_panel_messages
+        await update_control_panel_messages("AK")
+        ak_logger.info("[ak_remove] Control panel updated.")
+    except Exception as e:
+        ak_logger.error(f"[ak_remove] Failed to update control panel: {e}")
 
 # --- Edit Event Command ---
 
@@ -1125,6 +1157,15 @@ async def ak_edit(ctx, title: str, item: str, *, value: str):
     ak_logger.info("[ak_edit] Refreshing dashboard after editing event...")
     await arknights_update_timers()
     ak_logger.info("[ak_edit] Dashboard refresh completed.")
+    
+    # Update control panel to reflect edits
+    ak_logger.info("[ak_edit] Updating control panel after editing event...")
+    try:
+        from control_panel import update_control_panel_messages
+        await update_control_panel_messages("AK")
+        ak_logger.info("[ak_edit] Control panel updated.")
+    except Exception as e:
+        ak_logger.error(f"[ak_edit] Failed to update control panel: {e}")
 
 # --- Test Notification Command ---
 @commands.has_permissions(administrator=True)
