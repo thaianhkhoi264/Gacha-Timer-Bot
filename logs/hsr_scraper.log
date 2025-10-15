@@ -49,3 +49,5 @@ Call log:
 [2025-10-14 04:05:31,606] [INFO] Found 26 accordion items
 [2025-10-14 04:05:31,608] [INFO] Successfully extracted 14 events
 [2025-10-14 04:05:31,617] [INFO] Loaded saved HTML from data\hsr_scraper\latest.html (3449215 bytes)
+[2025-10-15 13:48:01,005] [INFO] Registering HSR scraper Discord commands...
+[2025-10-15 13:48:01,051] [INFO] Prydwen database initialized at data\hsr_prydwen_data.db

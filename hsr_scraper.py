@@ -59,6 +59,7 @@ EVENT_TYPE_TO_CATEGORY = {
 async def init_prydwen_db():
     """Initialize the HSR Prydwen database with the events table."""
     async with aiosqlite.connect(DB_PATH) as conn:
+        # Create table with all columns
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,6 +83,20 @@ async def init_prydwen_db():
                 UNIQUE(title, type)
             )
         ''')
+        
+        # Check if featured columns exist, if not add them (for existing databases)
+        cursor = await conn.execute("PRAGMA table_info(events)")
+        columns = await cursor.fetchall()
+        column_names = [col[1] for col in columns]
+        
+        if 'featured_5star' not in column_names:
+            logger.info("Adding featured_5star column to existing database")
+            await conn.execute('ALTER TABLE events ADD COLUMN featured_5star TEXT')
+        
+        if 'featured_4star' not in column_names:
+            logger.info("Adding featured_4star column to existing database")
+            await conn.execute('ALTER TABLE events ADD COLUMN featured_4star TEXT')
+        
         await conn.commit()
     logger.info(f"Prydwen database initialized at {DB_PATH}")
 
@@ -127,68 +142,128 @@ async def save_events_to_db(events):
                 
                 if existing:
                     # Update existing event with new regional times
-                    await conn.execute('''
-                        UPDATE events SET
-                            category=?, status=?,
-                            na_start_date=?, na_end_date=?,
-                            eu_start_date=?, eu_end_date=?,
-                            asia_start_date=?, asia_end_date=?,
-                            time_remaining=?, description=?,
-                            image=?, css_class=?, 
-                            featured_5star=?, featured_4star=?,
-                            scraped_at=?
-                        WHERE id=?
-                    ''', (
-                        category,
-                        event.get('status', 'unknown'),
-                        event.get('na_start_date', ''),
-                        event.get('na_end_date', ''),
-                        event.get('eu_start_date', ''),
-                        event.get('eu_end_date', ''),
-                        event.get('asia_start_date', ''),
-                        event.get('asia_end_date', ''),
-                        event.get('time_remaining', ''),
-                        event.get('description', ''),
-                        event.get('image', ''),
-                        event.get('css_class', ''),
-                        event.get('featured_5star', ''),
-                        event.get('featured_4star', ''),
-                        scraped_at,
-                        existing[0]
-                    ))
+                    # Only include featured chars if it's a character banner
+                    if event_type == 'character_banner':
+                        await conn.execute('''
+                            UPDATE events SET
+                                category=?, status=?,
+                                na_start_date=?, na_end_date=?,
+                                eu_start_date=?, eu_end_date=?,
+                                asia_start_date=?, asia_end_date=?,
+                                time_remaining=?, description=?,
+                                image=?, css_class=?, 
+                                featured_5star=?, featured_4star=?,
+                                scraped_at=?
+                            WHERE id=?
+                        ''', (
+                            category,
+                            event.get('status', 'unknown'),
+                            event.get('na_start_date', ''),
+                            event.get('na_end_date', ''),
+                            event.get('eu_start_date', ''),
+                            event.get('eu_end_date', ''),
+                            event.get('asia_start_date', ''),
+                            event.get('asia_end_date', ''),
+                            event.get('time_remaining', ''),
+                            event.get('description', ''),
+                            event.get('image', ''),
+                            event.get('css_class', ''),
+                            event.get('featured_5star', ''),
+                            event.get('featured_4star', ''),
+                            scraped_at,
+                            existing[0]
+                        ))
+                    else:
+                        # Non-banner events - don't update featured chars
+                        await conn.execute('''
+                            UPDATE events SET
+                                category=?, status=?,
+                                na_start_date=?, na_end_date=?,
+                                eu_start_date=?, eu_end_date=?,
+                                asia_start_date=?, asia_end_date=?,
+                                time_remaining=?, description=?,
+                                image=?, css_class=?, 
+                                scraped_at=?
+                            WHERE id=?
+                        ''', (
+                            category,
+                            event.get('status', 'unknown'),
+                            event.get('na_start_date', ''),
+                            event.get('na_end_date', ''),
+                            event.get('eu_start_date', ''),
+                            event.get('eu_end_date', ''),
+                            event.get('asia_start_date', ''),
+                            event.get('asia_end_date', ''),
+                            event.get('time_remaining', ''),
+                            event.get('description', ''),
+                            event.get('image', ''),
+                            event.get('css_class', ''),
+                            scraped_at,
+                            existing[0]
+                        ))
                     stats["updated"] += 1
                     logger.info(f"Updated event: {title} ({event.get('status', 'unknown')})")
                 else:
                     # Insert new event with regional times
-                    await conn.execute('''
-                        INSERT INTO events (
-                            title, category, type, status,
-                            na_start_date, na_end_date,
-                            eu_start_date, eu_end_date,
-                            asia_start_date, asia_end_date,
-                            time_remaining, description, image, css_class,
-                            featured_5star, featured_4star,
+                    # Only include featured chars if it's a character banner
+                    if event_type == 'character_banner':
+                        await conn.execute('''
+                            INSERT INTO events (
+                                title, category, type, status,
+                                na_start_date, na_end_date,
+                                eu_start_date, eu_end_date,
+                                asia_start_date, asia_end_date,
+                                time_remaining, description, image, css_class,
+                                featured_5star, featured_4star,
+                                scraped_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            title,
+                            category,
+                            event_type,
+                            event.get('status', 'unknown'),
+                            event.get('na_start_date', ''),
+                            event.get('na_end_date', ''),
+                            event.get('eu_start_date', ''),
+                            event.get('eu_end_date', ''),
+                            event.get('asia_start_date', ''),
+                            event.get('asia_end_date', ''),
+                            event.get('time_remaining', ''),
+                            event.get('description', ''),
+                            event.get('image', ''),
+                            event.get('css_class', ''),
+                            event.get('featured_5star', ''),
+                            event.get('featured_4star', ''),
                             scraped_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        title,
-                        category,
-                        event_type,
-                        event.get('status', 'unknown'),
-                        event.get('na_start_date', ''),
-                        event.get('na_end_date', ''),
-                        event.get('eu_start_date', ''),
-                        event.get('eu_end_date', ''),
-                        event.get('asia_start_date', ''),
-                        event.get('asia_end_date', ''),
-                        event.get('time_remaining', ''),
-                        event.get('description', ''),
-                        event.get('image', ''),
-                        event.get('css_class', ''),
-                        event.get('featured_5star', ''),
-                        event.get('featured_4star', ''),
-                        scraped_at
-                    ))
+                        ))
+                    else:
+                        # Non-banner events - don't include featured chars
+                        await conn.execute('''
+                            INSERT INTO events (
+                                title, category, type, status,
+                                na_start_date, na_end_date,
+                                eu_start_date, eu_end_date,
+                                asia_start_date, asia_end_date,
+                                time_remaining, description, image, css_class,
+                                scraped_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            title,
+                            category,
+                            event_type,
+                            event.get('status', 'unknown'),
+                            event.get('na_start_date', ''),
+                            event.get('na_end_date', ''),
+                            event.get('eu_start_date', ''),
+                            event.get('eu_end_date', ''),
+                            event.get('asia_start_date', ''),
+                            event.get('asia_end_date', ''),
+                            event.get('time_remaining', ''),
+                            event.get('description', ''),
+                            event.get('image', ''),
+                            event.get('css_class', ''),
+                            scraped_at
+                        ))
                     stats["added"] += 1
                     logger.info(f"Added new event: {title} ({event.get('status', 'unknown')})")
             
@@ -470,12 +545,17 @@ def extract_events_from_regional_html(regional_html, banner_characters=None):
         key = (event['name'], event['type'])
         merged_events[key] = event.copy()
         
-        # Add featured characters if available
-        css_class = event.get('css_class', '').split()[0] if event.get('css_class') else ''
-        if css_class in banner_characters:
-            five_star, four_star = banner_characters[css_class]
-            merged_events[key]['featured_5star'] = five_star
-            merged_events[key]['featured_4star'] = four_star
+        # Add featured characters ONLY for character banners
+        if event.get('type') == 'character_banner':
+            css_class = event.get('css_class', '').split()[0] if event.get('css_class') else ''
+            if css_class in banner_characters:
+                five_star, four_star = banner_characters[css_class]
+                merged_events[key]['featured_5star'] = five_star
+                merged_events[key]['featured_4star'] = four_star
+            else:
+                # Character banner but no featured chars found
+                merged_events[key]['featured_5star'] = ''
+                merged_events[key]['featured_4star'] = ''
     
     # Merge EU times
     for event in all_eu_events:
