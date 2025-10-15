@@ -891,8 +891,10 @@ async def arknights_on_message(message, force=False):
     from global_config import LISTENER_CHANNELS
     ak_logger.info(f"on_message: Received message in channel {message.channel.id} (guild {getattr(message.guild, 'id', None)}) by user {message.author.id}")
 
-    if message.channel.id not in LISTENER_CHANNELS.values():
-        ak_logger.info(f"on_message: Channel {message.channel.id} not in LISTENER_CHANNELS, ignoring.")
+    # Only process messages from the AK listener channel
+    ak_channel_id = LISTENER_CHANNELS.get("AK")
+    if message.channel.id != ak_channel_id:
+        ak_logger.info(f"on_message: Channel {message.channel.id} is not the AK listener channel ({ak_channel_id}), ignoring.")
         return False
 
     twitter_link = None

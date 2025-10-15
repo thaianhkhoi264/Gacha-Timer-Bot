@@ -1,14 +1,28 @@
 # Gacha Timer Bot - Project Status & Context
 
-**Last Updated**: October 14, 2025  
-**Current Phase**: HSR Scraper Database Integration Complete
+**Last Updated**: October 15, 2025  
+**Current Phase**: Bug Fixes and Maintenance
 
 ## Project Overview
 Kanami (the Discord bot) is a multi-game event tracking and notification system. The bot monitors gacha game events, sends reminders, and provides a control panel interface for managing timers.
 
 ## Recent Major Updates
 
-### 1. HSR Scraper Database Integration (Completed - October 14, 2025)
+### 1. Arknights Listener Channel Fix (Completed - October 15, 2025)
+**Problem**: Arknights listener was monitoring ALL game listener channels (HSR, ZZZ, STRI, WUWA) instead of just the AK channel.
+
+**Root Cause**: 
+- `arknights_on_message()` was checking `if message.channel.id not in LISTENER_CHANNELS.values()`
+- This checked against ALL channel IDs in the dictionary, not just the AK channel
+
+**Solution**:
+- Changed to `if message.channel.id != LISTENER_CHANNELS.get("AK")`
+- Now only processes messages from the specific AK listener channel
+
+**Files Modified**:
+- `arknights_module.py`: Fixed channel check in `arknights_on_message()`
+
+### 2. HSR Scraper Database Integration (Completed - October 14, 2025)
 **Goal**: Store scraped Prydwen data in a dedicated database for later use in event creation.
 
 **Implementation**:
