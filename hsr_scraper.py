@@ -1149,7 +1149,7 @@ try:
     
     logger.info("Registering HSR scraper Discord commands...")
     
-    @bot.command(name="hsr_scrape_and_save")
+    @bot.command(name="hsr_scrape")
     @commands.has_permissions(administrator=True)
     async def hsr_scrape_and_save_command(ctx):
         """Scrapes Prydwen HSR website with regional times and featured characters"""
@@ -1216,7 +1216,7 @@ try:
             logger.error(f"Error in scrape command: {e}")
             await ctx.send(f"❌ Error during scraping: {str(e)}")
     
-    @bot.command(name="dump_hsr_prydwen_db")
+    @bot.command(name="hsr_dump_db_prydwen")
     @commands.has_permissions(administrator=True)
     async def dump_hsr_prydwen_db_command(ctx):
         """Dumps all events from the HSR Prydwen database with regional times"""
