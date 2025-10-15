@@ -22,6 +22,31 @@ Kanami (the Discord bot) is a multi-game event tracking and notification system.
 **Files Modified**:
 - `arknights_module.py`: Fixed channel check in `arknights_on_message()`
 
+**Status**: ✅ Fixed and tested
+
+### 1.1 HSR Scraper Commands Debug Logging (In Progress - October 15, 2025)
+**Problem**: Commands `!hsr_scrape_and_save` and `!dump_hsr_prydwen_db` not responding when called on Discord.
+
+**Investigation Steps**:
+1. ✅ Verified commands exist in `hsr_scraper.py`
+2. ✅ Verified `hsr_scraper` is imported in `main.py` (line 7)
+3. ✅ Verified all required functions exist
+4. ✅ Added debug logging to track command registration
+
+**Changes Made**:
+- Added logging message when command registration begins
+- Added success message when commands register successfully  
+- Split exception handling to catch ImportError vs other exceptions separately
+- Added `exc_info=True` to log full traceback if registration fails
+
+**Next Steps**:
+- Restart bot to see debug messages in logs
+- Check if commands show up in `!help` or bot command list
+- Verify administrator permissions are set correctly
+
+**Files Modified**:
+- `hsr_scraper.py`: Added debug logging for command registration
+
 ### 2. HSR Scraper Database Integration (Completed - October 14, 2025)
 **Goal**: Store scraped Prydwen data in a dedicated database for later use in event creation.
 

@@ -931,6 +931,8 @@ try:
     from discord.ext import commands
     import discord
     
+    logger.info("Registering HSR scraper Discord commands...")
+    
     @bot.command(name="hsr_scrape_and_save")
     @commands.has_permissions(administrator=True)
     async def hsr_scrape_and_save_command(ctx):
@@ -1079,7 +1081,12 @@ try:
         except Exception as e:
             logger.error(f"Error in dump command: {e}")
             await ctx.send(f"❌ Error dumping database: {str(e)}")
+    
+    logger.info("✅ HSR scraper commands registered successfully (hsr_scrape_and_save, dump_hsr_prydwen_db)")
 
-except ImportError:
+except ImportError as e:
     # bot.py not available, skip command registration
-    logger.info("Bot not available, skipping command registration")
+    logger.info(f"Bot not available, skipping command registration: {e}")
+except Exception as e:
+    # Some other error during command registration
+    logger.error(f"Error registering HSR scraper commands: {e}", exc_info=True)
