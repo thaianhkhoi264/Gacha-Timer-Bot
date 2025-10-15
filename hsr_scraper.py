@@ -187,7 +187,6 @@ async def save_events_to_db(events):
                         event.get('css_class', ''),
                         event.get('featured_5star', ''),
                         event.get('featured_4star', ''),
-                        event.get('css_class', ''),
                         scraped_at
                     ))
                     stats["added"] += 1
@@ -1089,55 +1088,65 @@ async def periodic_hsr_scraping_task():
     Background task that scrapes Prydwen HSR website every 24 hours.
     Runs immediately on bot startup and then repeats every 24 hours.
     """
-    logger.info("HSR periodic scraping task started")
-    
-    # Run immediately on startup (no initial delay for first scrape)
-    await asyncio.sleep(5)  # Just wait 5 seconds for bot to fully initialize
-    
-    while True:
-        try:
-            logger.info("Starting periodic HSR scrape...")
-            
-            # Run scraper in executor (Playwright is sync)
-            loop = asyncio.get_event_loop()
-            
-            # First, scrape regional HTML
-            regional_html = await loop.run_in_executor(
-                None, 
-                scrape_prydwen_with_regions,
-                True,  # save_html
-                True   # headless
-            )
-            
-            if not regional_html or not any(regional_html.values()):
-                logger.error("Periodic scrape failed - no HTML returned")
-            else:
-                # Extract featured characters from character banners
-                banner_characters = await loop.run_in_executor(
-                    None,
-                    scrape_and_extract_banner_characters,
-                    regional_html
+    try:
+        logger.info("HSR periodic scraping task started")
+        print("[HSR_SCRAPER] Periodic scraping task started")  # Console output for debugging
+        
+        # Run immediately on startup (no initial delay for first scrape)
+        await asyncio.sleep(5)  # Just wait 5 seconds for bot to fully initialize
+        
+        logger.info("HSR scraper: Starting first scrape after 5s initialization...")
+        print("[HSR_SCRAPER] Starting first scrape after initialization...")
+        
+        while True:
+            try:
+                logger.info("Starting periodic HSR scrape...")
+                
+                # Run scraper in executor (Playwright is sync)
+                loop = asyncio.get_event_loop()
+                
+                # First, scrape regional HTML
+                regional_html = await loop.run_in_executor(
+                    None, 
+                    scrape_prydwen_with_regions,
+                    True,  # save_html
+                    True   # headless
                 )
                 
-                # Extract events with banner character info
-                events = extract_events_from_regional_html(regional_html, banner_characters)
-                
-                if events:
-                    # Save to database
-                    stats = await save_events_to_db(events)
-                    logger.info(
-                        f"Periodic scrape complete: {len(events)} events, "
-                        f"{stats['added']} added, {stats['updated']} updated, {stats['errors']} errors"
-                    )
+                if not regional_html or not any(regional_html.values()):
+                    logger.error("Periodic scrape failed - no HTML returned")
                 else:
-                    logger.warning("Periodic scrape: No events extracted")
+                    # Extract featured characters from character banners
+                    banner_characters = await loop.run_in_executor(
+                        None,
+                        scrape_and_extract_banner_characters,
+                        regional_html
+                    )
                     
-        except Exception as e:
-            logger.error(f"Error in periodic HSR scraping task: {e}")
-        
-        # Wait 24 hours before next scrape
-        logger.info("Next HSR scrape in 24 hours")
-        await asyncio.sleep(86400)  # 24 hours in seconds
+                    # Extract events with banner character info
+                    events = extract_events_from_regional_html(regional_html, banner_characters)
+                    
+                    if events:
+                        # Save to database
+                        stats = await save_events_to_db(events)
+                        logger.info(
+                            f"Periodic scrape complete: {len(events)} events, "
+                            f"{stats['added']} added, {stats['updated']} updated, {stats['errors']} errors"
+                        )
+                    else:
+                        logger.warning("Periodic scrape: No events extracted")
+                        
+            except Exception as e:
+                logger.error(f"Error in periodic HSR scraping task: {e}", exc_info=True)
+            
+            # Wait 24 hours before next scrape
+            logger.info("Next HSR scrape in 24 hours")
+            await asyncio.sleep(86400)  # 24 hours in seconds
+            
+    except Exception as e:
+        logger.error(f"Fatal error in periodic_hsr_scraping_task (outer): {e}", exc_info=True)
+        print(f"[HSR_SCRAPER] FATAL ERROR: {e}")
+        raise  # Re-raise to see the error
 
 # === Discord Bot Commands ===
 
