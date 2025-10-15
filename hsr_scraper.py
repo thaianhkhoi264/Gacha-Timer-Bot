@@ -76,6 +76,8 @@ async def init_prydwen_db():
                 description TEXT,
                 image TEXT,
                 css_class TEXT,
+                featured_5star TEXT,
+                featured_4star TEXT,
                 scraped_at TEXT NOT NULL,
                 UNIQUE(title, type)
             )
@@ -132,7 +134,9 @@ async def save_events_to_db(events):
                             eu_start_date=?, eu_end_date=?,
                             asia_start_date=?, asia_end_date=?,
                             time_remaining=?, description=?,
-                            image=?, css_class=?, scraped_at=?
+                            image=?, css_class=?, 
+                            featured_5star=?, featured_4star=?,
+                            scraped_at=?
                         WHERE id=?
                     ''', (
                         category,
@@ -147,6 +151,8 @@ async def save_events_to_db(events):
                         event.get('description', ''),
                         event.get('image', ''),
                         event.get('css_class', ''),
+                        event.get('featured_5star', ''),
+                        event.get('featured_4star', ''),
                         scraped_at,
                         existing[0]
                     ))
@@ -160,8 +166,10 @@ async def save_events_to_db(events):
                             na_start_date, na_end_date,
                             eu_start_date, eu_end_date,
                             asia_start_date, asia_end_date,
-                            time_remaining, description, image, css_class, scraped_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            time_remaining, description, image, css_class,
+                            featured_5star, featured_4star,
+                            scraped_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         title,
                         category,
@@ -176,6 +184,9 @@ async def save_events_to_db(events):
                         event.get('time_remaining', ''),
                         event.get('description', ''),
                         event.get('image', ''),
+                        event.get('css_class', ''),
+                        event.get('featured_5star', ''),
+                        event.get('featured_4star', ''),
                         event.get('css_class', ''),
                         scraped_at
                     ))
@@ -237,6 +248,47 @@ def ensure_save_directory():
     """Creates the save directory if it doesn't exist."""
     os.makedirs(SAVE_DIR, exist_ok=True)
     logger.info(f"Save directory ensured: {SAVE_DIR}")
+
+def extract_featured_characters(accordion_body_html):
+    """
+    Extract featured 5-star and 4-star characters from expanded banner accordion body.
+    
+    Args:
+        accordion_body_html (str): HTML content of the expanded accordion body
+    
+    Returns:
+        tuple: (featured_5star, featured_4star) as comma-separated strings
+    """
+    import re
+    
+    five_star_chars = []
+    four_star_chars = []
+    
+    # Find 5-star characters section
+    five_pattern = r'<p class="featured">Featured\s+<span[^>]*rar-5[^>]*>5★</span>\s+character[s]?:</p>\s*<div class="featured-characters">(.*?)</div>'
+    five_match = re.search(five_pattern, accordion_body_html, re.DOTALL | re.IGNORECASE)
+    
+    if five_match:
+        five_section = five_match.group(1)
+        # Extract character links
+        char_links = re.findall(r'href="(/star-rail/characters/[^"]+)"', five_section)
+        for link in char_links:
+            char_name = link.split('/')[-1].replace('-', ' ').title()
+            five_star_chars.append(char_name)
+    
+    # Find 4-star characters section
+    four_pattern = r'<p class="featured">Featured\s+<span[^>]*rar-4[^>]*>4★</span>\s+character[s]?:</p>\s*<div class="featured-characters">(.*?)</div>'
+    four_match = re.search(four_pattern, accordion_body_html, re.DOTALL | re.IGNORECASE)
+    
+    if four_match:
+        four_section = four_match.group(1)
+        # Extract character links
+        char_links = re.findall(r'href="(/star-rail/characters/[^"]+)"', four_section)
+        for link in char_links:
+            char_name = link.split('/')[-1].replace('-', ' ').title()
+            four_star_chars.append(char_name)
+    
+    return ', '.join(five_star_chars), ', '.join(four_star_chars)
 
 def extract_events_from_html(html_content, region="NA"):
     """
@@ -383,18 +435,23 @@ def determine_event_type(css_class, event_name):
     # Default to other_event
     return 'other_event'
 
-def extract_events_from_regional_html(regional_html):
+def extract_events_from_regional_html(regional_html, banner_characters=None):
     """
     Extract events from all three regional HTMLs (NA, EU, Asia) and merge them.
+    Also merges simultaneous character banners into combined entries.
     
     Args:
         regional_html (dict): Dict with keys "NA", "EU", "Asia" containing HTML content
+        banner_characters (dict): Dict mapping banner CSS class to (featured_5star, featured_4star) tuples
     
     Returns:
         list: List of event dicts with regional time fields and status
     """
     import re
     logger.info("Extracting events from regional HTML...")
+    
+    if banner_characters is None:
+        banner_characters = {}
     
     # Extract from each region
     na_ongoing, na_upcoming = extract_events_from_html(regional_html.get("NA", ""), "NA")
@@ -413,6 +470,13 @@ def extract_events_from_regional_html(regional_html):
     for event in all_na_events:
         key = (event['name'], event['type'])
         merged_events[key] = event.copy()
+        
+        # Add featured characters if available
+        css_class = event.get('css_class', '').split()[0] if event.get('css_class') else ''
+        if css_class in banner_characters:
+            five_star, four_star = banner_characters[css_class]
+            merged_events[key]['featured_5star'] = five_star
+            merged_events[key]['featured_4star'] = four_star
     
     # Merge EU times
     for event in all_eu_events:
@@ -440,7 +504,7 @@ def extract_events_from_regional_html(regional_html):
             merged_events[key]['eu_start_date'] = ""
             merged_events[key]['eu_end_date'] = ""
     
-    # Convert to list and clean up
+    # Convert to list
     result = []
     for event in merged_events.values():
         # Ensure all regional fields exist
@@ -455,8 +519,66 @@ def extract_events_from_regional_html(regional_html):
         
         result.append(event)
     
-    logger.info(f"Merged {len(result)} unique events with regional times")
+    # Merge simultaneous character banners
+    result = merge_simultaneous_character_banners(result)
+    
+    logger.info(f"Processed {len(result)} events (after merging simultaneous banners)")
     return result
+
+def merge_simultaneous_character_banners(events):
+    """
+    Merge simultaneous ongoing character banners into combined entries.
+    E.g., "Evil March Can't Hurt You" + "RE: Mahou Shoujo" → "Evernight & The Herta Banner"
+    
+    Args:
+        events (list): List of event dicts
+    
+    Returns:
+        list: List with character banners merged
+    """
+    # Find ongoing character banners
+    ongoing_char_banners = [
+        e for e in events 
+        if e.get('type') == 'character_banner' and e.get('status') == 'ongoing'
+    ]
+    
+    # If there are exactly 2 ongoing character banners, merge them
+    if len(ongoing_char_banners) == 2:
+        banner1, banner2 = ongoing_char_banners
+        
+        # Get the 5-star character names (without "March 7Th" formatting)
+        char1 = banner1.get('featured_5star', '').split(',')[0].strip() if banner1.get('featured_5star') else ''
+        char2 = banner2.get('featured_5star', '').split(',')[0].strip() if banner2.get('featured_5star') else ''
+        
+        # Create combined banner
+        if char1 and char2:
+            combined = {
+                'name': f"{char1} & {char2} Banner",
+                'type': 'character_banner',
+                'status': 'ongoing',
+                'na_start_date': banner1.get('na_start_date', ''),
+                'na_end_date': banner1.get('na_end_date', ''),
+                'eu_start_date': banner1.get('eu_start_date', ''),
+                'eu_end_date': banner1.get('eu_end_date', ''),
+                'asia_start_date': banner1.get('asia_start_date', ''),
+                'asia_end_date': banner1.get('asia_end_date', ''),
+                'time_remaining': banner1.get('time_remaining', ''),
+                'description': f"Dual character banner featuring {char1} and {char2}",
+                'image': '',
+                'css_class': f"{banner1.get('css_class', '').split()[0]} {banner2.get('css_class', '').split()[0]}",
+                'featured_5star': f"{banner1.get('featured_5star', '')}, {banner2.get('featured_5star', '')}",
+                'featured_4star': f"{banner1.get('featured_4star', '')}, {banner2.get('featured_4star', '')}",
+            }
+            
+            # Remove original banners and add combined
+            result = [e for e in events if e not in ongoing_char_banners]
+            result.append(combined)
+            
+            logger.info(f"Merged character banners: '{banner1['name']}' + '{banner2['name']}' → '{combined['name']}'")
+            return result
+    
+    # No merging needed
+    return events
 
 def scrape_prydwen_with_regions(save_html=True, headless=True):
     """
@@ -625,6 +747,91 @@ def scrape_prydwen(save_html=True, headless=True):
     except Exception as e:
         logger.error(f"Error while scraping: {e}")
         return None
+
+def scrape_and_extract_banner_characters(regional_html):
+    """
+    Click on character banners to expand them and extract featured characters.
+    
+    Args:
+        regional_html (dict): Dict with keys "NA", "EU", "Asia" containing HTML content
+    
+    Returns:
+        dict: Dict mapping banner CSS class to (featured_5star, featured_4star) tuples
+    """
+    logger.info("Expanding character banners to extract featured characters...")
+    banner_characters = {}
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+            page = context.new_page()
+            
+            # Navigate to page
+            page.goto(PRYDWEN_URL, wait_until='domcontentloaded', timeout=60000)
+            page.wait_for_timeout(5000)
+            
+            # Find all character banner accordion items (those with specific CSS classes)
+            # Common banner classes: evernight, the-herta, saber, archer, etc.
+            banner_selectors = [
+                'div.evernight.accordion-item',
+                'div.the-herta.accordion-item',
+                'div.saber.accordion-item',
+                'div.archer.accordion-item',
+            ]
+            
+            # Try to find any character banner (they have specific character names in CSS)
+            all_accordion_items = page.query_selector_all('div.accordion-item')
+            
+            for item in all_accordion_items:
+                # Get the class attribute
+                class_attr = item.get_attribute('class')
+                
+                # Check if it's a character banner (not generic accordion-item only)
+                if class_attr and 'accordion-item' in class_attr:
+                    classes = class_attr.split()
+                    # Character banners usually have a specific class before 'accordion-item'
+                    if len(classes) > 1:
+                        banner_class = classes[0]  # e.g., 'evernight', 'the-herta'
+                        
+                        # Check if it's likely a character banner (has character-specific class)
+                        if banner_class not in ['planar-fissure', 'memory-of-chaos', 'pure-fiction', 
+                                                'apocalyptic-shadow', 'apo', 'nameless-honor', 'odyssey', 'realm']:
+                            try:
+                                # Find the button within this item
+                                button = item.query_selector('button.accordion-button')
+                                
+                                if button:
+                                    # Check if collapsed
+                                    is_expanded = button.get_attribute('aria-expanded')
+                                    
+                                    if is_expanded == 'false':
+                                        # Click to expand
+                                        button.click()
+                                        page.wait_for_timeout(1000)  # Wait for expansion
+                                    
+                                    # Get the accordion body
+                                    body = item.query_selector('div.accordion-body')
+                                    
+                                    if body:
+                                        body_html = body.inner_html()
+                                        
+                                        # Extract featured characters
+                                        five_star, four_star = extract_featured_characters(body_html)
+                                        
+                                        if five_star:  # Only store if we found 5-star characters
+                                            banner_characters[banner_class] = (five_star, four_star)
+                                            logger.info(f"  Banner '{banner_class}': 5★={five_star}, 4★={four_star}")
+                            except Exception as e:
+                                logger.warning(f"  Error processing banner '{banner_class}': {e}")
+                                continue
+            
+            browser.close()
+            
+    except Exception as e:
+        logger.error(f"Error extracting banner characters: {e}")
+    
+    return banner_characters
 
 def get_latest_saved_html():
     """
@@ -880,12 +1087,12 @@ if __name__ == "__main__":
 async def periodic_hsr_scraping_task():
     """
     Background task that scrapes Prydwen HSR website every 24 hours.
-    Runs on bot startup and then repeats every 24 hours.
+    Runs immediately on bot startup and then repeats every 24 hours.
     """
     logger.info("HSR periodic scraping task started")
     
-    # Run immediately on startup
-    await asyncio.sleep(5)  # Wait 5 seconds for bot to fully initialize
+    # Run immediately on startup (no initial delay for first scrape)
+    await asyncio.sleep(5)  # Just wait 5 seconds for bot to fully initialize
     
     while True:
         try:
@@ -893,6 +1100,8 @@ async def periodic_hsr_scraping_task():
             
             # Run scraper in executor (Playwright is sync)
             loop = asyncio.get_event_loop()
+            
+            # First, scrape regional HTML
             regional_html = await loop.run_in_executor(
                 None, 
                 scrape_prydwen_with_regions,
@@ -903,8 +1112,15 @@ async def periodic_hsr_scraping_task():
             if not regional_html or not any(regional_html.values()):
                 logger.error("Periodic scrape failed - no HTML returned")
             else:
-                # Extract events
-                events = extract_events_from_regional_html(regional_html)
+                # Extract featured characters from character banners
+                banner_characters = await loop.run_in_executor(
+                    None,
+                    scrape_and_extract_banner_characters,
+                    regional_html
+                )
+                
+                # Extract events with banner character info
+                events = extract_events_from_regional_html(regional_html, banner_characters)
                 
                 if events:
                     # Save to database
@@ -936,7 +1152,7 @@ try:
     @bot.command(name="hsr_scrape_and_save")
     @commands.has_permissions(administrator=True)
     async def hsr_scrape_and_save_command(ctx):
-        """Scrapes Prydwen HSR website with regional times and saves events to database"""
+        """Scrapes Prydwen HSR website with regional times and featured characters"""
         await ctx.send("🔄 Scraping Prydwen Star Rail website (NA/EU/Asia regions)...")
         
         try:
@@ -948,10 +1164,15 @@ try:
                 await ctx.send("❌ Failed to scrape website")
                 return
             
+            await ctx.send("🎭 Extracting featured characters from banners...")
+            
+            # Extract featured characters
+            banner_characters = await loop.run_in_executor(None, scrape_and_extract_banner_characters, regional_html)
+            
             await ctx.send("📊 Extracting events from regional data...")
             
-            # Extract events with regional times
-            events = extract_events_from_regional_html(regional_html)
+            # Extract events with regional times and featured characters
+            events = extract_events_from_regional_html(regional_html, banner_characters)
             
             if not events:
                 await ctx.send("⚠️ No events found in scraped data")
@@ -965,7 +1186,7 @@ try:
             # Send results
             embed = discord.Embed(
                 title="✅ HSR Prydwen Scrape Complete",
-                description=f"Successfully scraped {len(events)} events from Prydwen\n(with NA, EU, and Asia regional times)",
+                description=f"Successfully scraped {len(events)} events from Prydwen\n(with NA, EU, Asia times + featured characters)",
                 color=discord.Color.green()
             )
             embed.add_field(name="Added", value=str(stats['added']), inline=True)
@@ -977,6 +1198,15 @@ try:
             upcoming = sum(1 for e in events if e.get('status') == 'upcoming')
             embed.add_field(name="Ongoing", value=str(ongoing), inline=True)
             embed.add_field(name="Upcoming", value=str(upcoming), inline=True)
+            
+            # Show character banners with featured chars
+            char_banners = [e for e in events if e.get('type') == 'character_banner' and e.get('featured_5star')]
+            if char_banners:
+                banner_info = "\n".join([
+                    f"**{e['name']}**\n5★: {e.get('featured_5star', 'N/A')}\n4★: {e.get('featured_4star', 'N/A')}"
+                    for e in char_banners[:2]  # Show first 2
+                ])
+                embed.add_field(name="Character Banners", value=banner_info, inline=False)
             
             embed.set_footer(text=f"Database: {DB_PATH}")
             
