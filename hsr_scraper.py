@@ -10,6 +10,9 @@ import logging
 import aiosqlite
 import asyncio
 import re
+import requests
+import base64
+from urllib.parse import urljoin
 
 # Setup logging
 logger = logging.getLogger("hsr_scraper")
@@ -35,6 +38,7 @@ logger.propagate = True
 # Configuration
 PRYDWEN_URL = "https://www.prydwen.gg/star-rail/"
 SAVE_DIR = os.path.join("data", "hsr_scraper")
+IMAGE_DIR = os.path.join("data", "hsr_scraper", "images")
 DB_PATH = os.path.join("data", "hsr_prydwen_data.db")
 
 # Event type to category mapping (for bot logic)
@@ -238,6 +242,92 @@ async def get_all_events_from_db():
 def ensure_save_directory():
     """Creates the save directory if it doesn't exist."""
     os.makedirs(SAVE_DIR, exist_ok=True)
+    os.makedirs(IMAGE_DIR, exist_ok=True)
+
+def download_event_image(image_data, event_name):
+    """
+    Downloads or decodes an event banner image and saves it locally.
+    
+    Args:
+        image_data (str): Can be:
+            - Base64 data URI (data:image/webp;base64,...)
+            - Regular URL (/static/...)
+        event_name (str): Event name for filename
+    
+    Returns:
+        str: Local file path if successful, empty string otherwise
+    """
+    if not image_data:
+        return ""
+    
+    try:
+        # Create safe filename from event name
+        safe_name = re.sub(r'[^\w\s-]', '', event_name).strip().replace(' ', '_')
+        
+        # Handle base64-encoded data URIs (the event banners from CSS)
+        if image_data.startswith('data:image'):
+            # Skip SVG placeholders
+            if 'svg' in image_data[:30].lower():
+                return ""
+            
+            # Extract base64 data
+            match = re.search(r'data:image/(\w+);base64,(.+)', image_data)
+            if match:
+                img_format = match.group(1)
+                b64_data = match.group(2)
+                
+                ext = f'.{img_format}'
+                filename = f"{safe_name}_banner{ext}"
+                filepath = os.path.join(IMAGE_DIR, filename)
+                
+                # Decode and save if it doesn't exist
+                if not os.path.exists(filepath):
+                    logger.info(f"Decoding banner image for '{event_name}'...")
+                    img_bytes = base64.b64decode(b64_data)
+                    
+                    with open(filepath, 'wb') as f:
+                        f.write(img_bytes)
+                    
+                    logger.info(f"  Saved to: {filepath}")
+                else:
+                    logger.debug(f"Banner already exists: {filepath}")
+                
+                return filepath
+        
+        # Handle regular URLs
+        else:
+            # Make URL absolute if it's relative
+            if image_data.startswith('/'):
+                full_url = urljoin(PRYDWEN_URL, image_data)
+            else:
+                full_url = image_data
+            
+            # Get file extension from URL
+            ext = os.path.splitext(full_url.split('?')[0])[1]
+            if not ext or ext not in ['.png', '.jpg', '.jpeg', '.webp', '.gif']:
+                ext = '.webp'
+            
+            filename = f"{safe_name}{ext}"
+            filepath = os.path.join(IMAGE_DIR, filename)
+            
+            # Download image if it doesn't exist
+            if not os.path.exists(filepath):
+                logger.info(f"Downloading image for '{event_name}'...")
+                response = requests.get(full_url, timeout=10)
+                response.raise_for_status()
+                
+                with open(filepath, 'wb') as f:
+                    f.write(response.content)
+                
+                logger.info(f"  Saved to: {filepath}")
+            else:
+                logger.debug(f"Image already exists: {filepath}")
+            
+            return filepath
+    
+    except Exception as e:
+        logger.warning(f"Failed to process image for '{event_name}': {e}")
+        return ""
 
 def extract_featured_characters(accordion_body_html):
     """Extract featured 5-star and 4-star characters from expanded banner accordion."""
@@ -416,9 +506,32 @@ def scrape_and_extract_banner_characters(html_content):
     
     return banner_characters
 
+def extract_banner_images_from_css(html_content):
+    """
+    Extract banner background images from CSS in the HTML.
+    These are base64-encoded images in CSS rules like:
+    .accordion-item.evernight button{background-image:url(data:image/webp;base64,...)}
+    
+    Returns:
+        dict: Mapping of CSS class names to base64 data URIs
+    """
+    banner_images = {}
+    
+    # Find CSS rules with banner background images
+    # Pattern: .accordion-item.CLASSNAME button{...background-image:url(DATA)...}
+    css_pattern = r'\.accordion-item\.(\w+)\s+button\{[^}]*background-image:\s*url\((data:image/[^)]+)\)'
+    matches = re.findall(css_pattern, html_content)
+    
+    for css_class, data_uri in matches:
+        banner_images[css_class] = data_uri
+        logger.debug(f"Found banner image for class '{css_class}'")
+    
+    logger.info(f"Extracted {len(banner_images)} banner images from CSS")
+    return banner_images
+
 def extract_events_from_html(html_content, banner_characters=None):
     """
-    Extract events from HTML content (server time).
+    Extract events from HTML content (server time) and download event banner images.
     
     Returns:
         list: List of event dictionaries
@@ -430,6 +543,12 @@ def extract_events_from_html(html_content, banner_characters=None):
     
     events = []
     
+    # Ensure image directory exists
+    ensure_save_directory()
+    
+    # First, extract all banner images from CSS
+    banner_images = extract_banner_images_from_css(html_content)
+    
     # Find all accordion items
     accordion_pattern = r'<div class="([^"]*accordion-item[^"]*)"[^>]*>(.*?)</div>\s*</div>\s*</div>'
     items = re.findall(accordion_pattern, html_content, re.DOTALL)
@@ -440,6 +559,16 @@ def extract_events_from_html(html_content, banner_characters=None):
         if not name_match:
             continue
         event_name = name_match.group(1).strip()
+        
+        # Extract the CSS class name (e.g., "evernight" from "evernight accordion-item")
+        css_class_match = re.search(r'(\w+)\s+accordion-item', item_class)
+        css_class = css_class_match.group(1) if css_class_match else ""
+        
+        # Get banner image from CSS mapping
+        image_path = ""
+        if css_class and css_class in banner_images:
+            banner_data_uri = banner_images[css_class]
+            image_path = download_event_image(banner_data_uri, event_name)
         
         # Extract time remaining
         time_match = re.search(r'<span class="time">([^<]+)</span>', item_content)
@@ -478,7 +607,8 @@ def extract_events_from_html(html_content, banner_characters=None):
             'start_date': start_date,
             'end_date': end_date,
             'time_remaining': time_remaining,
-            'css_class': item_class
+            'css_class': item_class,
+            'image': image_path  # Store local file path
         }
         
         # Add featured characters for character banners
@@ -494,7 +624,7 @@ def extract_events_from_html(html_content, banner_characters=None):
         
         events.append(event)
     
-    logger.info(f"Extracted {len(events)} events")
+    logger.info(f"Extracted {len(events)} events with images")
     
     # Merge simultaneous character banners
     events = merge_simultaneous_character_banners(events)
@@ -520,6 +650,7 @@ def merge_simultaneous_character_banners(events):
         char2 = banner2.get('featured_5star', '').split(',')[0].strip() if banner2.get('featured_5star') else ''
         
         if char1 and char2:
+            # Use the first banner's image as the combined image
             combined = {
                 'name': f"{char1} & {char2} Banner",
                 'type': 'character_banner',
@@ -528,7 +659,7 @@ def merge_simultaneous_character_banners(events):
                 'end_date': banner1.get('end_date', ''),
                 'time_remaining': banner1.get('time_remaining', ''),
                 'description': f"Dual character banner featuring {char1} and {char2}",
-                'image': '',
+                'image': banner1.get('image', ''),  # Use first banner's image
                 'css_class': f"{banner1.get('css_class', '').split()[0]} {banner2.get('css_class', '').split()[0]}",
                 'featured_5star': f"{banner1.get('featured_5star', '')}, {banner2.get('featured_5star', '')}",
                 'featured_4star': f"{banner1.get('featured_4star', '')}, {banner2.get('featured_4star', '')}",

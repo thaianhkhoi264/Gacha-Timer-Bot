@@ -437,6 +437,32 @@ async def on_message(message):
     if message.author == bot.user:
         return  # Ignore messages from the bot itself
 
+    # Forward DMs from non-owner users to the owner
+    if isinstance(message.channel, discord.DMChannel) and message.author.id != OWNER_USER_ID:
+        try:
+            owner = await bot.fetch_user(OWNER_USER_ID)
+            embed = discord.Embed(
+                title="📬 Forwarded DM",
+                description=message.content,
+                color=discord.Color.blue(),
+                timestamp=message.created_at
+            )
+            embed.set_author(
+                name=f"{message.author.name} ({message.author.id})",
+                icon_url=message.author.display_avatar.url
+            )
+            
+            # Add attachments if any
+            if message.attachments:
+                attachment_urls = "\n".join([att.url for att in message.attachments])
+                embed.add_field(name="Attachments", value=attachment_urls, inline=False)
+            
+            await owner.send(embed=embed)
+            print(f"[DM Forward] Forwarded message from {message.author.name} ({message.author.id}) to owner")
+        except Exception as e:
+            print(f"[DM Forward] Failed to forward DM to owner: {e}")
+        return  # Don't process DMs further
+
     # Call the tweet listener function to handle Twitter/X messages
     # if await tweet_listener_on_message(message):
     #     return

@@ -5,7 +5,10 @@ from bot import bot
 from global_config import *
 
 USER_ID = 443416461457883136  # Naito's User ID
-MESSAGE = "It's time to sleep little boy <:KanamiAnger:1406653154111524924>"
+MESSAGE = "It's time to sleep little boy <:KanamiAnger:1406653154111524924>. Kanami will keep reminding you until you go to sleep!"
+FOLLOW_UP_MESSAGE = "Kanami is reminding you again! Go to sleep now! <:KanamiAnger:1406653154111524924>"
+REMINDER_INTERVAL = 300  # 5 minutes in seconds
+REMINDER_DURATION = 1800  # Keep reminding for 30 minutes total
 
 print("[Reminder] Module loaded.")
 
@@ -69,6 +72,41 @@ async def daily_reminder_task():
             reminderer = await bot.fetch_user(264758014198808577)  # Alfa
             await reminderer.send(f"Kanami reminded Naito to go to sleep. You should too <:KanamiHeart:1374409597628186624>")
             print("[Reminder] Confirmation sent to Alfa")
+            
+            # Keep reminding the main user every 5 minutes for 30 minutes total (max 6 reminders)
+            reminder_count = 1
+            reminder_start_time = datetime.now(tz)
+            max_reminders = REMINDER_DURATION // REMINDER_INTERVAL  # 30 min / 5 min = 6 reminders
+            
+            while reminder_count < max_reminders:
+                print(f"[Reminder] Waiting for user response (5 minutes) - Reminder #{reminder_count}/{max_reminders}")
+                try:
+                    # Wait for a DM from the user for 5 minutes
+                    def check(m):
+                        return m.author.id == USER_ID and isinstance(m.channel, bot.dm_channel.__class__)
+                    
+                    msg = await bot.wait_for('message', check=check, timeout=REMINDER_INTERVAL)
+                    print(f"[Reminder] User responded: '{msg.content}' - Stopping reminders.")
+                    
+                    # Send confirmation to owner that user responded
+                    await owner.send(f"Naito responded to the reminder after '{reminder_count}' messages")
+                    print("[Reminder] Response confirmation sent to owner")
+                    break  # Exit the reminder loop
+                    
+                except asyncio.TimeoutError:
+                    # User didn't respond in 5 minutes, send another reminder
+                    reminder_count += 1
+                    elapsed_time = (datetime.now(tz) - reminder_start_time).total_seconds() / 60
+                    print(f"[Reminder] No response after 5 minutes ({elapsed_time:.1f} min elapsed). Sending reminder #{reminder_count}...")
+                    await user.send(FOLLOW_UP_MESSAGE)
+                    print(f"[Reminder] Follow-up reminder #{reminder_count}/{max_reminders} sent to user {USER_ID}")
+            
+            # If we exhausted all reminders without a response
+            if reminder_count >= max_reminders:
+                print(f"[Reminder] Maximum reminder duration (30 minutes) reached. Stopping reminders.")
+                await owner.send(f"Naito did not respond after {max_reminders} reminders over 30 minutes. 💤")
+                print("[Reminder] Non-response notification sent to owner")
+                    
         except Exception as e:
             print(f"[Reminder] Failed to send DM: {e}")
         
