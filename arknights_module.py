@@ -373,6 +373,7 @@ def parse_title_ak(text):
     Handles banner logic as described in the prompt.
     """
     import re
+    
     # 1. Maintenance
     maint_match = re.search(r"maintenance on (\w+ \d{1,2}, \d{4})", text, re.IGNORECASE)
     if maint_match:
@@ -425,6 +426,10 @@ def parse_title_ak(text):
         else:
             return "Special Banner"
 
+    # Check for "Kernel Locating" banner
+    if "kernel locating" in text.lower():
+        return "Kernel Locating"
+    
     # Fallback: first non-empty line after "Dear Doctor,"
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     for i, line in enumerate(lines):
@@ -555,86 +560,96 @@ async def is_ak_event_tweet(tweet_text):
     Returns True if it's an event, False otherwise.
     """
     prompt = (
-        "Classify the following tweet for the game profile 'AK' (Arknights)."
-        ""
-        "Reply only with 'Event' if it is an in-game event, banner, or maintenance/update announcement that has a clear start and end time, or a clear time window for participation or availability."
-        "Do NOT classify as 'Event' if the tweet is about outfits, skins, music, comics, trailers, fanart, lore, rewards, or any non-event content, even if they have a time window."
-        "Outfit/skin announcements are NOT events, even if they have a start/end date."
-        "The tweet is only classified as an 'Event' if it is about gameplay content (e.g., new stages, banners, maintenance, or in-game missions) with a time window."
-        "If the tweet is not an event, reply only with 'Filler'."
-        ""
-        "Examples:"
-        ""
-        "Tweet:"
-        "Dear Doctor,"
-        "New episode: Dissociative Recombination will soon be live on September 16, 10:00 (UTC-7), and some of the contents are available for a limited time. Please refer to the following notification for the event details."
-        "Classification: Event"
-        ""
-        "Tweet:"
-        "【Ambience Synesthesia Tailor-Provided - Golden Reverie - Muelsyse】"
-        "Now available at the Store until October 14, 2025, 03:59 (UTC-7)!"
-        "Classification: Filler"
-        ""
-        "Tweet:"
-        "Dear Doctor, thank you for playing New episode: Dissociative Recombination!"
-        "\"Hope is never a lie. Rhodes Island still clings to that faintest sliver of possibility—to press forward.\""
-        "Classification: Filler"
-        ""
-        "Tweet:"
-        "Arknights EP - Skeletal Wings"
-        "When wind swept through, bore did the tide; in dust left in endlessness, memories laid."
-        "Skeletal wings carving yesterdays, measuring unfinished faraways."
-        "Classification: Filler"
-        ""
-        "Tweet:"
-        "【Ambience Synesthesia Tailor-Provided - Melodic Flutter - Ines】"
-        "Now available at the Store until October 14, 2025, 03:59 (UTC-7)!"
-        "Classification: Filler"
-        ""
-        "Tweet:"
-        "【0011 Tempest Series - Candy Strike - Odda】"
-        "Collect 'Courage' Badge to redeem this outfit FOR FREE in Closure's Backup before October 7, 2025, 03:59 (UTC-7)!"
-        "Classification: Filler"
-        ""
-        "Tweet:"
-        "【New Operators】"
-        "Operators Mon3tr, Alanna and Windscoot will be rated up in the Limited-time Headhunting - Command: Reconstruction between September 16, 2025, 10:00 - September 30, 2025, 03:59 (UTC-7)!"
-        "Classification: Event"
-        ""
-        "Tweet:"
-        "Dear Doctor, the new episode: Dissociative Recombination will be available soon. Here is a brief introduction about the new enemies and the new mechanisms. Hope this can help you in challenging the stages of Dissociative Recombination."
-        "Classification: Filler"
-        ""
-        "Tweet:"
-        "Dear Doctor,"
-        "The following Operators will appear at a higher rate between September 16, 2025, 10:00 - September 30, 2025, 03:59 (UTC-7)."
-        "★★★★★★: Mon3tr"
-        "★★★★★: Alanna / Cement"
-        "★★★★: Windscoot"
-        "Classification: Event"
-        ""
-        "Tweet:"
-        "Dear Doctor,"
-        "Please note that we plan to perform the following server maintenance on September 16, 2025, 10:00-10:10 (UTC-7). Thank you for your understanding and support."
-        "Classification: Event"
-        ""
-        "Tweet:"
-        "Dear Doctor,"
-        "Limited-Time Headhunting - Orienteering Headhunting will be available between September 4, 2025, 10:00 – September 18, 2025, 03:59 (UTC-7)."
-        "Classification: Event"
-        ""
-        "Tweet:"
-        "【EPOQUE Collection - Playfellows - Vermeil】"
-        "Raise Hype levels in Icebreaker Games #1 to obtain this outfit FOR FREE before September 28, 2025, 03:59 (UTC-7)!"
-        "Classification: Filler"
-        ""
-        "Now classify this tweet:"
-        "{tweet_text}"
+        "You are a classifier for Arknights tweets. Your job is to determine if a tweet announces a trackable in-game event.\n"
+        "\n"
+        "CRITICAL CLASSIFICATION RULES:\n"
+        "1. Classify as 'Event' ONLY if the tweet announces:\n"
+        "   - A new banner/headhunting with operator rate-ups\n"
+        "   - A new in-game event with stages/missions\n"
+        "   - Server maintenance\n"
+        "   AND the tweet contains BOTH a start date AND end date (or time range)\n"
+        "\n"
+        "2. Classify as 'Filler' if the tweet is:\n"
+        "   - Outfit/skin announcements (even with dates)\n"
+        "   - Music, comics, art, trailers, lore posts\n"
+        "   - Rewards, thank you messages, reminders\n"
+        "   - Event previews/teasers WITHOUT specific dates\n"
+        "   - Announcements about future content without a date range\n"
+        "\n"
+        "3. Key indicators for 'Event':\n"
+        "   - Contains phrases like 'will be available', 'rated up', 'headhunting', 'Limited-time'\n"
+        "   - Has TWO timestamps (start and end) or a date range like 'September 16 - September 30'\n"
+        "   - Announces new operators, new episode stages, or maintenance windows\n"
+        "\n"
+        "4. Key indicators for 'Filler':\n"
+        "   - Contains 【brackets】with outfit/skin series names\n"
+        "   - Words like 'outfit', 'skin', 'FOR FREE', 'redeem', 'Tailor-Provided', 'Collection'\n"
+        "   - Promotional content: music, EP, comics, art\n"
+        "   - Thank you messages or lore quotes\n"
+        "\n"
+        "EXAMPLES:\n"
+        "\n"
+        "Tweet: 【New Operators】Operators Mon3tr, Alanna and Windscoot will be rated up in the Limited-time Headhunting - Command: Reconstruction between September 16, 2025, 10:00 - September 30, 2025, 03:59 (UTC-7)!\n"
+        "Classification: Event\n"
+        "Reason: Banner announcement with operator rate-ups and clear date range.\n"
+        "\n"
+        "Tweet: Dear Doctor, The following Operators will appear at a higher rate between September 16, 2025, 10:00 - September 30, 2025, 03:59 (UTC-7). ★★★★★★: Mon3tr\n"
+        "Classification: Event\n"
+        "Reason: Rate-up announcement with date range.\n"
+        "\n"
+        "Tweet: Dear Doctor, Please note that we plan to perform the following server maintenance on September 16, 2025, 10:00-10:10 (UTC-7). Thank you for your understanding and support.\n"
+        "Classification: Event\n"
+        "Reason: Maintenance announcement with time window.\n"
+        "\n"
+        "Tweet: Dear Doctor, New episode: Dissociative Recombination will soon be live on September 16, 10:00 (UTC-7), and some of the contents are available for a limited time. Please refer to the following notification for the event details.\n"
+        "Classification: Event\n"
+        "Reason: New episode announcement with start date.\n"
+        "\n"
+        "Tweet: 【Ambience Synesthesia Tailor-Provided - Golden Reverie - Muelsyse】Now available at the Store until October 14, 2025, 03:59 (UTC-7)!\n"
+        "Classification: Filler\n"
+        "Reason: Outfit announcement (has 【brackets】and 'Tailor-Provided'), not a gameplay event.\n"
+        "\n"
+        "Tweet: 【0011 Tempest Series - Candy Strike - Odda】Collect 'Courage' Badge to redeem this outfit FOR FREE in Closure's Backup before October 7, 2025, 03:59 (UTC-7)!\n"
+        "Classification: Filler\n"
+        "Reason: Free outfit redemption, not a gameplay event.\n"
+        "\n"
+        "Tweet: 【EPOQUE Collection - Playfellows - Vermeil】Raise Hype levels in Icebreaker Games #1 to obtain this outfit FOR FREE before September 28, 2025, 03:59 (UTC-7)!\n"
+        "Classification: Filler\n"
+        "Reason: Outfit unlock via event participation, but the tweet itself is about the outfit, not the event.\n"
+        "\n"
+        "Tweet: Dear Doctor, thank you for playing New episode: Dissociative Recombination! \"Hope is never a lie. Rhodes Island still clings to that faintest sliver of possibility—to press forward.\"\n"
+        "Classification: Filler\n"
+        "Reason: Thank you message with lore quote, not an announcement.\n"
+        "\n"
+        "Tweet: Arknights EP - Skeletal Wings. When wind swept through, bore did the tide; in dust left in endlessness, memories laid.\n"
+        "Classification: Filler\n"
+        "Reason: Music/EP promotional post.\n"
+        "\n"
+        "Tweet: Dear Doctor, the new episode: Dissociative Recombination will be available soon. Here is a brief introduction about the new enemies and the new mechanisms.\n"
+        "Classification: Filler\n"
+        "Reason: Preview/teaser without specific dates.\n"
+        "\n"
+        "Now classify this tweet. Reply with ONLY 'Event' or 'Filler':\n"
+        f"{tweet_text}\n"
         "Classification:"
     )
     response = await run_llm_inference(prompt)
     ak_logger.info(f"is_ak_event_tweet LLM response: {response!r}")
-    return response.strip().lower().startswith("event")
+    
+    # More robust response checking
+    if not response:
+        ak_logger.warning("⚠️ LLM returned empty response for classification")
+        return False
+    
+    response_clean = response.strip().lower()
+    is_event = response_clean.startswith("event")
+    
+    if is_event:
+        ak_logger.info("✅ Classified as Event")
+    else:
+        ak_logger.info("❌ Classified as Filler")
+    
+    return is_event
 
 # --- Tweet Reading and Event Extraction ---
 
@@ -731,6 +746,19 @@ async def extract_ak_event_from_tweet(tweet_text, tweet_image):
     # Fallbacks for missing or None fields
     title = fields["Title"] if fields["Title"] and fields["Title"].lower() != "none" else parse_title_ak(tweet_text)
     ak_logger.info(f"Title after fallback: {title}")
+    
+    # --- VALIDATION: Reject invalid titles ---
+    invalid_titles = ["arknights_en", "arknights en", "@arknightsen", "arknights"]
+    if title and any(invalid in title.lower() for invalid in invalid_titles):
+        ak_logger.error(f"❌ INVALID TITLE DETECTED: '{title}' - This appears to be a twitter handle or invalid extraction. Rejecting event.")
+        return {
+            "title": None,
+            "category": None,
+            "start": None,
+            "end": None,
+            "image": None
+        }
+    
     category = fields["Category"] if fields["Category"] and fields["Category"].lower() != "none" else parse_category_ak(tweet_text)
     ak_logger.info(f"Category after fallback: {category}")
     start = fields["Start"] if fields["Start"] and fields["Start"].lower() != "none" else None
@@ -947,6 +975,29 @@ async def arknights_on_message(message, force=False):
     if not (event_data["title"] and event_data["category"] and event_data["start"] and event_data["end"]):
         ak_logger.info("on_message: Missing required event fields, not adding event.")
         return False
+    
+    # --- VALIDATION: Check for duplicate events ---
+    async with aiosqlite.connect(AK_DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT id, start_date, end_date FROM events WHERE LOWER(title) = ? AND category = ?",
+            (event_data["title"].lower(), event_data["category"])
+        ) as cursor:
+            existing_event = await cursor.fetchone()
+        
+        if existing_event:
+            existing_id, existing_start, existing_end = existing_event
+            # Check if start and end times match (within 1 hour tolerance for minor differences)
+            time_tolerance = 3600  # 1 hour in seconds
+            if (abs(int(existing_start) - event_data["start"]) < time_tolerance and 
+                abs(int(existing_end) - event_data["end"]) < time_tolerance):
+                ak_logger.warning(f"⚠️ DUPLICATE EVENT DETECTED: '{event_data['title']}' already exists (ID: {existing_id}). Skipping.")
+                try:
+                    await message.add_reaction("⚠️")
+                except Exception:
+                    pass
+                return False
+            else:
+                ak_logger.info(f"Event with same title exists but different times. Adding as separate event.")
 
     class DummyCtx:
         author = message.author

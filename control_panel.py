@@ -338,7 +338,16 @@ class ConfirmEventButton(discord.ui.Button):
 
 class RemoveEventSelect(discord.ui.Select):
     def __init__(self, profile, events):
-        options = [discord.SelectOption(label=f"{e['title']} ({e['category']})", value=str(e['id'])) for e in events]
+        # Truncate long titles to fit Discord's 100 character limit for select option labels
+        options = []
+        for e in events:
+            title = e['title']
+            category = e['category']
+            # Discord limit is 100 chars for label, leave room for category
+            max_title_len = 90 - len(category)
+            if len(title) > max_title_len:
+                title = title[:max_title_len-3] + "..."
+            options.append(discord.SelectOption(label=f"{title} ({category})", value=str(e['id'])))
         super().__init__(placeholder="Select event to remove...", min_values=1, max_values=1, options=options, custom_id=f"remove_event_select_{profile}")
         self.profile = profile
         self.events = {e['id']: e for e in events}
@@ -377,7 +386,16 @@ class RemoveEventView(discord.ui.View):
 
 class EditEventSelect(discord.ui.Select):
     def __init__(self, profile, events):
-        options = [discord.SelectOption(label=f"{e['title']} ({e['category']})", value=str(e['id'])) for e in events]
+        # Truncate long titles to fit Discord's 100 character limit for select option labels
+        options = []
+        for e in events:
+            title = e['title']
+            category = e['category']
+            # Discord limit is 100 chars for label, leave room for category
+            max_title_len = 90 - len(category)
+            if len(title) > max_title_len:
+                title = title[:max_title_len-3] + "..."
+            options.append(discord.SelectOption(label=f"{title} ({category})", value=str(e['id'])))
         super().__init__(placeholder="Select event to edit...", min_values=1, max_values=1, options=options, custom_id=f"edit_event_select_{profile}")
         self.profile = profile
         self.events = {e['id']: e for e in events}
@@ -465,7 +483,14 @@ class EditEventView(discord.ui.View):
 
 class PendingNotifSelect(discord.ui.Select):
     def __init__(self, notifs, profile, event):
-        options = [discord.SelectOption(label=f"{n['timing_type']} <t:{n['notify_unix']}:F>", value=str(n['id'])) for n in notifs]
+        # Truncate if needed (timing_type is usually short, but be safe)
+        options = []
+        for n in notifs:
+            label = f"{n['timing_type']} <t:{n['notify_unix']}:F>"
+            # Discord limit is 100 chars for label
+            if len(label) > 100:
+                label = label[:97] + "..."
+            options.append(discord.SelectOption(label=label, value=str(n['id'])))
         super().__init__(placeholder="Select pending notification...", min_values=1, max_values=1, options=options, custom_id=f"pending_notif_select_{profile}")
         self.profile = profile
         self.event = event
