@@ -7,3 +7,11 @@ event_image_map.json
 data/hsr_prydwen_data.db
 logs/hsr_scraper.log
 data/hsr_scraper/latest.html
+__pycache__/
+*.pyc
+*.db
+*.gguf
+venv/
+data/
+logs/
+start_bot.sh
