@@ -1,12 +1,69 @@
 # Gacha Timer Bot - Project Status & Context
 
-**Last Updated**: October 15, 2025  
+**Last Updated**: October 24, 2025  
 **Current Phase**: Bug Fixes and Maintenance
 
 ## Project Overview
 Kanami (the Discord bot) is a multi-game event tracking and notification system. The bot monitors gacha game events, sends reminders, and provides a control panel interface for managing timers.
 
 ## Recent Major Updates
+
+### 1. Reminder Module Status Check (Completed - October 24, 2025)
+**Problem**: Daily reminder logic needed to be adjusted based on user's actual availability and needs.
+
+**New Behavior**:
+- ✅ **ONLINE/IDLE** → Send reminder + full 30-minute follow-up loop with randomized messages
+- ✅ **DND (Do Not Disturb)** → Send ONE reminder only (no follow-ups, respecting DND status)
+- ✅ **OFFLINE** → Skip reminder completely (user can't respond anyway, no point sending)
+- ✅ **Offline during loop** → Stop sending follow-ups if user goes offline mid-reminder cycle
+- ✅ **Randomized follow-ups** → 15 different reminder messages, randomly selected each time
+
+**Rationale**:
+- Online/Idle = User is at computer but not responding → persistent reminders appropriate
+- DND = User is busy/focused → single reminder respects their status
+- Offline = User away from computer → no point in sending (they can't respond)
+- Mid-loop offline check = If user goes offline, they're likely going to sleep → stop nagging
+
+**Implementation Details**:
+- `get_user_status()` function returns actual Discord status enum
+- Decision tree based on `discord.Status.online`, `.idle`, `.dnd`, `.offline`
+- Follow-up messages use `random.choice(FOLLOW_UP_MESSAGES)` for variety
+- Added status check during reminder loop to detect offline transition
+- Owner gets detailed notifications about status and reminder decisions
+
+**Follow-up Messages** (15 variations):
+1. "Kanami is reminding you again! Go to sleep now!"
+2. "Are you still awake?! Little boy needs his sleep!"
+3. "Gweheh~ Kanami won't stop until you go to bed!"
+4. "Sleep time is NOW! Don't make Kanami angrier!"
+5. "Naito! Bed! NOW! Kanami is getting impatient!"
+6. "Why are you still awake?! Kanami demands you sleep!"
+7. "Little boy... Kanami is watching you... Go to sleep!"
+8. "This is your health we're talking about! Sleep!"
+9. "Kanami will keep pestering you until you rest!"
+10. "GO TO SLEEP! Kanami is not joking around!"
+11. "Sleep deprived Naito makes Kanami sad... and angry!"
+12. "Your bed is calling! Answer it! Now!"
+13. "Kanami's patience is running thin... SLEEP!"
+14. "Do you want Kanami to keep nagging? Sleep already!"
+15. "Little boy needs rest! Kanami insists!"
+
+**Files Modified**:
+- `reminder_module.py`: Complete rewrite of status checking logic and added randomized messages
+
+**Status**: ✅ Completed and ready for testing
+
+### 1.1 Git Ignore Update (Completed - October 22, 2025)
+**Problem**: `data/hsr_scraper/latest.html` was causing git merge conflicts on Raspberry Pi.
+
+**Solution**:
+- Added `data/hsr_scraper/latest.html` to `.gitignore`
+- Prevents bot's dynamic HTML file from being tracked
+
+**Files Modified**:
+- `.gitignore`: Added scraped HTML file to ignore list
+
+**Status**: ✅ Completed
 
 ### 1. Arknights Listener Channel Fix (Completed - October 15, 2025)
 **Problem**: Arknights listener was monitoring ALL game listener channels (HSR, ZZZ, STRI, WUWA) instead of just the AK channel.
