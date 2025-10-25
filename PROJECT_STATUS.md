@@ -1,6 +1,6 @@
 # Gacha Timer Bot - Project Status & Context
 
-**Last Updated**: October 24, 2025  
+**Last Updated**: October 25, 2025  
 **Current Phase**: Bug Fixes and Maintenance
 
 ## Project Overview
@@ -8,7 +8,42 @@ Kanami (the Discord bot) is a multi-game event tracking and notification system.
 
 ## Recent Major Updates
 
-### 1. Reminder Module Status Check (Completed - October 24, 2025)
+### 1. Reminder Module Configuration System (Completed - October 25, 2025)
+**New Features**: Added configurable reminder settings and random spam mode
+
+**Configuration Commands**:
+- `!reminder_config status` - Show current settings
+- `!reminder_config interval <minutes>` - Set reminder interval (default: 5 minutes)
+- `!reminder_config duration <minutes>` - Set total duration (default: 30 minutes)
+- `!reminder_config followup <on/off>` - Toggle follow-up messages
+
+**Manual Trigger Command**:
+- `!remind_naito` - Owner can manually trigger reminder at any time (doesn't affect scheduling)
+
+**Follow-up Message Modes**:
+1. **ENABLED** (default) → Normal behavior with configurable interval/duration
+2. **DISABLED** → Only initial message sent, BUT:
+   - 5% chance to activate "random spam mode"
+   - Spam mode: 6 messages sent every 5 seconds for 30 seconds
+   - Owner notified when spam mode activates
+
+**Configuration Variables** (now runtime-adjustable):
+- `REMINDER_INTERVAL` - Time between follow-up messages (default: 300 seconds / 5 minutes)
+- `REMINDER_DURATION` - Total reminder cycle length (default: 1800 seconds / 30 minutes)
+- `FOLLOW_UP_ENABLED` - Toggle follow-up messages on/off (default: True)
+
+**Use Cases**:
+- Quick test: `!reminder_config interval 1 duration 5` (5 reminders in 5 minutes)
+- Gentle mode: `!reminder_config interval 10 duration 30` (3 reminders in 30 minutes)
+- Aggressive mode: `!reminder_config interval 2 duration 30` (15 reminders in 30 minutes)
+- Silent mode: `!reminder_config followup off` (only initial message + 5% spam chance)
+
+**Files Modified**:
+- `reminder_module.py` - Added global config variables, `reminder_config` command, random spam logic
+
+---
+
+### 2. Reminder Module Status Check (Completed - October 24, 2025)
 **Problem**: Daily reminder logic needed to be adjusted based on user's actual availability and needs.
 
 **New Behavior**:

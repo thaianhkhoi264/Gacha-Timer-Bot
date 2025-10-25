@@ -28,8 +28,9 @@ FOLLOW_UP_MESSAGES = [
     "Little boy needs rest! Kanami insists! <:KanamiAnger:1406653154111524924>"
 ]
 
-REMINDER_INTERVAL = 300  # 5 minutes in seconds
-REMINDER_DURATION = 1800  # Keep reminding for 30 minutes total
+REMINDER_INTERVAL = 300  # 5 minutes in seconds (configurable)
+REMINDER_DURATION = 1800  # Keep reminding for 30 minutes total (configurable)
+FOLLOW_UP_ENABLED = True  # Toggle for follow-up messages (configurable)
 
 print("[Reminder] Module loaded.")
 
@@ -61,6 +62,8 @@ async def send_reminder_to_user(owner_triggered=False):
     This can be called by the daily task or manually by owner.
     Returns True if reminder was sent, False otherwise.
     """
+    global REMINDER_INTERVAL, REMINDER_DURATION, FOLLOW_UP_ENABLED
+    
     tz = pytz.timezone("US/Eastern")
     
     # Get user's current status
@@ -118,47 +121,80 @@ async def send_reminder_to_user(owner_triggered=False):
             # Keep reminding the main user every 5 minutes for 30 minutes total (max 6 reminders)
             reminder_count = 1
             reminder_start_time = datetime.now(tz)
-            max_reminders = REMINDER_DURATION // REMINDER_INTERVAL  # 30 min / 5 min = 6 reminders
+            max_reminders = REMINDER_DURATION // REMINDER_INTERVAL
             
-            while reminder_count < max_reminders:
-                print(f"[Reminder] Waiting for user response (5 minutes) - Reminder #{reminder_count}/{max_reminders}")
-                
-                # Check if user went offline during the loop
-                current_status = await get_user_status(USER_ID)
-                if current_status == discord.Status.offline:
-                    print(f"[Reminder] User went OFFLINE during reminder loop. Stopping reminders.")
-                    await owner.send(f"Naito went offline after {reminder_count} reminder(s). Stopping follow-ups. 💤")
-                    break
-                
-                try:
-                    # Wait for a DM from the user for 5 minutes
-                    def check(m):
-                        return m.author.id == USER_ID and isinstance(m.channel, bot.dm_channel.__class__)
-                    
-                    msg = await bot.wait_for('message', check=check, timeout=REMINDER_INTERVAL)
-                    print(f"[Reminder] User responded: '{msg.content}' - Stopping reminders.")
-                    
-                    # Send confirmation to owner that user responded
-                    await owner.send(f"Naito responded to the reminder after {reminder_count} message(s): '{msg.content[:50]}'")
-                    print("[Reminder] Response confirmation sent to owner")
-                    break  # Exit the reminder loop
-                    
-                except asyncio.TimeoutError:
-                    # User didn't respond in 5 minutes, send another reminder
-                    reminder_count += 1
-                    elapsed_time = (datetime.now(tz) - reminder_start_time).total_seconds() / 60
-                    print(f"[Reminder] No response after 5 minutes ({elapsed_time:.1f} min elapsed). Sending reminder #{reminder_count}...")
-                    
-                    # Send a random follow-up message
-                    follow_up_msg = random.choice(FOLLOW_UP_MESSAGES)
-                    await user.send(follow_up_msg)
-                    print(f"[Reminder] Follow-up reminder #{reminder_count}/{max_reminders} sent to user {USER_ID}")
+            # Check if follow-up is enabled or if we trigger the 5% chance random spam
+            use_random_spam = False
+            if not FOLLOW_UP_ENABLED:
+                # 5% chance to trigger random spam mode when follow-up is disabled
+                if random.random() < 0.05:
+                    use_random_spam = True
+                    print("[Reminder] Random spam mode ACTIVATED (5% chance)!")
+                    await owner.send("🎲 Random spam mode activated for this reminder! (5% chance)")
             
-            # If we exhausted all reminders without a response
-            if reminder_count >= max_reminders:
-                print(f"[Reminder] Maximum reminder duration (30 minutes) reached. Stopping reminders.")
-                await owner.send(f"Naito did not respond after {max_reminders} reminders over 30 minutes. 💤")
-                print("[Reminder] Non-response notification sent to owner")
+            if use_random_spam:
+                # Special mode: Send messages every 5 seconds for 30 seconds
+                print("[Reminder] Starting random spam mode: 5 second intervals for 30 seconds")
+                spam_duration = 30  # 30 seconds total
+                spam_interval = 5  # 5 seconds between messages
+                spam_count = spam_duration // spam_interval  # 6 messages
+                
+                for i in range(spam_count):
+                    await asyncio.sleep(spam_interval)
+                    spam_msg = random.choice(FOLLOW_UP_MESSAGES)
+                    await user.send(spam_msg)
+                    print(f"[Reminder] Spam message {i+1}/{spam_count} sent")
+                
+                await owner.send(f"Random spam mode completed - sent {spam_count} messages in {spam_duration} seconds!")
+                print("[Reminder] Random spam mode completed")
+                return True
+            
+            elif FOLLOW_UP_ENABLED:
+                # Normal follow-up mode
+                while reminder_count < max_reminders:
+                    print(f"[Reminder] Waiting for user response (5 minutes) - Reminder #{reminder_count}/{max_reminders}")
+                    
+                    # Check if user went offline during the loop
+                    current_status = await get_user_status(USER_ID)
+                    if current_status == discord.Status.offline:
+                        print(f"[Reminder] User went OFFLINE during reminder loop. Stopping reminders.")
+                        await owner.send(f"Naito went offline after {reminder_count} reminder(s). Stopping follow-ups. 💤")
+                        break
+                    
+                    try:
+                        # Wait for a DM from the user for 5 minutes
+                        def check(m):
+                            return m.author.id == USER_ID and isinstance(m.channel, bot.dm_channel.__class__)
+                        
+                        msg = await bot.wait_for('message', check=check, timeout=REMINDER_INTERVAL)
+                        print(f"[Reminder] User responded: '{msg.content}' - Stopping reminders.")
+                        
+                        # Send confirmation to owner that user responded
+                        await owner.send(f"Naito responded to the reminder after {reminder_count} message(s): '{msg.content[:50]}'")
+                        print("[Reminder] Response confirmation sent to owner")
+                        break  # Exit the reminder loop
+                        
+                    except asyncio.TimeoutError:
+                        # User didn't respond in 5 minutes, send another reminder
+                        reminder_count += 1
+                        elapsed_time = (datetime.now(tz) - reminder_start_time).total_seconds() / 60
+                        print(f"[Reminder] No response after 5 minutes ({elapsed_time:.1f} min elapsed). Sending reminder #{reminder_count}...")
+                        
+                        # Send a random follow-up message
+                        follow_up_msg = random.choice(FOLLOW_UP_MESSAGES)
+                        await user.send(follow_up_msg)
+                        print(f"[Reminder] Follow-up reminder #{reminder_count}/{max_reminders} sent to user {USER_ID}")
+                
+                # If we exhausted all reminders without a response
+                if reminder_count >= max_reminders:
+                    print(f"[Reminder] Maximum reminder duration (30 minutes) reached. Stopping reminders.")
+                    await owner.send(f"Naito did not respond after {max_reminders} reminders over 30 minutes. 💤")
+                    print("[Reminder] Non-response notification sent to owner")
+            
+            else:
+                # Follow-up disabled and no random spam triggered
+                print("[Reminder] Follow-up messages disabled, only initial message sent")
+                await owner.send(f"Reminder sent (follow-ups disabled, no spam triggered)")
             
             return True
                     
@@ -251,3 +287,91 @@ async def manual_reminder_command(ctx):
         await ctx.send("Reminder was skipped (user offline or error occurred).")
     
     print(f"[Reminder] Manual reminder completed with result: {result}")
+
+@bot.command(name='reminder_config')
+async def reminder_config_command(ctx, setting: str = None, value: str = None):
+    """
+    Owner command to configure reminder settings.
+    Usage: 
+        !reminder_config interval <minutes> - Set reminder interval in minutes
+        !reminder_config duration <minutes> - Set reminder duration in minutes
+        !reminder_config followup <on/off> - Enable or disable follow-up messages
+        !reminder_config status - Show current settings
+    """
+    global REMINDER_INTERVAL, REMINDER_DURATION, FOLLOW_UP_ENABLED
+    
+    # Check if the user is the owner
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("Only the owner can use this command.")
+        print(f"[Reminder] Unauthorized config attempt by user {ctx.author.id}")
+        return
+    
+    # Show current status if no arguments
+    if setting is None or setting.lower() == 'status':
+        interval_min = REMINDER_INTERVAL // 60
+        duration_min = REMINDER_DURATION // 60
+        followup_status = "ENABLED" if FOLLOW_UP_ENABLED else "DISABLED"
+        max_reminders = REMINDER_DURATION // REMINDER_INTERVAL if REMINDER_INTERVAL > 0 else 0
+        
+        status_msg = f"""**Current Reminder Settings:**
+📊 Interval: `{interval_min} minutes` ({REMINDER_INTERVAL} seconds)
+⏱️ Duration: `{duration_min} minutes` ({REMINDER_DURATION} seconds)
+📨 Follow-up Messages: `{followup_status}`
+🔢 Max Reminders per cycle: `{max_reminders}`
+🎲 Random spam chance (when off): `5%` (every 5s for 30s)"""
+        await ctx.send(status_msg)
+        return
+    
+    # Handle setting changes
+    if value is None:
+        await ctx.send("Please provide a value. Usage: `!reminder_config <setting> <value>`")
+        return
+    
+    setting = setting.lower()
+    
+    if setting == 'interval':
+        try:
+            minutes = int(value)
+            if minutes < 1:
+                await ctx.send("Interval must be at least 1 minute.")
+                return
+            
+            old_interval = REMINDER_INTERVAL // 60
+            REMINDER_INTERVAL = minutes * 60
+            await ctx.send(f"✅ Reminder interval changed from `{old_interval} minutes` to `{minutes} minutes`")
+            print(f"[Reminder] Interval changed to {minutes} minutes ({REMINDER_INTERVAL} seconds)")
+            
+        except ValueError:
+            await ctx.send("Invalid value. Please provide a number of minutes.")
+    
+    elif setting == 'duration':
+        try:
+            minutes = int(value)
+            if minutes < 1:
+                await ctx.send("Duration must be at least 1 minute.")
+                return
+            
+            old_duration = REMINDER_DURATION // 60
+            REMINDER_DURATION = minutes * 60
+            max_reminders = REMINDER_DURATION // REMINDER_INTERVAL if REMINDER_INTERVAL > 0 else 0
+            await ctx.send(f"✅ Reminder duration changed from `{old_duration} minutes` to `{minutes} minutes` (max {max_reminders} reminders)")
+            print(f"[Reminder] Duration changed to {minutes} minutes ({REMINDER_DURATION} seconds)")
+            
+        except ValueError:
+            await ctx.send("Invalid value. Please provide a number of minutes.")
+    
+    elif setting == 'followup':
+        value_lower = value.lower()
+        if value_lower in ['on', 'enabled', 'true', '1', 'yes']:
+            FOLLOW_UP_ENABLED = True
+            await ctx.send("✅ Follow-up messages **ENABLED**. Normal reminder loop will be used.")
+            print("[Reminder] Follow-up messages enabled")
+        elif value_lower in ['off', 'disabled', 'false', '0', 'no']:
+            FOLLOW_UP_ENABLED = False
+            await ctx.send("✅ Follow-up messages **DISABLED**. Only initial message will be sent (with 5% chance of random spam mode).")
+            print("[Reminder] Follow-up messages disabled")
+        else:
+            await ctx.send("Invalid value. Use: on/off, enabled/disabled, true/false, yes/no, or 1/0")
+    
+    else:
+        await ctx.send(f"Unknown setting: `{setting}`. Valid settings: interval, duration, followup, status")
