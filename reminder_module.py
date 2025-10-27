@@ -42,19 +42,25 @@ async def get_user_status(user_id):
     """
     try:
         # Check if user is in any mutual servers to get their status
+        print(f"[Reminder] Checking status for user {user_id} across {len(bot.guilds)} guilds...")
         for guild in bot.guilds:
+            print(f"[Reminder] Checking guild: {guild.name} (ID: {guild.id})")
             member = guild.get_member(user_id)
             if member:
                 status = member.status
-                print(f"[Reminder] User {user_id} status: {status}")
+                print(f"[Reminder] ✅ FOUND User {user_id} ({member.name}) in guild '{guild.name}' - Status: {status}")
                 return status
+            else:
+                print(f"[Reminder] User {user_id} not in guild '{guild.name}'")
         
         # If user not found in any mutual servers
-        print(f"[Reminder] User {user_id} not found in mutual servers")
+        print(f"[Reminder] ❌ User {user_id} not found in ANY of {len(bot.guilds)} mutual servers")
         return None
         
     except Exception as e:
         print(f"[Reminder] Error checking user status: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 async def send_reminder_to_user(owner_triggered=False):
@@ -379,3 +385,112 @@ async def reminder_config_command(ctx, setting: str = None, value: str = None):
     
     else:
         await ctx.send(f"Unknown setting: `{setting}`. Valid settings: interval, duration, followup, status")
+
+@bot.command(name='check_naito_status')
+async def check_naito_status_command(ctx):
+    """
+    Owner command to check Naito's current Discord status.
+    Usage: !check_naito_status
+    """
+    # Check if the user is the owner
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("Only the owner can use this command.")
+        print(f"[Reminder] Unauthorized status check attempt by user {ctx.author.id}")
+        return
+    
+    print(f"[Reminder] Status check triggered by owner {ctx.author.id}")
+    await ctx.send("Checking Naito's status... 🔍")
+    
+    # Get the status with detailed logging
+    user_status = await get_user_status(USER_ID)
+    
+    # Build detailed response
+    if user_status is None:
+        status_emoji = "❓"
+        status_text = "NOT FOUND"
+        status_color = "User not found in any mutual servers"
+        action_text = "❌ Reminder would be **SKIPPED**"
+    elif user_status == discord.Status.online:
+        status_emoji = "🟢"
+        status_text = "ONLINE"
+        status_color = "User is online and available"
+        action_text = "✅ Reminder would be **SENT** with follow-ups"
+    elif user_status == discord.Status.idle:
+        status_emoji = "🟡"
+        status_text = "IDLE/AWAY"
+        status_color = "User is idle or away from keyboard"
+        action_text = "❌ Reminder would be **SKIPPED** (user away)"
+    elif user_status == discord.Status.offline:
+        status_emoji = "⚫"
+        status_text = "OFFLINE"
+        status_color = "User is offline"
+        action_text = "❌ Reminder would be **SKIPPED** (user offline)"
+    elif user_status == discord.Status.do_not_disturb:
+        status_emoji = "🔴"
+        status_text = "DO NOT DISTURB"
+        status_color = "User is in DND mode"
+        action_text = "⚠️ Reminder would send **ONE message only** (no follow-ups)"
+    else:
+        status_emoji = "❓"
+        status_text = f"UNKNOWN ({user_status})"
+        status_color = "Unknown status detected"
+        action_text = "❌ Reminder would be **SKIPPED** (unknown status)"
+    
+    response = f"""**Naito's Discord Status:**
+{status_emoji} Status: `{status_text}`
+📊 Details: {status_color}
+🎯 Action: {action_text}
+
+**Raw Status Value:** `{user_status}`
+**User ID:** `{USER_ID}`
+**Guilds Checked:** `{len(bot.guilds)}`"""
+    
+    await ctx.send(response)
+    print(f"[Reminder] Status check completed: {status_text}")
+
+@bot.command(name='force_remind')
+async def force_remind_command(ctx):
+    """
+    Owner command to force send a reminder to Naito if he's online, regardless of other conditions.
+    Usage: !force_remind
+    """
+    # Check if the user is the owner
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("Only the owner can use this command.")
+        print(f"[Reminder] Unauthorized force remind attempt by user {ctx.author.id}")
+        return
+    
+    print(f"[Reminder] Force remind triggered by owner {ctx.author.id}")
+    await ctx.send("Checking Naito's status before forcing reminder... 🔍")
+    
+    # Get the status
+    user_status = await get_user_status(USER_ID)
+    
+    if user_status is None:
+        await ctx.send("❌ Cannot force reminder: Naito not found in any mutual servers!")
+        return
+    
+    if user_status != discord.Status.online:
+        status_names = {
+            discord.Status.idle: "IDLE/AWAY",
+            discord.Status.offline: "OFFLINE",
+            discord.Status.do_not_disturb: "DND"
+        }
+        status_name = status_names.get(user_status, str(user_status))
+        await ctx.send(f"❌ Cannot force reminder: Naito is currently **{status_name}**, not ONLINE.\nUse `!check_naito_status` to see current status.")
+        print(f"[Reminder] Force remind blocked - user status is {status_name}")
+        return
+    
+    # User is online, force the reminder
+    await ctx.send("✅ Naito is ONLINE! Forcing reminder process... <:KanamiAnger:1406653154111524924>")
+    print("[Reminder] Force remind approved - user is ONLINE")
+    
+    # Call the reminder function with manual trigger flag
+    result = await send_reminder_to_user(owner_triggered=True)
+    
+    if result:
+        await ctx.send("✅ Force reminder completed successfully! Naito has been reminded.")
+    else:
+        await ctx.send("⚠️ Force reminder encountered an error. Check logs for details.")
+    
+    print(f"[Reminder] Force remind completed with result: {result}")
