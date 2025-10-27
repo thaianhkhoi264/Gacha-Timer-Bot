@@ -401,52 +401,92 @@ async def check_naito_status_command(ctx):
     print(f"[Reminder] Status check triggered by owner {ctx.author.id}")
     await ctx.send("Checking Naito's status... 🔍")
     
-    # Get the status with detailed logging
-    user_status = await get_user_status(USER_ID)
-    
-    # Build detailed response
-    if user_status is None:
-        status_emoji = "❓"
-        status_text = "NOT FOUND"
-        status_color = "User not found in any mutual servers"
-        action_text = "❌ Reminder would be **SKIPPED**"
-    elif user_status == discord.Status.online:
-        status_emoji = "🟢"
-        status_text = "ONLINE"
-        status_color = "User is online and available"
-        action_text = "✅ Reminder would be **SENT** with follow-ups"
-    elif user_status == discord.Status.idle:
-        status_emoji = "🟡"
-        status_text = "IDLE/AWAY"
-        status_color = "User is idle or away from keyboard"
-        action_text = "❌ Reminder would be **SKIPPED** (user away)"
-    elif user_status == discord.Status.offline:
-        status_emoji = "⚫"
-        status_text = "OFFLINE"
-        status_color = "User is offline"
-        action_text = "❌ Reminder would be **SKIPPED** (user offline)"
-    elif user_status == discord.Status.do_not_disturb:
-        status_emoji = "🔴"
-        status_text = "DO NOT DISTURB"
-        status_color = "User is in DND mode"
-        action_text = "⚠️ Reminder would send **ONE message only** (no follow-ups)"
-    else:
-        status_emoji = "❓"
-        status_text = f"UNKNOWN ({user_status})"
-        status_color = "Unknown status detected"
-        action_text = "❌ Reminder would be **SKIPPED** (unknown status)"
-    
-    response = f"""**Naito's Discord Status:**
+    # Enhanced diagnostic information
+    try:
+        # Try to fetch the user directly first
+        try:
+            user = await bot.fetch_user(USER_ID)
+            user_exists = "✅ User exists in Discord"
+        except discord.NotFound:
+            user_exists = "❌ User not found in Discord (invalid ID?)"
+        except Exception as e:
+            user_exists = f"⚠️ Error fetching user: {e}"
+        
+        # Check member presence in each guild with detailed info
+        guild_info = []
+        found_member = None
+        found_status = None
+        
+        for guild in bot.guilds:
+            member = guild.get_member(USER_ID)
+            if member:
+                found_member = member
+                found_status = member.status
+                guild_info.append(f"✅ **{guild.name}** (ID: {guild.id})\n   └─ Status: `{member.status}` | Name: `{member.name}#{member.discriminator}`")
+            else:
+                guild_info.append(f"❌ **{guild.name}** (ID: {guild.id}) - Not a member")
+        
+        # Get the status using our function for comparison
+        user_status = await get_user_status(USER_ID)
+        
+        # Build diagnostic response
+        diagnostic_msg = f"""**🔍 Detailed Diagnostic Report:**
+
+**User Lookup:**
+{user_exists}
+
+**Guild Membership ({len(bot.guilds)} total):**
+{chr(10).join(guild_info) if guild_info else "No guilds found"}
+
+**Bot Intents:**
+Members Intent: `{'✅ Enabled' if bot.intents.members else '❌ DISABLED - This is the problem!'}`
+Presences Intent: `{'✅ Enabled' if bot.intents.presences else '⚠️ DISABLED - Status will always show offline!'}`
+Guilds Intent: `{'✅ Enabled' if bot.intents.guilds else '❌ DISABLED'}`
+
+**Detected Status:** `{user_status}`"""
+        
+        await ctx.send(diagnostic_msg)
+        
+        # Now send the action summary
+        if user_status is None:
+            status_emoji = "❓"
+            status_text = "NOT FOUND"
+            action_text = "❌ Reminder would be **SKIPPED**"
+        elif user_status == discord.Status.online:
+            status_emoji = "🟢"
+            status_text = "ONLINE"
+            action_text = "✅ Reminder would be **SENT** with follow-ups"
+        elif user_status == discord.Status.idle:
+            status_emoji = "🟡"
+            status_text = "IDLE/AWAY"
+            action_text = "❌ Reminder would be **SKIPPED** (user away)"
+        elif user_status == discord.Status.offline:
+            status_emoji = "⚫"
+            status_text = "OFFLINE"
+            action_text = "❌ Reminder would be **SKIPPED** (user offline)"
+        elif user_status == discord.Status.do_not_disturb:
+            status_emoji = "🔴"
+            status_text = "DO NOT DISTURB"
+            action_text = "⚠️ Reminder would send **ONE message only** (no follow-ups)"
+        else:
+            status_emoji = "❓"
+            status_text = f"UNKNOWN ({user_status})"
+            action_text = "❌ Reminder would be **SKIPPED** (unknown status)"
+        
+        summary = f"""**📊 Status Summary:**
 {status_emoji} Status: `{status_text}`
-📊 Details: {status_color}
 🎯 Action: {action_text}
 
-**Raw Status Value:** `{user_status}`
-**User ID:** `{USER_ID}`
-**Guilds Checked:** `{len(bot.guilds)}`"""
-    
-    await ctx.send(response)
-    print(f"[Reminder] Status check completed: {status_text}")
+**⚠️ IMPORTANT:** If Presences Intent is DISABLED, the bot can only see offline/online (not idle/dnd), and may default to offline!"""
+        
+        await ctx.send(summary)
+        print(f"[Reminder] Status check completed: {status_text}")
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error during diagnostic check: {e}")
+        print(f"[Reminder] Diagnostic error: {e}")
+        import traceback
+        traceback.print_exc()
 
 @bot.command(name='force_remind')
 async def force_remind_command(ctx):
