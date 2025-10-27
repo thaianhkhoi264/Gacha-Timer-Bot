@@ -1,6 +1,6 @@
 # Gacha Timer Bot - Project Status & Context
 
-**Last Updated**: October 26, 2025  
+**Last Updated**: October 27, 2025  
 **Current Phase**: Bug Fixes and Maintenance
 
 ## Project Overview
@@ -8,7 +8,79 @@ Kanami (the Discord bot) is a multi-game event tracking and notification system.
 
 ## Recent Major Updates
 
-### 1. Reminder Module Configuration System (Completed - October 26, 2025)
+### 1. CRITICAL FIX: Presences Intent (October 27, 2025)
+**Problem**: Bot was detecting all users as "offline" even when they were online.
+
+**Root Cause**: Missing `intents.presences = True` in bot configuration. Without this intent, Discord doesn't send presence updates, so the bot cannot see user statuses (online/idle/dnd/offline).
+
+**Symptoms**:
+- All users appear as "offline" to the bot
+- `!check_naito_status` shows "OFFLINE" when user is online
+- Reminders always skipped (user detected as offline)
+
+**Fix Applied**:
+```python
+# bot.py
+intents.presences = True  # Required to see user statuses
+```
+
+**⚠️ IMPORTANT**: After this change, you **MUST** enable "Presence Intent" in Discord Developer Portal:
+1. Go to https://discord.com/developers/applications
+2. Select your bot application
+3. Go to "Bot" section
+4. Scroll to "Privileged Gateway Intents"
+5. Enable "PRESENCE INTENT" toggle
+6. Save changes
+7. Restart the bot
+
+Without enabling the intent in the portal, the bot will fail to connect!
+
+**Files Modified**:
+- `bot.py` - Added `intents.presences = True`
+- `reminder_module.py` - Enhanced diagnostics to detect missing intents
+
+---
+
+### 2. Enhanced Status Diagnostics (October 27, 2025)
+**Added**: Comprehensive diagnostic command to debug status detection issues.
+
+**New Features**:
+- `!check_naito_status` now shows:
+  - Which guilds bot is in
+  - Whether user is a member of each guild
+  - What intents are enabled/disabled
+  - Whether user exists in Discord
+  - Detailed per-guild status information
+
+**Diagnostic Output**:
+```
+🔍 Detailed Diagnostic Report:
+
+User Lookup: ✅ User exists in Discord
+
+Guild Membership (2 total):
+✅ My Server (ID: 123...) 
+   └─ Status: online | Name: Naito#1234
+❌ Other Server (ID: 456...) - Not a member
+
+Bot Intents:
+Members Intent: ✅ Enabled
+Presences Intent: ⚠️ DISABLED - Status will always show offline!
+Guilds Intent: ✅ Enabled
+```
+
+This helps identify:
+- Missing intents (root cause)
+- User not in shared guilds
+- Cache issues
+- Permission problems
+
+**Files Modified**:
+- `reminder_module.py` - Enhanced `!check_naito_status` command
+
+---
+
+### 3. Reminder Module Configuration System (Completed - October 26, 2025)
 **New Features**: Added configurable reminder settings and random spam mode
 
 **Status-Based Logic** (CORRECTED):
