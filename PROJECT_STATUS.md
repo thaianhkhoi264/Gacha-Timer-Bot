@@ -1,6 +1,6 @@
 # Gacha Timer Bot - Project Status & Context
 
-**Last Updated**: October 25, 2025  
+**Last Updated**: October 26, 2025  
 **Current Phase**: Bug Fixes and Maintenance
 
 ## Project Overview
@@ -8,8 +8,15 @@ Kanami (the Discord bot) is a multi-game event tracking and notification system.
 
 ## Recent Major Updates
 
-### 1. Reminder Module Configuration System (Completed - October 25, 2025)
+### 1. Reminder Module Configuration System (Completed - October 26, 2025)
 **New Features**: Added configurable reminder settings and random spam mode
+
+**Status-Based Logic** (CORRECTED):
+- ✅ **ONLINE** → Send reminder + follow-up messages (based on config) + spam chance
+- ✅ **IDLE/AWAY** → Skip completely (user is away from computer)
+- ✅ **OFFLINE** → Skip completely (user not available)
+- ✅ **DND** → Send ONE message only, NO follow-ups, NO spam ever
+- ✅ **Mid-loop check** → Stop if user goes idle/offline during reminder cycle
 
 **Configuration Commands**:
 - `!reminder_config status` - Show current settings

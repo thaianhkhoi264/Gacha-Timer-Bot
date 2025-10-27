@@ -7,7 +7,8 @@ from bot import bot
 from global_config import *
 
 USER_ID = 443416461457883136  # Naito's User ID
-MESSAGE = "It's time to sleep little boy <:KanamiAnger:1406653154111524924>. Kanami will keep reminding you until you go to sleep or reply!"
+MESSAGE = "It's time to sleep little boy <:KanamiAnger:1406653154111524924>"
+DND_MESSAGE = "You may be busy with something, but it is time to go to sleep! <:KanamiAnger:1406653154111524924>"
 
 # Randomized follow-up messages
 FOLLOW_UP_MESSAGES = [
@@ -30,7 +31,7 @@ FOLLOW_UP_MESSAGES = [
 
 REMINDER_INTERVAL = 300  # 5 minutes in seconds (configurable)
 REMINDER_DURATION = 1800  # Keep reminding for 30 minutes total (configurable)
-FOLLOW_UP_ENABLED = True  # Toggle for follow-up messages (configurable)
+FOLLOW_UP_ENABLED = False  # Toggle for follow-up messages (configurable)
 
 print("[Reminder] Module loaded.")
 
@@ -70,28 +71,30 @@ async def send_reminder_to_user(owner_triggered=False):
     user_status = await get_user_status(USER_ID)
     
     # Decision logic based on status:
-    # - online/idle: Send reminder with full loop (multiple reminders)
-    # - dnd: Send ONE reminder only (no loop)
-    # - offline: Skip reminder completely (user can't respond anyway)
+    # - online: Send reminder with follow-up (normal or spam mode based on config)
+    # - idle/away OR offline: Skip reminder completely (user is away/unavailable)
+    # - dnd: Send ONE reminder only (no follow-ups, no spam ever)
     # - None/unknown: Skip reminder (safe fallback)
     
     owner = await bot.fetch_user(OWNER_USER_ID)
     trigger_msg = " (MANUALLY TRIGGERED)" if owner_triggered else ""
     
-    if user_status == discord.Status.offline or user_status is None:
-        print(f"[Reminder] User {USER_ID} is OFFLINE or not found. NOT sending reminder (user can't respond).")
-        await owner.send(f"Skipped sleep reminder{trigger_msg} - Naito is offline/unavailable 💤")
+    # Skip if user is offline, idle/away, or not found
+    if user_status in [discord.Status.offline, discord.Status.idle] or user_status is None:
+        status_text = "IDLE/AWAY" if user_status == discord.Status.idle else ("OFFLINE" if user_status == discord.Status.offline else "NOT FOUND")
+        print(f"[Reminder] User {USER_ID} is {status_text}. NOT sending reminder (user is away/unavailable).")
+        await owner.send(f"Skipped sleep reminder{trigger_msg} - Naito is {status_text.lower()} 💤")
         print("[Reminder] Skipped reminder notification sent to owner")
         return False
         
     elif user_status == discord.Status.do_not_disturb:
-        print(f"[Reminder] User {USER_ID} is in DND mode. Sending ONE reminder only (no follow-ups).")
+        print(f"[Reminder] User {USER_ID} is in DND mode. Sending ONE reminder only (no follow-ups, no spam).")
         try:
             user = await bot.fetch_user(USER_ID)
             await user.send(MESSAGE)
             print(f"[Reminder] Single DND reminder sent to user {USER_ID}")
             
-            await owner.send(f"Kanami sent ONE sleep reminder to Naito{trigger_msg} (DND mode - no follow-ups). <:KanamiHeart:1374409597628186624>")
+            await owner.send(f"Kanami sent ONE sleep reminder to Naito{trigger_msg} (DND mode - no follow-ups, no spam). <:KanamiHeart:1374409597628186624>")
             print(f"[Reminder] DND confirmation sent to owner {OWNER_USER_ID}")
             
             reminderer = await bot.fetch_user(264758014198808577)  # Alfa
@@ -103,15 +106,15 @@ async def send_reminder_to_user(owner_triggered=False):
             print(f"[Reminder] Failed to send DND reminder: {e}")
             return False
             
-    elif user_status in [discord.Status.online, discord.Status.idle]:
-        status_name = "ONLINE" if user_status == discord.Status.online else "IDLE/AWAY"
-        print(f"[Reminder] User {USER_ID} is {status_name}. Sending reminder with full follow-up loop...")
+    elif user_status == discord.Status.online:
+        # User is ONLINE - send reminder with follow-up logic
+        print(f"[Reminder] User {USER_ID} is ONLINE. Sending reminder...")
         try:
             user = await bot.fetch_user(USER_ID)
             await user.send(MESSAGE)
             print(f"[Reminder] Reminder sent to user {USER_ID}")
             
-            await owner.send(f"Kanami reminded Naito to go to sleep{trigger_msg} (Status: {status_name}). <:KanamiHeart:1374409597628186624>")
+            await owner.send(f"Kanami reminded Naito to go to sleep{trigger_msg} (Status: ONLINE). <:KanamiHeart:1374409597628186624>")
             print(f"[Reminder] Confirmation sent to owner {OWNER_USER_ID}")
             
             reminderer = await bot.fetch_user(264758014198808577)  # Alfa
@@ -123,10 +126,10 @@ async def send_reminder_to_user(owner_triggered=False):
             reminder_start_time = datetime.now(tz)
             max_reminders = REMINDER_DURATION // REMINDER_INTERVAL
             
-            # Check if follow-up is enabled or if we trigger the 5% chance random spam
+            # Check if follow-up is enabled or if we trigger the 5% chance random spam (ONLY for online status)
             use_random_spam = False
             if not FOLLOW_UP_ENABLED:
-                # 5% chance to trigger random spam mode when follow-up is disabled
+                # 5% chance to trigger random spam mode when follow-up is disabled AND user is online
                 if random.random() < 0.05:
                     use_random_spam = True
                     print("[Reminder] Random spam mode ACTIVATED (5% chance)!")
@@ -154,11 +157,12 @@ async def send_reminder_to_user(owner_triggered=False):
                 while reminder_count < max_reminders:
                     print(f"[Reminder] Waiting for user response (5 minutes) - Reminder #{reminder_count}/{max_reminders}")
                     
-                    # Check if user went offline during the loop
+                    # Check if user went offline/idle during the loop (away from computer)
                     current_status = await get_user_status(USER_ID)
-                    if current_status == discord.Status.offline:
-                        print(f"[Reminder] User went OFFLINE during reminder loop. Stopping reminders.")
-                        await owner.send(f"Naito went offline after {reminder_count} reminder(s). Stopping follow-ups. 💤")
+                    if current_status in [discord.Status.offline, discord.Status.idle]:
+                        status_text = "IDLE/AWAY" if current_status == discord.Status.idle else "OFFLINE"
+                        print(f"[Reminder] User went {status_text} during reminder loop. Stopping reminders.")
+                        await owner.send(f"Naito went {status_text.lower()} after {reminder_count} reminder(s). Stopping follow-ups. 💤")
                         break
                     
                     try:
