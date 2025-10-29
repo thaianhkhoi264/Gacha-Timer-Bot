@@ -42,7 +42,7 @@ CRAFT_ALIASES = {
 async def init_sv_db():
     """
     Initializes the Shadowverse database with tables for channel assignment and winrate tracking.
-    Adds 'bricks' column if missing.
+    Adds 'bricks' column if missing. Adds season tracking.
     """
     async with aiosqlite.connect('shadowverse_data.db') as conn:
         await conn.execute('''
@@ -63,6 +63,27 @@ async def init_sv_db():
                 PRIMARY KEY (user_id, server_id, played_craft, opponent_craft)
             )
         ''')
+        # Season configuration table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS season_config (
+                server_id TEXT PRIMARY KEY,
+                current_season INTEGER DEFAULT 3
+            )
+        ''')
+        # Archived season data table
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS archived_winrates (
+                season INTEGER,
+                user_id TEXT,
+                server_id TEXT,
+                played_craft TEXT,
+                opponent_craft TEXT,
+                wins INTEGER DEFAULT 0,
+                losses INTEGER DEFAULT 0,
+                bricks INTEGER DEFAULT 0,
+                PRIMARY KEY (season, user_id, server_id, played_craft, opponent_craft)
+            )
+        ''')
         # Try to add bricks column if missing (for upgrades)
         try:
             await conn.execute('ALTER TABLE winrates ADD COLUMN bricks INTEGER DEFAULT 0')
@@ -71,6 +92,91 @@ async def init_sv_db():
         await conn.commit()
 
 BRICK_EMOJI = "<a:golden_brick:1397960479971741747>"
+
+async def get_current_season(server_id):
+    """
+    Returns the current season number for a server. Defaults to 3 if not set.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        await conn.execute('''
+            INSERT OR IGNORE INTO season_config (server_id, current_season)
+            VALUES (?, 3)
+        ''', (str(server_id),))
+        await conn.commit()
+        async with conn.execute('SELECT current_season FROM season_config WHERE server_id=?', (str(server_id),)) as cursor:
+            row = await cursor.fetchone()
+    return row[0] if row else 3
+
+async def archive_current_season(server_id):
+    """
+    Archives all current winrate data to the archived_winrates table with the current season number,
+    then clears the current winrates table and increments the season.
+    Returns the archived season number and count of records archived.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        current_season = await get_current_season(server_id)
+        
+        # Copy all current winrates to archived_winrates
+        await conn.execute('''
+            INSERT INTO archived_winrates (season, user_id, server_id, played_craft, opponent_craft, wins, losses, bricks)
+            SELECT ?, user_id, server_id, played_craft, opponent_craft, wins, losses, bricks
+            FROM winrates
+            WHERE server_id = ?
+        ''', (current_season, str(server_id)))
+        
+        # Count archived records
+        async with conn.execute('SELECT COUNT(*) FROM winrates WHERE server_id=?', (str(server_id),)) as cursor:
+            row = await cursor.fetchone()
+            archived_count = row[0] if row else 0
+        
+        # Clear current winrates for this server
+        await conn.execute('DELETE FROM winrates WHERE server_id=?', (str(server_id),))
+        
+        # Increment season
+        new_season = current_season + 1
+        await conn.execute('UPDATE season_config SET current_season=? WHERE server_id=?', (new_season, str(server_id)))
+        
+        await conn.commit()
+    
+    return current_season, archived_count, new_season
+
+async def get_archived_winrate(user_id, server_id, played_craft, season):
+    """
+    Returns a dict of win/loss/brick stats for the user's played_craft against each opponent craft
+    for a specific archived season.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('''
+            SELECT opponent_craft, wins, losses, bricks FROM archived_winrates
+            WHERE user_id=? AND server_id=? AND played_craft=? AND season=?
+        ''', (str(user_id), str(server_id), played_craft, season)) as cursor:
+            results = {craft: {"wins": 0, "losses": 0, "bricks": 0} for craft in CRAFTS}
+            async for opponent_craft, wins, losses, bricks in cursor:
+                results[opponent_craft] = {"wins": wins, "losses": losses, "bricks": bricks}
+    return results
+
+async def get_archived_user_crafts(user_id, server_id, season):
+    """
+    Returns a list of crafts the user has recorded matches for in a specific season.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('''
+            SELECT DISTINCT played_craft FROM archived_winrates
+            WHERE user_id=? AND server_id=? AND season=? AND (wins > 0 OR losses > 0)
+        ''', (str(user_id), str(server_id), season)) as cursor:
+            crafts = [row[0] async for row in cursor]
+    return crafts
+
+async def get_available_seasons(server_id):
+    """
+    Returns a list of season numbers that have archived data for this server.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('''
+            SELECT DISTINCT season FROM archived_winrates WHERE server_id=? ORDER BY season DESC
+        ''', (str(server_id),)) as cursor:
+            seasons = [row[0] async for row in cursor]
+    return seasons
 
 async def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
     """
@@ -340,12 +446,13 @@ async def export_sv_db_command(message):
             await message.channel.send(f"{message.author.mention} Exported database sent via DM.", delete_after=5)
 
 class CraftDashboardView(ui.View):
-    def __init__(self, user, server_id, crafts, page=0):
+    def __init__(self, user, server_id, crafts, page=0, season=None):
         super().__init__(timeout=180)
         self.user = user
         self.server_id = server_id
         self.crafts = crafts
         self.page = page
+        self.season = season  # None = current season, int = archived season
         self.max_per_page = 5
 
         start = page * self.max_per_page
@@ -384,10 +491,20 @@ class CraftDashboardView(ui.View):
                     kanami_anger = "<:KanamiAnger:1406653154111524924>"
                     await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                     return
-                winrate_dict = await get_winrate(str(self.user.id), str(self.server_id), craft)
+                
+                # Get winrate data based on season
+                if self.season is None:
+                    winrate_dict = await get_winrate(str(self.user.id), str(self.server_id), craft)
+                    current_season = await get_current_season(self.server_id)
+                    season_text = f" (Season {current_season})"
+                else:
+                    winrate_dict = await get_archived_winrate(str(self.user.id), str(self.server_id), craft, self.season)
+                    season_text = f" (Season {self.season} - Archived)"
+                
                 title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
+                title += season_text
                 embed = Embed(title=title, description=desc, color=0x3498db)
-                await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page))
+                await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page, self.season))
             except discord.errors.HTTPException as e:
                 if e.status == 429:
                     await interaction.response.send_message("Bot is being rate limited. Please try again in a few seconds.", ephemeral=True)
@@ -411,7 +528,7 @@ class CraftDashboardView(ui.View):
                 kanami_anger = "<:KanamiAnger:1406653154111524924>"
                 await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                 return
-            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1))
+            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1, self.season))
         except Exception as e:
             logging.error(f"[CraftDashboardView] Error in next_page_callback: {e}", exc_info=True)
             try:
@@ -425,7 +542,7 @@ class CraftDashboardView(ui.View):
                 kanami_anger = "<:KanamiAnger:1406653154111524924>"
                 await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                 return
-            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1))
+            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1, self.season))
         except Exception as e:
             logging.error(f"[CraftDashboardView] Error in prev_page_callback: {e}", exc_info=True)
             try:
@@ -497,16 +614,28 @@ async def shadowverse_on_message(message):
             # --- Refresh command ---
             if message.author.id == 680653908259110914 and content == "refresh":
                 await message.delete()
+                current_season = await get_current_season(message.guild.id)
                 instruction = (
-                    "**Shadowverse Winrate Tracker**\n"
-                    "To record a match, type:\n"
-                    "`[Your Deck] [Enemy Deck] [Win/Lose]`\n"
-                    "Examples: `Sword Dragon Win`, `S D W`, `Swordcraft Dragon W`, `Abyss Haven Lose`, `A H L`\n"
-                    "Accepted abbreviations: `F`/`Forest`, `S`/`Sword`, `R`/`Rune`, `D`/`Dragon`, `A`/`Abyss`, `H`/`Haven`, `P`/`Portal`.\n"
-                    "Accepted results: `Win`/`W`, `Lose`/`L`.\n"
-                    "Add `B` for brick, `R` to remove, in any order.\n"
-                    "If you want to start a streak, type `streak start`, and to end it, type `streak end`.\n"
-                    "Your message will be deleted and your dashboard will be updated automatically."
+                    f"**🎮 Shadowverse Winrate Tracker - Season {current_season} 🎮**\n\n"
+                    f"**📝 How to Record Matches:**\n"
+                    f"Type: `[Your Deck] [Enemy Deck] [Win/Loss]`\n\n"
+                    f"**Examples:**\n"
+                    f"• `Sword Dragon Win` or `S D W`\n"
+                    f"• `Abyss Haven Loss` or `A H L`\n"
+                    f"• `Forest Rune Win B` (B = bricked)\n"
+                    f"• `Portal Sword Loss R` (R = remove/undo)\n\n"
+                    f"**🃏 Craft Abbreviations:**\n"
+                    f"F/Forest, S/Sword, R/Rune, D/Dragon, A/Abyss, H/Haven, P/Portal\n\n"
+                    f"**📊 Additional Features:**\n"
+                    f"• Add `B` to mark a match as bricked\n"
+                    f"• Add `R` to remove/undo a match\n"
+                    f"• Type `streak start` to begin tracking a win streak\n"
+                    f"• Type `streak end` to finish and get your streak summary\n\n"
+                    f"**📜 View Stats:**\n"
+                    f"• Your stats will automatically appear below\n"
+                    f"• Click craft buttons to view different matchups\n"
+                    f"• Use `Kanami sv_seasons` to see all seasons\n\n"
+                    f"Your messages will be automatically deleted and your dashboard will update! ✨"
                 )
                 await message.channel.send(instruction)
                 for member in message.guild.members:
@@ -769,17 +898,31 @@ async def shadowverse(ctx, channel_id: int = None):
             VALUES (?, ?)
         ''', (str(ctx.guild.id), str(channel.id)))
         await conn.commit()
+    
+    current_season = await get_current_season(ctx.guild.id)
+    
     # Instruction message at the top
     instruction = (
-        "**Shadowverse Winrate Tracker**\n"
-        "To record a match, type:\n"
-        "`[Your Deck] [Enemy Deck] [Win/Lose]`\n"
-        "Examples: `Sword Dragon Win`, `S D W`, `Swordcraft Dragon W`, `Abyss Haven Lose`, `A H L`\n"
-        "Accepted abbreviations: `F`/`Forest`, `S`/`Sword`, `R`/`Rune`, `D`/`Dragon`, `A`/`Abyss`, `H`/`Haven`, `P`/`Portal`.\n"
-        "Accepted results: `Win`/`W`, `Lose`/`L`.\n"
-        "Add `B` for brick, `R` to remove, in any order.\n"
-        "If you want to start a streak, type `streak start`, and to end it, type 'streak end'.\n"
-        "Your message will be deleted and your dashboard will be updated automatically."
+        f"**🎮 Shadowverse Winrate Tracker - Season {current_season} 🎮**\n\n"
+        f"**📝 How to Record Matches:**\n"
+        f"Type: `[Your Deck] [Enemy Deck] [Win/Loss]`\n\n"
+        f"**Examples:**\n"
+        f"• `Sword Dragon Win` or `S D W`\n"
+        f"• `Abyss Haven Loss` or `A H L`\n"
+        f"• `Forest Rune Win B` (B = bricked)\n"
+        f"• `Portal Sword Loss R` (R = remove/undo)\n\n"
+        f"**🃏 Craft Abbreviations:**\n"
+        f"F/Forest, S/Sword, R/Rune, D/Dragon, A/Abyss, H/Haven, P/Portal\n\n"
+        f"**📊 Additional Features:**\n"
+        f"• Add `B` to mark a match as bricked\n"
+        f"• Add `R` to remove/undo a match\n"
+        f"• Type `streak start` to begin tracking a win streak\n"
+        f"• Type `streak end` to finish and get your streak summary\n\n"
+        f"**📜 View Stats:**\n"
+        f"• Your stats will automatically appear below\n"
+        f"• Click craft buttons to view different matchups\n"
+        f"• Use `Kanami sv_seasons` to see all seasons\n\n"
+        f"Your messages will be automatically deleted and your dashboard will update! ✨"
     )
     await channel.send(instruction)
     await ctx.send(f"{channel.mention} has been set as the Shadowverse channel for this server.")
@@ -787,3 +930,263 @@ async def shadowverse(ctx, channel_id: int = None):
     for member in ctx.guild.members:
         if not member.bot:
             await update_dashboard_message(member, channel)
+
+@bot.command(name="sv_newseason")
+@commands.has_permissions(administrator=True)
+async def sv_newseason(ctx):
+    """
+    Archives current season data and starts a new season.
+    Usage: Kanami sv_newseason
+    Requires administrator permissions.
+    """
+    await init_sv_db()
+    
+    # Confirm action
+    current_season = await get_current_season(ctx.guild.id)
+    confirm_msg = await ctx.send(
+        f"⚠️ **Confirm Season Transition**\n"
+        f"This will:\n"
+        f"• Archive all Season {current_season} data to a new channel\n"
+        f"• Clear and update the Shadowverse channel for Season {current_season + 1}\n"
+        f"• Reset all current winrate data\n\n"
+        f"React with ✅ to confirm or ❌ to cancel."
+    )
+    await confirm_msg.add_reaction("✅")
+    await confirm_msg.add_reaction("❌")
+    
+    def check(reaction, user):
+        return user == ctx.author and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == confirm_msg.id
+    
+    try:
+        reaction, user = await bot.wait_for('reaction_add', timeout=30.0, check=check)
+        
+        if str(reaction.emoji) == "❌":
+            await ctx.send("Season transition cancelled.")
+            return
+        
+        # Proceed with archiving
+        await ctx.send("📦 Archiving current season data...")
+        archived_season, archived_count, new_season = await archive_current_season(ctx.guild.id)
+        
+        # Create archive channel
+        await ctx.send("📁 Creating archive channel...")
+        sv_channel_id = await get_sv_channel_id(ctx.guild.id)
+        sv_channel = ctx.guild.get_channel(sv_channel_id) if sv_channel_id else None
+        
+        # Create channel in the same category as SV channel if possible
+        category = sv_channel.category if sv_channel else None
+        archive_channel = await ctx.guild.create_text_channel(
+            f"shadowverse-season-{archived_season}",
+            category=category,
+            topic=f"Archived winrate data from Shadowverse Season {archived_season}"
+        )
+        
+        # Post archive header
+        await ctx.send("📊 Posting archived data to new channel...")
+        header_embed = Embed(
+            title=f"📜 Shadowverse Season {archived_season} Archive",
+            description=(
+                f"This channel contains all winrate data from **Season {archived_season}**.\n"
+                f"Total records archived: **{archived_count}**\n\n"
+                f"📅 Season ended: <t:{int(discord.utils.utcnow().timestamp())}:F>\n"
+                f"🆕 Current season: **{new_season}**\n\n"
+                f"Use `Kanami sv_season {archived_season}` to view your personal stats from this season."
+            ),
+            color=0x95a5a6
+        )
+        await archive_channel.send(embed=header_embed)
+        
+        # Post all users' season data to archive channel
+        await ctx.send("💾 Generating user reports...")
+        
+        # Get all users who have data in this season
+        async with aiosqlite.connect('shadowverse_data.db') as conn:
+            async with conn.execute('''
+                SELECT DISTINCT user_id FROM archived_winrates 
+                WHERE server_id=? AND season=?
+            ''', (str(ctx.guild.id), archived_season)) as cursor:
+                user_ids = [row[0] async for row in cursor]
+        
+        # Post data for each user
+        user_count = 0
+        for user_id in user_ids:
+            try:
+                member = ctx.guild.get_member(int(user_id))
+                if not member:
+                    continue
+                
+                crafts = await get_archived_user_crafts(user_id, str(ctx.guild.id), archived_season)
+                if not crafts:
+                    continue
+                
+                user_count += 1
+                
+                # Create embed for each craft the user played
+                for craft in crafts:
+                    winrate_dict = await get_archived_winrate(user_id, str(ctx.guild.id), craft, archived_season)
+                    title, desc = craft_winrate_summary(member, craft, winrate_dict)
+                    embed = Embed(title=title, description=desc, color=0x95a5a6)
+                    await archive_channel.send(embed=embed)
+                
+                # Add separator between users
+                if user_count < len(user_ids):
+                    await archive_channel.send("─" * 50)
+                    
+            except Exception as e:
+                logging.error(f"Error archiving data for user {user_id}: {e}")
+                continue
+        
+        # Clear and update SV channel
+        if sv_channel:
+            await ctx.send("🧹 Clearing Shadowverse channel...")
+            
+            # Delete all messages in SV channel (except pinned)
+            try:
+                deleted = 0
+                async for message in sv_channel.history(limit=None):
+                    if not message.pinned:
+                        await message.delete()
+                        deleted += 1
+                        if deleted % 10 == 0:  # Rate limit safety
+                            await asyncio.sleep(1)
+            except Exception as e:
+                logging.error(f"Error clearing SV channel: {e}")
+            
+            # Post new season instructions
+            instruction = (
+                f"**🎮 Shadowverse Winrate Tracker - Season {new_season} 🎮**\n\n"
+                f"**📝 How to Record Matches:**\n"
+                f"Type: `[Your Deck] [Enemy Deck] [Win/Loss]`\n\n"
+                f"**Examples:**\n"
+                f"• `Sword Dragon Win` or `S D W`\n"
+                f"• `Abyss Haven Loss` or `A H L`\n"
+                f"• `Forest Rune Win B` (B = bricked)\n"
+                f"• `Portal Sword Loss R` (R = remove/undo)\n\n"
+                f"**🃏 Craft Abbreviations:**\n"
+                f"F/Forest, S/Sword, R/Rune, D/Dragon, A/Abyss, H/Haven, P/Portal\n\n"
+                f"**📊 Additional Features:**\n"
+                f"• Add `B` to mark a match as bricked\n"
+                f"• Add `R` to remove/undo a match\n"
+                f"• Type `streak start` to begin tracking a win streak\n"
+                f"• Type `streak end` to finish and get your streak summary\n\n"
+                f"**📜 Previous Seasons:**\n"
+                f"• Season {archived_season} archived in {archive_channel.mention}\n"
+                f"• View your Season {archived_season} stats: `Kanami sv_season {archived_season}`\n"
+                f"• List all seasons: `Kanami sv_seasons`\n\n"
+                f"Your messages will be automatically deleted and your dashboard will update! ✨"
+            )
+            await sv_channel.send(instruction)
+            
+            # Update dashboards for all users
+            await ctx.send("🔄 Refreshing user dashboards...")
+            for member in ctx.guild.members:
+                if not member.bot:
+                    try:
+                        await update_dashboard_message(member, sv_channel)
+                    except Exception as e:
+                        logging.error(f"Error updating dashboard for {member.name}: {e}")
+        
+        # Final confirmation
+        await ctx.send(
+            f"✅ **Season transition complete!**\n"
+            f"📦 Season {archived_season}: {archived_count} records archived\n"
+            f"📁 Archive channel: {archive_channel.mention}\n"
+            f"👥 Users archived: {user_count}\n"
+            f"🆕 Current season: **{new_season}**\n"
+            f"🎮 Shadowverse channel cleared and updated\n\n"
+            f"Good luck in Season {new_season}! 🎉"
+        )
+        
+    except asyncio.TimeoutError:
+        await ctx.send("Season transition timed out (no response).")
+
+@bot.command(name="sv_season")
+async def sv_season(ctx, season: int = None, user: discord.Member = None):
+    """
+    View winrate data for a specific season (archived or current).
+    Usage: 
+        Kanami sv_season [season_number] [@user]
+        Kanami sv_season (shows current season)
+    If no user is mentioned, shows your own data.
+    """
+    await init_sv_db()
+    
+    target_user = user if user else ctx.author
+    current_season = await get_current_season(ctx.guild.id)
+    
+    if season is None:
+        # Show current season
+        season = current_season
+        is_current = True
+    else:
+        is_current = (season == current_season)
+    
+    # Get crafts and winrate data
+    if is_current:
+        crafts = await get_user_played_crafts(str(target_user.id), str(ctx.guild.id))
+        season_text = f"Season {season} (Current)"
+    else:
+        # Check if season exists
+        available_seasons = await get_available_seasons(ctx.guild.id)
+        if season not in available_seasons:
+            await ctx.send(
+                f"❌ Season {season} not found.\n"
+                f"Available archived seasons: {', '.join(map(str, available_seasons)) if available_seasons else 'None'}\n"
+                f"Current season: {current_season}"
+            )
+            return
+        crafts = await get_archived_user_crafts(str(target_user.id), str(ctx.guild.id), season)
+        season_text = f"Season {season} (Archived)"
+    
+    if not crafts:
+        await ctx.send(f"{target_user.display_name} has no recorded matches in {season_text}.")
+        return
+    
+    # Show first craft's data
+    craft = crafts[0]
+    if is_current:
+        winrate_dict = await get_winrate(str(target_user.id), str(ctx.guild.id), craft)
+    else:
+        winrate_dict = await get_archived_winrate(str(target_user.id), str(ctx.guild.id), craft, season)
+    
+    title, desc = craft_winrate_summary(target_user, craft, winrate_dict)
+    title += f" ({season_text})"
+    embed = Embed(title=title, description=desc, color=0x3498db if is_current else 0x95a5a6)
+    
+    view = CraftDashboardView(target_user, ctx.guild.id, crafts, season=None if is_current else season)
+    await ctx.send(embed=embed, view=view)
+
+@bot.command(name="sv_seasons")
+async def sv_seasons(ctx):
+    """
+    List all available seasons (current and archived).
+    Usage: Kanami sv_seasons
+    """
+    await init_sv_db()
+    
+    current_season = await get_current_season(ctx.guild.id)
+    available_seasons = await get_available_seasons(ctx.guild.id)
+    
+    embed = Embed(title="📅 Shadowverse Seasons", color=0x3498db)
+    embed.add_field(
+        name="Current Season",
+        value=f"**Season {current_season}** 🟢",
+        inline=False
+    )
+    
+    if available_seasons:
+        archived_text = "\n".join([f"Season {s} - View with `Kanami sv_season {s}`" for s in available_seasons])
+        embed.add_field(
+            name=f"Archived Seasons ({len(available_seasons)})",
+            value=archived_text,
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Archived Seasons",
+            value="No archived seasons yet.",
+            inline=False
+        )
+    
+    embed.set_footer(text="Use 'Kanami sv_newseason' (admin only) to start a new season")
+    await ctx.send(embed=embed)
