@@ -1190,3 +1190,110 @@ async def sv_seasons(ctx):
     
     embed.set_footer(text="Use 'Kanami sv_newseason' (admin only) to start a new season")
     await ctx.send(embed=embed)
+
+@bot.command(name="sv_recreate_archive")
+@commands.has_permissions(administrator=True)
+async def sv_recreate_archive(ctx, season: int):
+    """
+    Recreates an archive channel for a specific season from existing database records.
+    Usage: Kanami sv_recreate_archive [season_number]
+    Requires administrator permissions.
+    """
+    await init_sv_db()
+    
+    # Check if season exists in database
+    available_seasons = await get_available_seasons(ctx.guild.id)
+    if season not in available_seasons:
+        await ctx.send(
+            f"❌ Season {season} not found in database.\n"
+            f"Available archived seasons: {', '.join(map(str, available_seasons)) if available_seasons else 'None'}"
+        )
+        return
+    
+    # Check if channel already exists
+    existing_channel = discord.utils.get(ctx.guild.channels, name=f"shadowverse-season-{season}")
+    if existing_channel:
+        await ctx.send(f"⚠️ Archive channel for Season {season} already exists: {existing_channel.mention}\nDelete it first if you want to recreate it.")
+        return
+    
+    await ctx.send(f"📁 Creating archive channel for Season {season}...")
+    
+    # Get SV channel for category placement
+    sv_channel_id = await get_sv_channel_id(ctx.guild.id)
+    sv_channel = ctx.guild.get_channel(sv_channel_id) if sv_channel_id else None
+    category = sv_channel.category if sv_channel else None
+    
+    # Create archive channel
+    archive_channel = await ctx.guild.create_text_channel(
+        f"shadowverse-season-{season}",
+        category=category,
+        topic=f"Archived winrate data from Shadowverse Season {season}"
+    )
+    
+    # Count total records
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('''
+            SELECT COUNT(*) FROM archived_winrates 
+            WHERE server_id=? AND season=?
+        ''', (str(ctx.guild.id), season)) as cursor:
+            row = await cursor.fetchone()
+            archived_count = row[0] if row else 0
+    
+    # Post archive header
+    await ctx.send("📊 Posting archived data...")
+    header_embed = Embed(
+        title=f"📜 Shadowverse Season {season} Archive",
+        description=(
+            f"This channel contains all winrate data from **Season {season}**.\n"
+            f"Total records archived: **{archived_count}**\n\n"
+            f"📅 Archive recreated: <t:{int(discord.utils.utcnow().timestamp())}:F>\n\n"
+            f"Use `Kanami sv_season {season}` to view your personal stats from this season."
+        ),
+        color=0x95a5a6
+    )
+    await archive_channel.send(embed=header_embed)
+    
+    # Get all users who have data in this season
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('''
+            SELECT DISTINCT user_id FROM archived_winrates 
+            WHERE server_id=? AND season=?
+        ''', (str(ctx.guild.id), season)) as cursor:
+            user_ids = [row[0] async for row in cursor]
+    
+    # Post data for each user
+    user_count = 0
+    for user_id in user_ids:
+        try:
+            member = ctx.guild.get_member(int(user_id))
+            if not member:
+                continue
+            
+            crafts = await get_archived_user_crafts(user_id, str(ctx.guild.id), season)
+            if not crafts:
+                continue
+            
+            user_count += 1
+            
+            # Create embed for each craft the user played
+            for craft in crafts:
+                winrate_dict = await get_archived_winrate(user_id, str(ctx.guild.id), craft, season)
+                title, desc = craft_winrate_summary(member, craft, winrate_dict)
+                embed = Embed(title=title, description=desc, color=0x95a5a6)
+                await archive_channel.send(embed=embed)
+            
+            # Add separator between users
+            if user_count < len(user_ids):
+                await archive_channel.send("─" * 50)
+                
+        except Exception as e:
+            logging.error(f"Error archiving data for user {user_id}: {e}")
+            continue
+    
+    # Final confirmation
+    await ctx.send(
+        f"✅ **Archive channel recreated!**\n"
+        f"📁 Channel: {archive_channel.mention}\n"
+        f"📦 Season {season}: {archived_count} records\n"
+        f"👥 Users: {user_count}"
+    )
