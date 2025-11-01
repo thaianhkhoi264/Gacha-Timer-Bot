@@ -16,6 +16,7 @@ from global_config import *
 from arknights_module import *
 import reminder_module
 import control_panel
+import api_server  # Import API server
 
 import sys
 import aiosqlite
@@ -24,8 +25,52 @@ import signal
 import asyncio
 import pytz
 from datetime import datetime, timedelta
+import os
 
 init_db()
+
+# API Server configuration
+API_ENABLED = os.getenv('API_ENABLED', 'true').lower() == 'true'
+API_HOST = os.getenv('API_HOST', '0.0.0.0')
+API_PORT = int(os.getenv('API_PORT', '8080'))
+
+# Store API server runner globally
+api_runner = None
+
+@bot.event
+async def on_ready():
+    """
+    Called when the bot is ready and connected to Discord.
+    Starts the API server if enabled.
+    """
+    global api_runner
+    
+    print(f'\n{"="*50}')
+    print(f'Bot is ready!')
+    print(f'Logged in as: {bot.user.name} (ID: {bot.user.id})')
+    print(f'Bot version: {bot_version}')
+    print(f'Connected to {len(bot.guilds)} guild(s)')
+    print(f'{"="*50}\n')
+    
+    # Start API server if enabled
+    if API_ENABLED:
+        try:
+            api_runner = await api_server.start_api_server(host=API_HOST, port=API_PORT)
+            print(f'\n{"="*50}')
+            print(f'API Server Status: ENABLED')
+            print(f'Listening on: http://{API_HOST}:{API_PORT}')
+            print(f'{"="*50}\n')
+        except Exception as e:
+            print(f'\n{"="*50}')
+            print(f'API Server Status: FAILED TO START')
+            print(f'Error: {e}')
+            print(f'Bot will continue without API server.')
+            print(f'{"="*50}\n')
+    else:
+        print(f'\n{"="*50}')
+        print(f'API Server Status: DISABLED')
+        print(f'Set API_ENABLED=true in environment to enable.')
+        print(f'{"="*50}\n')
 
 # Shutdown message
 async def shutdown_message():
@@ -669,8 +714,27 @@ def handle_shutdown(signum, frame):
     asyncio.create_task(shutdown_and_exit())
 
 async def shutdown_and_exit():
+    global api_runner
+    
+    print("\n[Shutdown] Starting graceful shutdown...")
+    
+    # Send shutdown messages to Discord
     await shutdown_message()
+    
+    # Stop API server if running
+    if api_runner:
+        print("[Shutdown] Stopping API server...")
+        try:
+            await api_runner.cleanup()
+            print("[Shutdown] API server stopped.")
+        except Exception as e:
+            print(f"[Shutdown] Error stopping API server: {e}")
+    
+    # Close bot connection
+    print("[Shutdown] Closing bot connection...")
     await bot.close()
+    
+    print("[Shutdown] Shutdown complete.")
     sys.exit(0)
 
 signal.signal(signal.SIGINT, handle_shutdown)

@@ -5,6 +5,7 @@ playwright
 dateparser
 pytz
 aiosqlite
+aiohttp
 
 transformers
 optimum
