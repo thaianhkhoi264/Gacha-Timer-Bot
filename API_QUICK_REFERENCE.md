@@ -78,13 +78,14 @@ curl -X POST https://your-url.com/api/shadowverse/log_match \
   -H "X-API-Key: your_key" \
   -d '{
     "user_id": "123456789012345678",
-    "server_id": "987654321098765432",
     "played_craft": "Dragoncraft",
     "opponent_craft": "Forestcraft",
     "win": true,
     "brick": false
   }'
 ```
+
+**Note:** server_id is no longer required! The API automatically uses the development server.
 
 ## Python Client
 
@@ -93,14 +94,14 @@ import requests
 
 API_URL = "https://your-url.com"
 API_KEY = "your_key"
+USER_ID = "123456789012345678"  # Your Discord user ID
 
-# Log a match
+# Log a match (server_id is automatic!)
 requests.post(
     f"{API_URL}/api/shadowverse/log_match",
     headers={"X-API-Key": API_KEY},
     json={
-        "user_id": "123",
-        "server_id": "456",
+        "user_id": USER_ID,
         "played_craft": "Dragoncraft",
         "opponent_craft": "Forestcraft",
         "win": True,
@@ -141,4 +142,6 @@ sudo systemctl status cloudflared
 ## Getting Discord IDs
 
 1. Enable Developer Mode in Discord Settings → Advanced
-2. Right-click user/server → Copy ID
+2. Right-click user → Copy ID
+
+**Note:** You only need your user ID. The server ID is automatically set to the development server!

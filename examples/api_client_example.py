@@ -16,9 +16,9 @@ import json
 API_BASE_URL = "http://localhost:8080"  # Change this to your ngrok/Cloudflare URL
 API_KEY = "YOUR_API_KEY_HERE"  # Get this from api_keys.json on the bot server
 
-# Your Discord IDs (right-click user/server in Discord with Developer Mode enabled)
+# Your Discord ID (right-click user in Discord with Developer Mode enabled)
 USER_ID = "123456789012345678"  # Your Discord user ID
-SERVER_ID = "987654321098765432"  # The Discord server/guild ID
+# Note: server_id is no longer needed! The API automatically uses the development server.
 
 def log_match(played_craft, opponent_craft, win, brick=False):
     """
@@ -42,7 +42,6 @@ def log_match(played_craft, opponent_craft, win, brick=False):
     
     payload = {
         "user_id": USER_ID,
-        "server_id": SERVER_ID,
         "played_craft": played_craft,
         "opponent_craft": opponent_craft,
         "win": win,
@@ -103,6 +102,8 @@ def validate_api_key():
 if __name__ == "__main__":
     print("Gacha Timer Bot API Client Example")
     print("=" * 50)
+    print("\nNote: The API automatically uses the development server.")
+    print("You only need to provide your user_id!\n")
     
     # 1. Check API health
     print("\n1. Checking API health...")

@@ -14,6 +14,7 @@ from shadowverse_handler import (
     CRAFTS
 )
 from bot import bot
+from global_config import DEV_SERVER_ID
 import logging
 
 # Configure logging
@@ -67,12 +68,12 @@ async def handle_log_match(request):
     POST /api/shadowverse/log_match
     
     Logs a Shadowverse match and updates the user's dashboard.
+    Automatically uses the development server (DEV_SERVER_ID from global_config.py).
     
     Request Body (JSON):
     {
         "api_key": "your_secret_key",  // Optional if using X-API-Key header
         "user_id": "123456789012345678",  // Discord user ID (string)
-        "server_id": "987654321098765432",  // Discord server/guild ID (string)
         "played_craft": "Dragoncraft",  // One of: Forestcraft, Swordcraft, Runecraft, Dragoncraft, Abysscraft, Havencraft, Portalcraft
         "opponent_craft": "Forestcraft",  // Same options as above
         "win": true,  // Boolean: true for win, false for loss
@@ -85,6 +86,7 @@ async def handle_log_match(request):
         "message": "Match logged successfully",
         "details": {
             "user_id": "123456789012345678",
+            "server_id": "1374399849574961152",
             "played_craft": "Dragoncraft",
             "opponent_craft": "Forestcraft",
             "result": "win",
@@ -116,8 +118,8 @@ async def handle_log_match(request):
                     status=401
                 )
         
-        # Validate required fields
-        required_fields = ['user_id', 'server_id', 'played_craft', 'opponent_craft', 'win']
+        # Validate required fields (server_id is now automatic)
+        required_fields = ['user_id', 'played_craft', 'opponent_craft', 'win']
         missing_fields = [field for field in required_fields if field not in data]
         if missing_fields:
             return web.json_response(
@@ -127,7 +129,7 @@ async def handle_log_match(request):
         
         # Extract and validate data
         user_id = str(data['user_id'])
-        server_id = str(data['server_id'])
+        server_id = str(DEV_SERVER_ID)  # Automatically use development server
         played_craft = data['played_craft']
         opponent_craft = data['opponent_craft']
         win = bool(data['win'])
@@ -147,38 +149,38 @@ async def handle_log_match(request):
             )
         
         # Log the match to database
-        api_logger.info(f"Logging match: user={user_id}, played={played_craft}, opponent={opponent_craft}, win={win}, brick={brick}")
+        api_logger.info(f"Logging match: user={user_id}, server={server_id} (DEV), played={played_craft}, opponent={opponent_craft}, win={win}, brick={brick}")
         await record_match(user_id, server_id, played_craft, opponent_craft, win, brick)
         
         # Get the guild and channel for dashboard update
-        guild = bot.get_guild(int(server_id))
+        guild = bot.get_guild(DEV_SERVER_ID)
         if not guild:
-            api_logger.error(f"Guild {server_id} not found")
+            api_logger.error(f"Development server (ID: {DEV_SERVER_ID}) not found")
             return web.json_response(
-                {"success": False, "error": f"Server {server_id} not found. Is the bot in this server?"},
+                {"success": False, "error": f"Development server not found. Is the bot in the server?"},
                 status=404
             )
         
         member = guild.get_member(int(user_id))
         if not member:
-            api_logger.error(f"Member {user_id} not found in guild {server_id}")
+            api_logger.error(f"Member {user_id} not found in development server")
             return web.json_response(
-                {"success": False, "error": f"User {user_id} not found in server. Are they a member?"},
+                {"success": False, "error": f"User {user_id} not found in development server. Are they a member?"},
                 status=404
             )
         
         # Get the Shadowverse channel
         sv_channel_id = await get_sv_channel_id(server_id)
         if not sv_channel_id:
-            api_logger.error(f"No Shadowverse channel configured for guild {server_id}")
+            api_logger.error(f"No Shadowverse channel configured for development server")
             return web.json_response(
-                {"success": False, "error": f"No Shadowverse channel configured for this server. Use 'Kanami shadowverse' command first."},
+                {"success": False, "error": f"No Shadowverse channel configured for development server. Use 'Kanami shadowverse' command first."},
                 status=404
             )
         
         channel = guild.get_channel(sv_channel_id)
         if not channel:
-            api_logger.error(f"Shadowverse channel {sv_channel_id} not found in guild {server_id}")
+            api_logger.error(f"Shadowverse channel {sv_channel_id} not found in development server")
             return web.json_response(
                 {"success": False, "error": f"Shadowverse channel not found."},
                 status=404
