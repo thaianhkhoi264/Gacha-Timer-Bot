@@ -445,6 +445,8 @@ curl -H "X-API-Key: your_secret_key" \
 
 Log a Shadowverse match and update the dashboard.
 
+**Important:** The API automatically uses the development server. You only need to provide your user_id!
+
 **Request Headers:**
 ```
 Content-Type: application/json
@@ -455,7 +457,6 @@ X-API-Key: your_secret_key
 ```json
 {
   "user_id": "123456789012345678",
-  "server_id": "987654321098765432",
   "played_craft": "Dragoncraft",
   "opponent_craft": "Forestcraft",
   "win": true,
@@ -465,7 +466,6 @@ X-API-Key: your_secret_key
 
 **Parameters:**
 - `user_id` (string, required): Discord user ID
-- `server_id` (string, required): Discord server/guild ID
 - `played_craft` (string, required): One of: `Forestcraft`, `Swordcraft`, `Runecraft`, `Dragoncraft`, `Abysscraft`, `Havencraft`, `Portalcraft`
 - `opponent_craft` (string, required): Same options as `played_craft`
 - `win` (boolean, required): `true` for win, `false` for loss
@@ -478,7 +478,6 @@ curl -X POST https://your-api-url.com/api/shadowverse/log_match \
   -H "X-API-Key: your_secret_key" \
   -d '{
     "user_id": "123456789012345678",
-    "server_id": "987654321098765432",
     "played_craft": "Dragoncraft",
     "opponent_craft": "Forestcraft",
     "win": true,
@@ -493,7 +492,6 @@ curl -X POST https://your-api-url.com/api/shadowverse/log_match \
   "message": "Match logged successfully and dashboard updated",
   "details": {
     "user_id": "123456789012345678",
-    "server_id": "987654321098765432",
     "played_craft": "Dragoncraft",
     "opponent_craft": "Forestcraft",
     "result": "win",
@@ -542,7 +540,6 @@ import requests
 API_URL = "https://your-api-url.com"
 API_KEY = "your_secret_key"
 USER_ID = "123456789012345678"
-SERVER_ID = "987654321098765432"
 
 def log_match(played, opponent, win, brick=False):
     response = requests.post(
@@ -550,7 +547,6 @@ def log_match(played, opponent, win, brick=False):
         headers={"X-API-Key": API_KEY, "Content-Type": "application/json"},
         json={
             "user_id": USER_ID,
-            "server_id": SERVER_ID,
             "played_craft": played,
             "opponent_craft": opponent,
             "win": win,
@@ -726,8 +722,7 @@ sudo ufw deny 8080
 1. Enable Developer Mode: Discord Settings → Advanced → Developer Mode
 2. Right-click your username → Copy ID
 
-### Server ID
-1. Right-click the server icon → Copy ID
+**Note:** You only need your User ID to use the API. The server ID is automatically configured to the development server.
 
 ---
 

@@ -81,7 +81,6 @@ requests.post(
     headers={"X-API-Key": "my_secret_key_12345"},
     json={
         "user_id": "YOUR_DISCORD_USER_ID",
-        "server_id": "YOUR_SERVER_ID",
         "played_craft": "Dragoncraft",
         "opponent_craft": "Forestcraft",
         "win": True,
@@ -89,6 +88,8 @@ requests.post(
     }
 )
 ```
+
+**Note:** No server_id needed! The API automatically uses the development server.
 
 Check your Discord Shadowverse channel - your dashboard is now updated! 🎉
 
@@ -139,7 +140,7 @@ See [API_SETUP.md](API_SETUP.md) for detailed troubleshooting.
 curl -X POST https://your-url.com/api/shadowverse/log_match \
   -H "X-API-Key: your_key" \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"123","server_id":"456","played_craft":"Dragoncraft","opponent_craft":"Forestcraft","win":true}'
+  -d '{"user_id":"123","played_craft":"Dragoncraft","opponent_craft":"Forestcraft","win":true}'
 ```
 
 ### Log a Bricked Loss
@@ -147,20 +148,19 @@ curl -X POST https://your-url.com/api/shadowverse/log_match \
 curl -X POST https://your-url.com/api/shadowverse/log_match \
   -H "X-API-Key: your_key" \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"123","server_id":"456","played_craft":"Swordcraft","opponent_craft":"Runecraft","win":false,"brick":true}'
+  -d '{"user_id":"123","played_craft":"Swordcraft","opponent_craft":"Runecraft","win":false,"brick":true}'
 ```
 
 ### Python
 ```python
 import requests
 
-def log_match(craft, opponent, win, brick=False):
+def log_match(user_id, craft, opponent, win, brick=False):
     return requests.post(
         "https://your-url.com/api/shadowverse/log_match",
         headers={"X-API-Key": "your_key"},
         json={
-            "user_id": "123",
-            "server_id": "456",
+            "user_id": user_id,
             "played_craft": craft,
             "opponent_craft": opponent,
             "win": win,
@@ -169,12 +169,12 @@ def log_match(craft, opponent, win, brick=False):
     ).json()
 
 # Usage
-log_match("Dragoncraft", "Forestcraft", win=True)
+log_match("123456789", "Dragoncraft", "Forestcraft", win=True)
 ```
 
 ### JavaScript
 ```javascript
-async function logMatch(craft, opponent, win, brick = false) {
+async function logMatch(userId, craft, opponent, win, brick = false) {
     const response = await fetch('https://your-url.com/api/shadowverse/log_match', {
         method: 'POST',
         headers: {
@@ -182,8 +182,7 @@ async function logMatch(craft, opponent, win, brick = false) {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            user_id: '123',
-            server_id: '456',
+            user_id: userId,
             played_craft: craft,
             opponent_craft: opponent,
             win: win,
@@ -194,7 +193,7 @@ async function logMatch(craft, opponent, win, brick = false) {
 }
 
 // Usage
-logMatch('Dragoncraft', 'Forestcraft', true);
+logMatch('123456789', 'Dragoncraft', 'Forestcraft', true);
 ```
 
 ## Files Added/Modified
