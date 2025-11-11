@@ -35,44 +35,8 @@ API_HOST = os.getenv('API_HOST', '0.0.0.0')
 API_PORT = int(os.getenv('API_PORT', '8080'))
 
 # Store API server runner globally
+# Store API server runner globally
 api_runner = None
-
-@bot.event
-async def on_ready():
-    """
-    Called when the bot is ready and connected to Discord.
-    Starts the API server if enabled.
-    """
-    global api_runner
-    
-    print(f'\n{"="*50}')
-    print(f'Bot is ready!')
-    print(f'Logged in as: {bot.user.name} (ID: {bot.user.id})')
-    print(f'Bot version: {bot_version}')
-    print(f'Connected to {len(bot.guilds)} guild(s)')
-    print(f'{"="*50}\n')
-    
-    # Start API server if enabled
-    if API_ENABLED:
-        try:
-            # Set bot instance in api_server to avoid circular import
-            api_server.bot_instance = bot
-            api_runner = await api_server.start_api_server(host=API_HOST, port=API_PORT)
-            print(f'\n{"="*50}')
-            print(f'API Server Status: ENABLED')
-            print(f'Listening on: http://{API_HOST}:{API_PORT}')
-            print(f'{"="*50}\n')
-        except Exception as e:
-            print(f'\n{"="*50}')
-            print(f'API Server Status: FAILED TO START')
-            print(f'Error: {e}')
-            print(f'Bot will continue without API server.')
-            print(f'{"="*50}\n')
-    else:
-        print(f'\n{"="*50}')
-        print(f'API Server Status: DISABLED')
-        print(f'Set API_ENABLED=true in environment to enable.')
-        print(f'{"="*50}\n')
 
 # Shutdown message
 async def shutdown_message():
@@ -411,7 +375,38 @@ def get_latest_commit_message():
 
 @bot.event
 async def on_ready():
-    print(f"Kanami is ready to go!")
+    global api_runner
+    
+    print(f'\n{"="*50}')
+    print(f'Kanami is ready to go!')
+    print(f'Logged in as: {bot.user.name} (ID: {bot.user.id})')
+    print(f'Bot version: {bot_version}')
+    print(f'Connected to {len(bot.guilds)} guild(s)')
+    print(f'{"="*50}\n')
+
+    # Start API server if enabled
+    if API_ENABLED:
+        try:
+            # Set bot instance in api_server to avoid circular import
+            api_server.bot_instance = bot
+            api_runner = await api_server.start_api_server(host=API_HOST, port=API_PORT)
+            print(f'\n{"="*50}')
+            print(f'API Server Status: ENABLED')
+            print(f'Listening on: http://{API_HOST}:{API_PORT}')
+            print(f'{"="*50}\n')
+        except Exception as e:
+            print(f'\n{"="*50}')
+            print(f'API Server Status: FAILED TO START')
+            print(f'Error: {e}')
+            import traceback
+            traceback.print_exc()
+            print(f'Bot will continue without API server.')
+            print(f'{"="*50}\n')
+    else:
+        print(f'\n{"="*50}')
+        print(f'API Server Status: DISABLED')
+        print(f'Set API_ENABLED=true in environment to enable.')
+        print(f'{"="*50}\n')
 
     try:
         synced = await bot.tree.sync()
