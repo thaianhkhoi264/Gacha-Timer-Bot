@@ -13,13 +13,15 @@ from shadowverse_handler import (
     get_sv_channel_id,
     CRAFTS
 )
-from bot import bot
 from global_config import DEV_SERVER_ID
 import logging
 
 # Configure logging
 api_logger = logging.getLogger("api_server")
 api_logger.setLevel(logging.INFO)
+
+# Bot instance will be set by main.py to avoid circular imports
+bot_instance = None
 
 # Load API keys from environment or config file
 API_KEYS_FILE = "api_keys.json"
@@ -153,7 +155,14 @@ async def handle_log_match(request):
         await record_match(user_id, server_id, played_craft, opponent_craft, win, brick)
         
         # Get the guild and channel for dashboard update
-        guild = bot.get_guild(DEV_SERVER_ID)
+        if not bot_instance:
+            api_logger.error("Bot instance not available")
+            return web.json_response(
+                {"success": False, "error": "Bot not initialized"},
+                status=503
+            )
+        
+        guild = bot_instance.get_guild(DEV_SERVER_ID)
         if not guild:
             api_logger.error(f"Development server (ID: {DEV_SERVER_ID}) not found")
             return web.json_response(
@@ -235,8 +244,8 @@ async def handle_health_check(request):
     """
     return web.json_response({
         "status": "ok",
-        "bot_connected": bot.is_ready(),
-        "bot_user": str(bot.user) if bot.user else "Not connected"
+        "bot_connected": bot_instance.is_ready() if bot_instance else False,
+        "bot_user": str(bot_instance.user) if (bot_instance and bot_instance.user) else "Not connected"
     })
 
 async def handle_validate_key(request):

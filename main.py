@@ -55,6 +55,8 @@ async def on_ready():
     # Start API server if enabled
     if API_ENABLED:
         try:
+            # Set bot instance in api_server to avoid circular import
+            api_server.bot_instance = bot
             api_runner = await api_server.start_api_server(host=API_HOST, port=API_PORT)
             print(f'\n{"="*50}')
             print(f'API Server Status: ENABLED')
