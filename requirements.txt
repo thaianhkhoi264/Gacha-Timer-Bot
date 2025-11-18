@@ -12,3 +12,4 @@ optimum
 onnx
 onnxruntime
 llama-cpp-python
+anthropic

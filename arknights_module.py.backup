@@ -554,206 +554,262 @@ async def parse_dates_ak(ctx, text):
 
 # --- Tweet Listening and Filtering ---
 
-async def classify_and_extract_ak_event(tweet_text, tweet_image):
+async def is_ak_event_tweet(tweet_text):
     """
-    COMBINED LLM call: Classifies tweet AND extracts event data in one prompt.
-    Returns dict with:
-    - classification: "Event" or "Filler"
-    - title, category, start, end, image (only if classification is "Event")
+    Uses the LLM to classify if a tweet is an Arknights event/announcement.
+    Returns True if it's an event, False otherwise.
+    """
+    prompt = (
+        "You are a classifier for Arknights tweets. Your job is to determine if a tweet announces a trackable in-game event.\n"
+        "\n"
+        "CRITICAL CLASSIFICATION RULES:\n"
+        "1. Classify as 'Event' ONLY if the tweet announces:\n"
+        "   - A new banner/headhunting with operator rate-ups\n"
+        "   - A new in-game event with stages/missions\n"
+        "   - Server maintenance\n"
+        "   AND the tweet contains BOTH a start date AND end date (or time range)\n"
+        "\n"
+        "2. Classify as 'Filler' if the tweet is:\n"
+        "   - Outfit/skin announcements (even with dates)\n"
+        "   - Music, comics, art, trailers, lore posts\n"
+        "   - Rewards, thank you messages, reminders\n"
+        "   - Event previews/teasers WITHOUT specific dates\n"
+        "   - Announcements about future content without a date range\n"
+        "\n"
+        "3. Key indicators for 'Event':\n"
+        "   - Contains phrases like 'will be available', 'rated up', 'headhunting', 'Limited-time'\n"
+        "   - Has TWO timestamps (start and end) or a date range like 'September 16 - September 30'\n"
+        "   - Announces new operators, new episode stages, or maintenance windows\n"
+        "\n"
+        "4. Key indicators for 'Filler':\n"
+        "   - Contains 【brackets】with outfit/skin series names\n"
+        "   - Words like 'outfit', 'skin', 'FOR FREE', 'redeem', 'Tailor-Provided', 'Collection'\n"
+        "   - Promotional content: music, EP, comics, art\n"
+        "   - Thank you messages or lore quotes\n"
+        "\n"
+        "EXAMPLES:\n"
+        "\n"
+        "Tweet: 【New Operators】Operators Mon3tr, Alanna and Windscoot will be rated up in the Limited-time Headhunting - Command: Reconstruction between September 16, 2025, 10:00 - September 30, 2025, 03:59 (UTC-7)!\n"
+        "Classification: Event\n"
+        "Reason: Banner announcement with operator rate-ups and clear date range.\n"
+        "\n"
+        "Tweet: Dear Doctor, The following Operators will appear at a higher rate between September 16, 2025, 10:00 - September 30, 2025, 03:59 (UTC-7). ★★★★★★: Mon3tr\n"
+        "Classification: Event\n"
+        "Reason: Rate-up announcement with date range.\n"
+        "\n"
+        "Tweet: Dear Doctor, Please note that we plan to perform the following server maintenance on September 16, 2025, 10:00-10:10 (UTC-7). Thank you for your understanding and support.\n"
+        "Classification: Event\n"
+        "Reason: Maintenance announcement with time window.\n"
+        "\n"
+        "Tweet: Dear Doctor, New episode: Dissociative Recombination will soon be live on September 16, 10:00 (UTC-7), and some of the contents are available for a limited time. Please refer to the following notification for the event details.\n"
+        "Classification: Event\n"
+        "Reason: New episode announcement with start date.\n"
+        "\n"
+        "Tweet: 【Ambience Synesthesia Tailor-Provided - Golden Reverie - Muelsyse】Now available at the Store until October 14, 2025, 03:59 (UTC-7)!\n"
+        "Classification: Filler\n"
+        "Reason: Outfit announcement (has 【brackets】and 'Tailor-Provided'), not a gameplay event.\n"
+        "\n"
+        "Tweet: 【0011 Tempest Series - Candy Strike - Odda】Collect 'Courage' Badge to redeem this outfit FOR FREE in Closure's Backup before October 7, 2025, 03:59 (UTC-7)!\n"
+        "Classification: Filler\n"
+        "Reason: Free outfit redemption, not a gameplay event.\n"
+        "\n"
+        "Tweet: 【EPOQUE Collection - Playfellows - Vermeil】Raise Hype levels in Icebreaker Games #1 to obtain this outfit FOR FREE before September 28, 2025, 03:59 (UTC-7)!\n"
+        "Classification: Filler\n"
+        "Reason: Outfit unlock via event participation, but the tweet itself is about the outfit, not the event.\n"
+        "\n"
+        "Tweet: Dear Doctor, thank you for playing New episode: Dissociative Recombination! \"Hope is never a lie. Rhodes Island still clings to that faintest sliver of possibility—to press forward.\"\n"
+        "Classification: Filler\n"
+        "Reason: Thank you message with lore quote, not an announcement.\n"
+        "\n"
+        "Tweet: Arknights EP - Skeletal Wings. When wind swept through, bore did the tide; in dust left in endlessness, memories laid.\n"
+        "Classification: Filler\n"
+        "Reason: Music/EP promotional post.\n"
+        "\n"
+        "Tweet: Dear Doctor, the new episode: Dissociative Recombination will be available soon. Here is a brief introduction about the new enemies and the new mechanisms.\n"
+        "Classification: Filler\n"
+        "Reason: Preview/teaser without specific dates.\n"
+        "\n"
+        "Now classify this tweet. Reply with ONLY 'Event' or 'Filler':\n"
+        f"{tweet_text}\n"
+        "Classification:"
+    )
+    response = await run_llm_inference(prompt)
+    ak_logger.info(f"is_ak_event_tweet LLM response: {response!r}")
     
-    This reduces LLM API calls by 50% compared to separate classification + extraction.
+    # More robust response checking
+    if not response:
+        ak_logger.warning("⚠️ LLM returned empty response for classification")
+        return False
+    
+    response_clean = response.strip().lower()
+    is_event = response_clean.startswith("event")
+    
+    if is_event:
+        ak_logger.info("✅ Classified as Event")
+    else:
+        ak_logger.info("❌ Classified as Filler")
+    
+    return is_event
+
+# --- Tweet Reading and Event Extraction ---
+
+async def extract_ak_event_from_tweet(tweet_text, tweet_image):
     """
-    ak_logger.info("=== [classify_and_extract_ak_event] COMBINED CLASSIFICATION + EXTRACTION ===")
+    Uses the LLM to extract event details from an Arknights tweet.
+    Returns a dict with title, category, start, end, image (if found).
+    """
+    ak_logger.info("=== [extract_ak_event_from_tweet] ===")
     ak_logger.info(f"Tweet text:\n{tweet_text}")
     ak_logger.info(f"Tweet image: {tweet_image}")
 
     prompt = (
-        "You are an Arknights event classifier and data extractor. Analyze the tweet and determine if it announces a trackable in-game event.\n"
-        "\n"
-        "**CLASSIFICATION RULES:**\n"
-        "\n"
-        "Classify as 'Event' ONLY if ALL of these are true:\n"
-        "1. Announces a new banner/headhunting, in-game event with stages, or server maintenance\n"
-        "2. Contains BOTH a start date AND end date (or time range)\n"
-        "3. Is NOT an outfit/skin announcement (even if it has dates)\n"
-        "\n"
-        "Classify as 'Filler' if ANY of these are true:\n"
-        "- Outfit/skin announcements (look for 【brackets】, 'Tailor-Provided', 'outfit', 'skin', 'FOR FREE')\n"
-        "- Music, comics, art, trailers, lore posts\n"
-        "- Rewards, thank you messages, reminders\n"
-        "- Event previews/teasers WITHOUT specific dates\n"
-        "- Announcements about future content without a date range\n"
-        "\n"
-        "**OUTPUT FORMAT:**\n"
-        "\n"
-        "If classification is 'Filler', respond with ONLY:\n"
-        "```\n"
-        "Classification: Filler\n"
-        "```\n"
-        "\n"
-        "If classification is 'Event', respond with:\n"
-        "```\n"
-        "Classification: Event\n"
-        "Title: <event title>\n"
-        "Category: <Banner|Event|Maintenance>\n"
-        "Start: <UNIX timestamp in UTC>\n"
-        "End: <UNIX timestamp in UTC>\n"
-        "```\n"
-        "\n"
-        "**EXTRACTION RULES (only for Events):**\n"
-        "\n"
-        "- Title:\n"
-        "  - For banners: Include 6★ operator names (e.g., 'Mon3tr Banner', 'Exusiai & Siege Kernel Banner')\n"
-        "  - For events: Use event name from tweet (e.g., 'Dissociative Recombination')\n"
-        "  - For maintenance: Use date + 'Maintenance' (e.g., 'September 16 Maintenance')\n"
-        "\n"
-        "- Category: Must be one of: Banner, Event, Maintenance\n"
-        "  - 'Banner' if mentions: operator, headhunting, rate up, Limited\n"
-        "  - 'Event' if mentions: episode, stages, new event\n"
-        "  - 'Maintenance' if mentions: maintenance, server downtime\n"
-        "\n"
-        "- Start/End: Convert ALL dates to UNIX timestamps in UTC\n"
-        "  - If tweet shows (UTC-7), convert to UTC before converting to UNIX\n"
-        "  - Example: 'September 16, 2025, 10:00 (UTC-7)' = 1726498800 (UTC)\n"
-        "\n"
-        "**EXAMPLES:**\n"
-        "\n"
-        "Example 1 (Event - Banner):\n"
-        "Tweet: 【New Operators】Operators Mon3tr, Alanna and Windscoot will be rated up in the Limited-time Headhunting - Command: Reconstruction between September 16, 2025, 10:00 - September 30, 2025, 03:59 (UTC-7)!\n"
-        "Response:\n"
-        "```\n"
-        "Classification: Event\n"
-        "Title: Mon3tr Banner\n"
-        "Category: Banner\n"
-        "Start: 1726498800\n"
-        "End: 1727715540\n"
-        "```\n"
-        "\n"
-        "Example 2 (Event - Maintenance):\n"
-        "Tweet: Dear Doctor, Please note that we plan to perform the following server maintenance on September 16, 2025, 10:00-10:10 (UTC-7). Thank you for your understanding and support.\n"
-        "Response:\n"
-        "```\n"
-        "Classification: Event\n"
-        "Title: September 16 Maintenance\n"
-        "Category: Maintenance\n"
-        "Start: 1726498800\n"
-        "End: 1726499400\n"
-        "```\n"
-        "\n"
-        "Example 3 (Filler - Outfit):\n"
-        "Tweet: 【Ambience Synesthesia Tailor-Provided - Golden Reverie - Muelsyse】Now available at the Store until October 14, 2025, 03:59 (UTC-7)!\n"
-        "Response:\n"
-        "```\n"
-        "Classification: Filler\n"
-        "```\n"
-        "\n"
-        "Example 4 (Filler - Thank You):\n"
-        "Tweet: Dear Doctor, thank you for playing New episode: Dissociative Recombination! \"Hope is never a lie. Rhodes Island still clings to that faintest sliver of possibility—to press forward.\"\n"
-        "Response:\n"
-        "```\n"
-        "Classification: Filler\n"
-        "```\n"
-        "\n"
-        "**NOW ANALYZE THIS TWEET:**\n"
-        f"{tweet_text}\n"
-        "\n"
-        "Respond using the exact format shown above:"
-    )
+            "Extract the following information from this Arknights event announcement tweet."
+            "Reply in this exact format (one line per field, no extra text, no quotes):"
+            ""
+            "Title: <title>"
+            "Category: <category>"
+            "Profile: AK"
+            "Start: <UNIX timestamp>"
+            "End: <UNIX timestamp>"
+            "Image: <image url or None>"
+            ""
+            "Rules:"
+            "- The Category should be one of these single words: [Banner, Event, Maintenance]. Do not use phrases."
+            "- Only extract if the tweet is about an in-game event, banner, or maintenance/update with a clear time window."
+            "- Do NOT extract for outfits, skins, music, comics, trailers, fanart, lore, or rewards, even if they have a time window. For these, reply with None for all fields except Profile."
+            "- If the tweet has the word 'headhunting' or 'rate up' or 'operator', it is a banner."
+            "- If the Category is Banner, the Title should include the name of the 6★ Operators in the Banner, or the banner name if multiple."
+            "- If any field is missing, write None for that field."
+            "- If the tweet contains a date range, always convert and extract Start and End as UNIX timestamps in UTC."
+            "- For banners, Category must be Banner and Start/End must be extracted from the date range."
+            ""
+            "Examples:"
+            ""
+            "Tweet:"
+            "Dear Doctor,"
+            "New episode: Dissociative Recombination will soon be live on September 16, 10:00 (UTC-7), and some of the contents are available for a limited time. Please refer to the following notification for the event details."
+            "Image: https://pbs.twimg.com/media/example.jpg"
+            "Title: Dissociative Recombination"
+            "Category: Event"
+            "Profile: AK"
+            "Start: 1726498800"
+            "End: 1727715600"
+            "Image: https://pbs.twimg.com/media/example.jpg"
+            ""
+            "Tweet:"
+            "【New Operators】"
+            "Operators Mon3tr, Alanna and Windscoot will be rated up in the Limited-time Headhunting - Command: Reconstruction between September 16, 2025, 10:00 - September 30, 2025, 03:59 (UTC-7)!"
+            "Title: Mon3tr Banner"
+            "Category: Banner"
+            "Profile: AK"
+            "Start: 1726498800"
+            "End: 1727715540"
+            "Image: None"
+            ""
+            "Tweet:"
+            "Dear Doctor,"
+            "Please note that we plan to perform the following server maintenance on September 16, 2025, 10:00-10:10 (UTC-7). Thank you for your understanding and support."
+            "Title: Maintenance"
+            "Category: Maintenance"
+            "Profile: AK"
+            "Start: 1726498800"
+            "End: 1726499400"
+            "Image: None"
+            ""
+            "Now extract from this tweet:"
+            "{tweet_text}"
+        )
+    # LLM disabled for now
+    # try:
+    #     response = await run_llm_inference(prompt)
+    # except Exception:
+    #     response = None
     
-    response = await run_llm_inference(prompt, max_tokens=512)
-    ak_logger.info(f"[classify_and_extract_ak_event] LLM response:\n{response}")
+    response = None  # LLM disabled for now
+    ak_logger.info(f"LLM response: {response}")
+
+    # --- Robust field extraction using line-by-line parsing ---
+    def extract_fields(text):
+        fields = {"Title": None, "Category": None, "Profile": None, "Start": None, "End": None, "Image": None}
+        if not text:
+            return fields
+        for line in text.splitlines():
+            for key in fields:
+                if line.strip().lower().startswith(f"{key.lower()}:"):
+                    value = line.split(":", 1)[1].strip()
+                    fields[key] = value
+        return fields
+
+    fields = extract_fields(response)
+    ak_logger.info(f"Extracted fields from LLM: {fields}")
+
+    # Fallbacks for missing or None fields
+    title = fields["Title"] if fields["Title"] and fields["Title"].lower() != "none" else parse_title_ak(tweet_text)
+    ak_logger.info(f"Title after fallback: {title}")
     
-    if not response:
-        ak_logger.error("❌ LLM returned empty response")
-        return {"classification": "Filler"}
-    
-    # Parse response
-    lines = [line.strip() for line in response.split('\n') if line.strip()]
-    
-    # Extract classification
-    classification = None
-    for line in lines:
-        if line.lower().startswith("classification:"):
-            classification = line.split(":", 1)[1].strip()
-            break
-    
-    if not classification:
-        ak_logger.warning("⚠️ No classification found in response, assuming Filler")
-        return {"classification": "Filler"}
-    
-    # If Filler, return early
-    if classification.lower() == "filler":
-        ak_logger.info("✅ Classified as Filler")
-        return {"classification": "Filler"}
-    
-    # If Event, extract all fields
-    ak_logger.info("✅ Classified as Event, extracting fields...")
-    
-    def extract_field(field_name):
-        for line in lines:
-            if line.lower().startswith(f"{field_name.lower()}:"):
-                value = line.split(":", 1)[1].strip()
-                return value if value.lower() != "none" else None
-        return None
-    
-    title = extract_field("Title")
-    category = extract_field("Category")
-    start = extract_field("Start")
-    end = extract_field("End")
-    
-    ak_logger.info(f"Extracted: title={title}, category={category}, start={start}, end={end}")
-    
-    # --- FALLBACKS for missing fields ---
-    
-    # Title fallback
-    if not title:
-        title = parse_title_ak(tweet_text)
-        ak_logger.info(f"Title missing, using parse_title_ak: {title}")
-    
-    # Validate title
-    invalid_titles = ["arknights_en", "arknights en", "@arknightsen", "arknights", "twitter.com/arknights"]
+    # --- VALIDATION: Reject invalid titles ---
+    invalid_titles = ["arknights_en", "arknights en", "@arknightsen", "arknights"]
     if title and any(invalid in title.lower() for invalid in invalid_titles):
-        ak_logger.error(f"❌ INVALID TITLE: '{title}' - Rejecting event")
-        return {"classification": "Filler"}
+        ak_logger.error(f"❌ INVALID TITLE DETECTED: '{title}' - This appears to be a twitter handle or invalid extraction. Rejecting event.")
+        return {
+            "title": None,
+            "category": None,
+            "start": None,
+            "end": None,
+            "image": None
+        }
     
-    # Category fallback
-    if not category:
-        category = parse_category_ak(tweet_text)
-        ak_logger.info(f"Category missing, using parse_category_ak: {category}")
-    
-    # Dates fallback - convert to UNIX if needed
+    category = fields["Category"] if fields["Category"] and fields["Category"].lower() != "none" else parse_category_ak(tweet_text)
+    ak_logger.info(f"Category after fallback: {category}")
+    start = fields["Start"] if fields["Start"] and fields["Start"].lower() != "none" else None
+    end = fields["End"] if fields["End"] and fields["End"].lower() != "none" else None
+    ak_logger.info(f"Start from LLM: {start}")
+    ak_logger.info(f"End from LLM: {end}")
+
+    # If start or end is missing, use parse_dates_ak
+    if not start or not end:
+        ak_logger.info("Start or end missing, using parse_dates_ak fallback...")
+        parsed_start, parsed_end = await parse_dates_ak(None, tweet_text)
+        ak_logger.info(f"parse_dates_ak returned: start={parsed_start}, end={parsed_end}")
+        if not start and parsed_start:
+            start = parsed_start
+        if not end and parsed_end:
+            end = parsed_end
+
+    # --- Convert start/end to UNIX timestamps (timezone-aware) ---
     def to_unix(date_str):
         if not date_str:
+            ak_logger.warning("to_unix: date_str is None")
             return None
-        # If already looks like UNIX timestamp, return it
-        if date_str.isdigit():
-            return int(date_str)
-        # Otherwise parse with dateparser
-        import dateparser
         dt = dateparser.parse(date_str, settings={'RETURN_AS_TIMEZONE_AWARE': True})
-        if dt:
-            return int(dt.timestamp())
-        return None
-    
+        ak_logger.info(f"to_unix: parsed '{date_str}' to datetime: {dt}")
+        if not dt:
+            return None
+        ts = int(dt.timestamp())
+        ak_logger.info(f"to_unix: UNIX timestamp: {ts}")
+        return ts
+
     start_unix = to_unix(start)
     end_unix = to_unix(end)
-    
-    # If dates still missing, try parse_dates_ak
-    if not start_unix or not end_unix:
-        ak_logger.info("Dates missing or invalid, using parse_dates_ak fallback...")
-        parsed_start, parsed_end = await parse_dates_ak(None, tweet_text)
-        if not start_unix and parsed_start:
-            start_unix = to_unix(parsed_start)
-        if not end_unix and parsed_end:
-            end_unix = to_unix(parsed_end)
-    
-    ak_logger.info(f"Final UNIX: start={start_unix}, end={end_unix}")
-    
-    # Use tweet_image directly (already extracted by twitter_handler)
-    image = tweet_image if tweet_image else None
-    
+    ak_logger.info(f"Final start_unix: {start_unix}")
+    ak_logger.info(f"Final end_unix: {end_unix}")
+
+    # --- Image extraction ---
+    image = fields["Image"] if fields["Image"] and fields["Image"].lower() != "none" else None
+    if not image:
+        import re
+        images = re.findall(r'https://pbs\.twimg\.com/media/[^\s]+', tweet_text)
+        if images:
+            image = images[0]
+            ak_logger.info(f"Image found in tweet text: {image}")
+        elif tweet_image:
+            image = tweet_image
+            ak_logger.info(f"Image fallback to tweet_image: {image}")
+        else:
+            ak_logger.warning("No image found.")
+
+    ak_logger.info(f"Returning event dict: title={title}, category={category}, start={start_unix}, end={end_unix}, image={image}")
     return {
-        "classification": "Event",
         "title": title,
         "category": category,
         "start": start_unix,
@@ -840,29 +896,17 @@ async def ak_read(ctx, link: str):
         return
     else:
         await ctx.send(f"Kanami have read the tweet:\n```{tweet_text}```")  # Show tweet text
-    
-    # Use combined LLM call for classification + extraction
-    result = await classify_and_extract_ak_event(tweet_text, tweet_image)
-    
-    if result["classification"] == "Filler":
-        await ctx.send("This tweet is not classified as an event (Filler content).")
-        return
-    
-    # Extract event data from result
-    event_data = {
-        "title": result["title"],
-        "category": result["category"],
-        "start": result["start"],
-        "end": result["end"],
-        "image": result["image"]
-    }
-    
+    # Use LLM to extract event info
+    event_data = await extract_ak_event_from_tweet(tweet_text, tweet_image)
+    # If LLM didn't find an image, use the tweet image
+    if (not event_data["image"] or event_data["image"].lower() == "none") and tweet_image:
+        event_data["image"] = tweet_image
     # Validate required fields
     if not (event_data["title"] and event_data["category"] and event_data["start"] and event_data["end"]):
-        await ctx.send(f"AI could not extract all required info. LLM response:\n```{result}```")
+        await ctx.send(f"AI could not extract all required info. LLM response:\n```{event_data}```")
         return
-    
     await add_ak_event(ctx, event_data)
+    # No need to send another confirmation; add_ak_event already does.
     await arknights_update_timers()
     ak_logger.info("[ak_read] Dashboard refresh completed.")
 
@@ -901,33 +945,32 @@ async def arknights_on_message(message, force=False):
 
     ak_logger.info(f"on_message: Tweet text:\n{tweet_text}")
 
-    # Use combined LLM call for classification + extraction
-    result = await classify_and_extract_ak_event(tweet_text, tweet_image)
-    
-    # Only skip if not forced and classified as Filler
-    if not force and result["classification"] == "Filler":
-        ak_logger.info("on_message: Classified as Filler, skipping.")
-        try:
-            await message.add_reaction("❌")
-        except Exception:
-            pass
-        return False
-    elif result["classification"] == "Event":
-        try:
-            await message.add_reaction("✅")
-        except Exception:
-            pass
-    
-    # Extract event data from result
-    event_data = {
-        "title": result.get("title"),
-        "category": result.get("category"),
-        "start": result.get("start"),
-        "end": result.get("end"),
-        "image": result.get("image")
-    }
-    
+    # Only skip classification if not forced
+    if not force:
+        ak_logger.info(f"LLM classification input tweet_text:\n{tweet_text}")
+        is_event = await is_ak_event_tweet(tweet_text)
+        ak_logger.info(f"on_message: LLM classified as event? {is_event}")
+        if not is_event:
+            ak_logger.info("on_message: Tweet not classified as event, skipping.")
+            try:
+                await message.add_reaction("❌")
+            except Exception:
+                pass
+            return False
+        else:
+            try:
+                await message.add_reaction("✅")
+            except Exception:
+                pass
+    else:
+        ak_logger.info("on_message: Force=True, skipping classification.")
+
+    event_data = await extract_ak_event_from_tweet(tweet_text, tweet_image)
     ak_logger.info(f"on_message: Extracted event_data: {event_data}")
+
+    if (not event_data["image"] or event_data["image"].lower() == "none") and tweet_image:
+        event_data["image"] = tweet_image
+        ak_logger.info("on_message: Used tweet_image as fallback for event image.")
 
     if not (event_data["title"] and event_data["category"] and event_data["start"] and event_data["end"]):
         ak_logger.info("on_message: Missing required event fields, not adding event.")
@@ -981,25 +1024,30 @@ async def ak_read_test(ctx, link: str):
     else:
         await ctx.send(f"Found tweet, tweet text:\n```{tweet_text}```")
 
-    # Use combined LLM call
-    await ctx.send("Analyzing tweet with LLM (combined classification + extraction)...")
-    result = await classify_and_extract_ak_event(tweet_text, tweet_image)
-    
-    await ctx.send(f"**Classification:** {result['classification']}")
+    # Check if it's an event tweet
+    await ctx.send("Checking if the tweet is an event...")
+    ak_logger.info(f"LLM classification input tweet_text:\n{tweet_text}")
+    is_event = await is_ak_event_tweet(tweet_text)
+    await ctx.send(f"Classification: {'Event' if is_event else 'Filler'}")
 
-    if result["classification"] == "Filler":
-        await ctx.send("This tweet is not classified as an event (Filler content).")
+    if not is_event:
+        await ctx.send("This tweet is not classified as an event.")
         return
+
+    # Extract event info
+    await ctx.send("This tweet is classified as an event! Extracting event info...")
+    event_data = await extract_ak_event_from_tweet(tweet_text, tweet_image)
+    if (not event_data["image"] or event_data["image"].lower() == "none") and tweet_image:
+        event_data["image"] = tweet_image
 
     # Show extracted info
     await ctx.send(
-        f"**This tweet is classified as an event!**\n"
         f"**Extracted Event Info:**\n"
-        f"Title: {result['title']}\n"
-        f"Category: {result['category']}\n"
-        f"Start: <t:{result['start']}:F> (UNIX: {result['start']})\n"
-        f"End: <t:{result['end']}:F> (UNIX: {result['end']})\n"
-        f"Image: {result['image']}"
+        f"Title: {event_data['title']}\n"
+        f"Category: {event_data['category']}\n"
+        f"Start: {event_data['start']}\n"
+        f"End: {event_data['end']}\n"
+        f"Image: {event_data['image']}"
     )
 
 # --- Remove Event Command ---
