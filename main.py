@@ -532,18 +532,33 @@ async def on_message(message):
 
 @bot.event
 async def on_reaction_add(reaction, user):
+    print(f"[REACTION] Reaction added: {reaction.emoji} by {user.name} (bot={user.bot})")
+    
     # Only respond to ❌ emoji, ignore bot reactions
     if user.bot:
+        print(f"[REACTION] Ignoring bot reaction")
         return
+    
+    print(f"[REACTION] Emoji string: '{str(reaction.emoji)}'")
     if str(reaction.emoji) == "❌":
         message = reaction.message
+        print(f"[REACTION] ❌ detected! Message channel: {message.channel.id}")
+        
         # Optionally, check if this is a tweet message in a listener channel
         from global_config import LISTENER_CHANNELS
+        print(f"[REACTION] Listener channels: {LISTENER_CHANNELS}")
+        
         if message.channel.id not in LISTENER_CHANNELS.values():
+            print(f"[REACTION] Channel {message.channel.id} not in listener channels, ignoring")
             return
+        
+        print(f"[REACTION] Calling arknights_on_message with force=True")
         # Call arknights_on_message with force=True to re-read
         from arknights_module import arknights_on_message
         await arknights_on_message(message, force=True)
+        print(f"[REACTION] arknights_on_message completed")
+    else:
+        print(f"[REACTION] Not ❌ emoji, ignoring")
 
 @bot.command() # "assign" command to assign the bot to announce its readiness in this channel
 @commands.has_permissions(manage_channels=True)
