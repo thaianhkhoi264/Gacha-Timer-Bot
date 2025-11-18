@@ -704,6 +704,16 @@ async def classify_and_extract_ak_event(tweet_text, tweet_image):
     # If Event, extract all fields
     ak_logger.info("✅ Classified as Event, extracting fields...")
     
+    # DM owner with LLM response for troubleshooting
+    try:
+        owner = bot.get_user(OWNER_USER_ID)
+        if not owner:
+            owner = await bot.fetch_user(OWNER_USER_ID)
+        if owner:
+            await owner.send(f"**[AK Event Detected - LLM Response]**\nTweet: {tweet_text[:100]}...\n\n**LLM Output:**\n```\n{response}\n```")
+    except Exception as e:
+        ak_logger.warning(f"Failed to DM owner with LLM response: {e}")
+    
     def extract_field(field_name):
         for line in lines:
             if line.lower().startswith(f"{field_name.lower()}:"):
