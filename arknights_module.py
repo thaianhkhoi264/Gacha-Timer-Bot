@@ -870,7 +870,7 @@ async def arknights_on_message(message, force=False):
     """
     Call this from main.py's on_message to process Arknights event tweets.
     Returns True if the message was handled, False otherwise.
-    If force=True, always process as an event.
+    If force=True, always process as an event using fallback parsers.
     """
     from global_config import LISTENER_CHANNELS
     ak_logger.info(f"on_message: Received message in channel {message.channel.id} (guild {getattr(message.guild, 'id', None)}) by user {message.author.id}")
@@ -901,33 +901,67 @@ async def arknights_on_message(message, force=False):
 
     ak_logger.info(f"on_message: Tweet text:\n{tweet_text}")
 
-    # Use combined LLM call for classification + extraction
-    result = await classify_and_extract_ak_event(tweet_text, tweet_image)
-    
-    # Only skip if not forced and classified as Filler
-    if not force and result["classification"] == "Filler":
-        ak_logger.info("on_message: Classified as Filler, skipping.")
+    # If forced, bypass LLM and use fallback parsers directly
+    if force:
+        ak_logger.info("on_message: FORCED mode - bypassing LLM, using fallback parsers")
         try:
-            await message.add_reaction("❌")
+            await message.add_reaction("🔄")  # Processing emoji
         except Exception:
             pass
-        return False
-    elif result["classification"] == "Event":
-        try:
-            await message.add_reaction("✅")
-        except Exception:
-            pass
-    
-    # Extract event data from result
-    event_data = {
-        "title": result.get("title"),
-        "category": result.get("category"),
-        "start": result.get("start"),
-        "end": result.get("end"),
-        "image": result.get("image")
-    }
-    
-    ak_logger.info(f"on_message: Extracted event_data: {event_data}")
+        
+        # Use fallback parsers
+        title = parse_title_ak(tweet_text)
+        category = parse_category_ak(tweet_text)
+        parsed_start, parsed_end = await parse_dates_ak(None, tweet_text)
+        
+        # Convert dates to UNIX
+        def to_unix(date_str):
+            if not date_str:
+                return None
+            import dateparser
+            dt = dateparser.parse(date_str, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+            if dt:
+                return int(dt.timestamp())
+            return None
+        
+        event_data = {
+            "title": title,
+            "category": category,
+            "start": to_unix(parsed_start),
+            "end": to_unix(parsed_end),
+            "image": tweet_image if tweet_image else None
+        }
+        
+        ak_logger.info(f"on_message: FORCED extraction - event_data: {event_data}")
+        
+    else:
+        # Normal LLM-based processing
+        result = await classify_and_extract_ak_event(tweet_text, tweet_image)
+        
+        # Only skip if not forced and classified as Filler
+        if result["classification"] == "Filler":
+            ak_logger.info("on_message: Classified as Filler, skipping.")
+            try:
+                await message.add_reaction("❌")
+            except Exception:
+                pass
+            return False
+        elif result["classification"] == "Event":
+            try:
+                await message.add_reaction("✅")
+            except Exception:
+                pass
+        
+        # Extract event data from result
+        event_data = {
+            "title": result.get("title"),
+            "category": result.get("category"),
+            "start": result.get("start"),
+            "end": result.get("end"),
+            "image": result.get("image")
+        }
+        
+        ak_logger.info(f"on_message: Extracted event_data: {event_data}")
 
     if not (event_data["title"] and event_data["category"] and event_data["start"] and event_data["end"]):
         ak_logger.info("on_message: Missing required event fields, not adding event.")
