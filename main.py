@@ -531,34 +531,54 @@ async def on_message(message):
     await bot.process_commands(message)  # Ensure other commands still work
 
 @bot.event
-async def on_reaction_add(reaction, user):
-    print(f"[REACTION] Reaction added: {reaction.emoji} by {user.name} (bot={user.bot})")
+async def on_raw_reaction_add(payload):
+    """
+    Handles reactions on messages
+    """
+    print(f"[REACTION] Raw reaction added: {payload.emoji} by user_id={payload.user_id}")
     
-    # Only respond to ❌ emoji, ignore bot reactions
-    if user.bot:
-        print(f"[REACTION] Ignoring bot reaction")
+    # Ignore bot reactions
+    if payload.user_id == bot.user.id:
+        print(f"[REACTION] Ignoring bot's own reaction")
         return
     
-    print(f"[REACTION] Emoji string: '{str(reaction.emoji)}'")
-    if str(reaction.emoji) == "❌":
-        message = reaction.message
-        print(f"[REACTION] ❌ detected! Message channel: {message.channel.id}")
+    # Check if it's the ❌ emoji
+    emoji_str = str(payload.emoji)
+    print(f"[REACTION] Emoji string: '{emoji_str}'")
+    
+    if emoji_str == "❌":
+        print(f"[REACTION] ❌ detected! Channel: {payload.channel_id}, Message: {payload.message_id}")
         
-        # Optionally, check if this is a tweet message in a listener channel
+        # Check if this is in a listener channel
         from global_config import LISTENER_CHANNELS
         print(f"[REACTION] Listener channels: {LISTENER_CHANNELS}")
         
-        if message.channel.id not in LISTENER_CHANNELS.values():
-            print(f"[REACTION] Channel {message.channel.id} not in listener channels, ignoring")
+        if payload.channel_id not in LISTENER_CHANNELS.values():
+            print(f"[REACTION] Channel {payload.channel_id} not in listener channels, ignoring")
+            return
+        
+        print(f"[REACTION] Channel is a listener channel! Fetching message...")
+        
+        # Fetch the channel and message
+        channel = bot.get_channel(payload.channel_id)
+        if not channel:
+            print(f"[REACTION] Could not find channel {payload.channel_id}")
+            return
+        
+        try:
+            message = await channel.fetch_message(payload.message_id)
+            print(f"[REACTION] Message fetched! Content preview: {message.content[:100]}")
+        except Exception as e:
+            print(f"[REACTION] Failed to fetch message: {e}")
             return
         
         print(f"[REACTION] Calling arknights_on_message with force=True")
         # Call arknights_on_message with force=True to re-read
         from arknights_module import arknights_on_message
-        await arknights_on_message(message, force=True)
-        print(f"[REACTION] arknights_on_message completed")
+        result = await arknights_on_message(message, force=True)
+        print(f"[REACTION] arknights_on_message completed, result={result}")
     else:
-        print(f"[REACTION] Not ❌ emoji, ignoring")
+        print(f"[REACTION] Not ❌ emoji (got '{emoji_str}'), ignoring")
 
 @bot.command() # "assign" command to assign the bot to announce its readiness in this channel
 @commands.has_permissions(manage_channels=True)
