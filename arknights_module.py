@@ -726,8 +726,9 @@ async def classify_and_extract_ak_event(tweet_text, tweet_image):
         ak_logger.error("❌ LLM returned empty response")
         return {"classification": "Filler"}
     
-    # Parse response
-    lines = [line.strip() for line in response.split('\n') if line.strip()]
+    # Parse response - only use first 5 lines (structured output only)
+    response_lines = response.split('\n')
+    lines = [line.strip() for line in response_lines[:5] if line.strip()]
     
     # Extract classification
     classification = None
