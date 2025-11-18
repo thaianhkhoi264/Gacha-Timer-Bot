@@ -74,31 +74,52 @@ except Exception as e:
 # UNIFIED LLM INFERENCE
 # ============================================
 
-async def run_llm_inference(text: str, max_tokens: int = 512) -> Optional[str]:
+async def run_llm_inference(text: str, max_tokens: int = 512, image_url: Optional[str] = None) -> Optional[str]:
     """
-    Unified LLM inference function.
+    Unified LLM inference function with optional vision support.
     Tries Claude API first (if configured), falls back to local GGUF model.
     
     Args:
         text: The prompt to send to the LLM
         max_tokens: Maximum tokens to generate (default 512, increased for event extraction)
+        image_url: Optional image URL for vision analysis (Claude only)
     
     Returns:
         str: LLM response, or None if all methods fail
     """
-    print(f"[ML_HANDLER] run_llm_inference called (max_tokens={max_tokens})")
+    print(f"[ML_HANDLER] run_llm_inference called (max_tokens={max_tokens}, has_image={bool(image_url)})")
     print(f"[ML_HANDLER] Prompt preview: {repr(text)[:200]}...")
+    if image_url:
+        print(f"[ML_HANDLER] Image URL: {image_url}")
     
     # Try Claude API first if available
     if USE_CLAUDE and claude_client:
         try:
             print("[ML_HANDLER] Attempting Claude API call...")
             model_id = CLAUDE_MODELS[SELECTED_MODEL]["id"]
+            
+            # Build content - add image if provided
+            content = []
+            if image_url:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": image_url
+                    }
+                })
+                print("[ML_HANDLER] Added image to Claude request (vision enabled)")
+            
+            content.append({
+                "type": "text",
+                "text": text
+            })
+            
             response = await claude_client.messages.create(
                 model=model_id,
                 max_tokens=max_tokens,
                 messages=[
-                    {"role": "user", "content": text}
+                    {"role": "user", "content": content}
                 ]
             )
             result = response.content[0].text.strip()

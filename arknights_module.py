@@ -568,13 +568,28 @@ async def classify_and_extract_ak_event(tweet_text, tweet_image):
     ak_logger.info(f"Tweet image: {tweet_image}")
 
     prompt = (
-        "You are an Arknights event classifier and data extractor. Analyze the tweet and determine if it announces a trackable in-game event.\n"
+        "You are an Arknights event classifier and data extractor. Analyze the tweet text and image (if provided) to determine if it announces a trackable in-game event.\n"
+        "\n"
+        "**IMAGE ANALYSIS (CONDITIONAL):**\n"
+        "Only read the image for dates if ANY of these conditions are met:\n"
+        "1. The tweet text contains ONLY ONE date/time (missing start OR end date)\n"
+        "2. The tweet text contains phrases like:\n"
+        "   - 'New [event name] will soon be live'\n"
+        "   - 'will be available soon'\n"
+        "   - 'coming soon'\n"
+        "   - 'is now live' (without specific dates)\n"
+        "\n"
+        "**If reading the image:**\n"
+        "- Images typically show a 2-column layout with multiple categories\n"
+        "- Look for the column/section labeled 'Event' specifically\n"
+        "- Ignore Banner and Maintenance dates unless the tweet is about those categories\n"
+        "- Extract the date range shown for the Event category only\n"
         "\n"
         "**CLASSIFICATION RULES:**\n"
         "\n"
         "Classify as 'Event' ONLY if ALL of these are true:\n"
         "1. Announces a new banner/headhunting, in-game event with stages, or server maintenance\n"
-        "2. Contains BOTH a start date AND end date (or time range)\n"
+        "2. Contains BOTH a start date AND end date (or time range) - check tweet text first, then image if conditions above are met\n"
         "3. Is NOT an outfit/skin announcement (even if it has dates)\n"
         "\n"
         "Classify as 'Filler' if ANY of these are true:\n"
@@ -660,7 +675,7 @@ async def classify_and_extract_ak_event(tweet_text, tweet_image):
         "Respond using the exact format shown above:"
     )
     
-    response = await run_llm_inference(prompt, max_tokens=512)
+    response = await run_llm_inference(prompt, max_tokens=512, image_url=tweet_image)
     ak_logger.info(f"[classify_and_extract_ak_event] LLM response:\n{response}")
     
     if not response:
