@@ -261,9 +261,18 @@ async def uma_update_timers(_guild=None):
     Only shows events within 1 month from now.
     """
     uma_logger.info("[Update Timers] Starting dashboard update...")
+    print("[UMA] Starting dashboard update...")
+    
+    # Check if bot is ready
+    if not bot.is_ready():
+        uma_logger.warning("[Update Timers] Bot not ready yet, skipping dashboard update")
+        print("[UMA] WARNING: Bot not ready yet, skipping dashboard update")
+        return
+    
     main_guild = bot.get_guild(MAIN_SERVER_ID)
     if not main_guild:
         uma_logger.error("[Update Timers] Main guild not found!")
+        print(f"[UMA] ERROR: Main guild not found! MAIN_SERVER_ID={MAIN_SERVER_ID}")
         return
     
     now = int(datetime.now(timezone.utc).timestamp())
@@ -274,8 +283,20 @@ async def uma_update_timers(_guild=None):
     
     if not ongoing_channel:
         uma_logger.error(f"[Update Timers] Ongoing channel not found: {ONGOING_EVENTS_CHANNELS['UMA']}")
+        print(f"[UMA] ERROR: Ongoing channel not found! ID={ONGOING_EVENTS_CHANNELS['UMA']}")
+    else:
+        print(f"[UMA] Ongoing channel found: #{ongoing_channel.name}")
+        
     if not upcoming_channel:
         uma_logger.error(f"[Update Timers] Upcoming channel not found: {UPCOMING_EVENTS_CHANNELS['UMA']}")
+        print(f"[UMA] ERROR: Upcoming channel not found! ID={UPCOMING_EVENTS_CHANNELS['UMA']}")
+    else:
+        print(f"[UMA] Upcoming channel found: #{upcoming_channel.name}")
+    
+    if not ongoing_channel and not upcoming_channel:
+        uma_logger.error("[Update Timers] Both channels not found, aborting!")
+        print("[UMA] ERROR: Both channels not found, cannot post events!")
+        return
     
     uma_logger.info(f"[Update Timers] Ongoing channel: {ongoing_channel.name if ongoing_channel else 'None'}")
     uma_logger.info(f"[Update Timers] Upcoming channel: {upcoming_channel.name if upcoming_channel else 'None'}")
@@ -291,6 +312,12 @@ async def uma_update_timers(_guild=None):
             ) async for row in cursor]
         
         uma_logger.info(f"[Update Timers] Fetched {len(events)} events from database")
+        print(f"[UMA] Fetched {len(events)} events from database")
+        
+        if len(events) == 0:
+            print("[UMA] No events in database!")
+            uma_logger.warning("[Update Timers] No events in database")
+            return
         
         ongoing_count = 0
         upcoming_count = 0
@@ -315,18 +342,22 @@ async def uma_update_timers(_guild=None):
             
             # Ongoing events
             if event["start"] <= now < event["end"]:
+                print(f"[UMA] Event '{event['title']}' is ONGOING (start: {event['start']}, end: {event['end']}, now: {now})")
                 await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["UMA"], event["id"])
                 if ongoing_channel:
                     await upsert_event_message(main_guild, ongoing_channel, event, event["id"])
                     ongoing_count += 1
                     uma_logger.info(f"[Update Timers] Posted ongoing event: {event['title']}")
+                    print(f"[UMA] Posted to ongoing channel: {event['title']}")
             
             # Upcoming events (within 1 month)
             elif event["start"] > now:
+                print(f"[UMA] Event '{event['title']}' is UPCOMING (start: {event['start']}, now: {now})")
                 if upcoming_channel:
                     await upsert_event_message(main_guild, upcoming_channel, event, event["id"])
                     upcoming_count += 1
                     uma_logger.info(f"[Update Timers] Posted upcoming event: {event['title']}")
+                    print(f"[UMA] Posted to upcoming channel: {event['title']}")
                 await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["UMA"], event["id"])
         
         uma_logger.info(f"[Update Timers] Summary - Ongoing: {ongoing_count}, Upcoming: {upcoming_count}, Deleted: {deleted_count}, Skipped (>1mo): {skipped_count}")
