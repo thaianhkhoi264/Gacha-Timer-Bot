@@ -325,6 +325,12 @@ async def uma_update_timers(_guild=None):
         skipped_count = 0
         
         for event in events:
+            # Debug: Show event details
+            from datetime import datetime as dt
+            start_dt = dt.fromtimestamp(event["start"], tz=timezone.utc)
+            end_dt = dt.fromtimestamp(event["end"], tz=timezone.utc)
+            print(f"[UMA] Checking event '{event['title']}': start={start_dt}, end={end_dt}")
+            
             # Delete ended events
             if event["end"] < now:
                 await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["UMA"], event["id"])
@@ -338,6 +344,7 @@ async def uma_update_timers(_guild=None):
             # Skip events more than 1 month away
             if event["start"] > one_month_later:
                 skipped_count += 1
+                print(f"[UMA] SKIPPED (>1 month): '{event['title']}' starts at {start_dt} (now: {dt.fromtimestamp(now, tz=timezone.utc)}, cutoff: {dt.fromtimestamp(one_month_later, tz=timezone.utc)})")
                 continue
             
             # Ongoing events
