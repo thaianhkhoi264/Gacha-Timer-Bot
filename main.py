@@ -467,11 +467,17 @@ async def on_ready():
     print("[DEBUG] Notification maintenance completed.")
 
     # Initialize AK DB and tasks
+    print("[DEBUG] Creating init_ak_db task...")
     asyncio.create_task(init_ak_db())
+    print("[DEBUG] Loading scheduled AK update tasks...")
     await load_scheduled_ak_update_tasks()
+    print("[DEBUG] Running periodic AK cleanup...")
     await periodic_ak_cleanup()
+    print("[DEBUG] AK initialization completed.")
 
+    print("[DEBUG] Initializing Shadowverse DB...")
     await shadowverse_handler.init_sv_db()
+    print("[DEBUG] Shadowverse DB initialized.")
     
     # Initialize Uma Musume background tasks (DB init + initial update + periodic updates)
     print("[DEBUG] Initializing Uma Musume background tasks...")
