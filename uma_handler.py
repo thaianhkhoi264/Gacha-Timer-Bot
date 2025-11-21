@@ -98,44 +98,50 @@ async def download_timeline():
             await page.screenshot(path="uma_timeline_initial.png")
             print("[UMA HANDLER] Screenshot saved: uma_timeline_initial.png")
 
-            # Scroll through timeline to load all events
-            # Try NEGATIVE scroll (left/up) to go to future events
-            scroll_amount = -400  # NEGATIVE to scroll backwards/left
-            max_scrolls = 100  # Increased from 60
-            no_new_date_scrolls = 0
-            latest_event_date = None
+            # === SCROLL RIGHT (to future/newer events) ===
+            print("[UMA HANDLER] Phase 1: Scrolling RIGHT to load future events...")
+            scroll_amount = 400  # Scroll RIGHT
+            max_scrolls = 100
+            no_new_events_count = 0
+            previous_event_count = len(initial_events)
 
             for i in range(max_scrolls):
                 await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(1.2)
+                await asyncio.sleep(1.5)  # Wait for lazy loading
                 event_items = await page.query_selector_all('.timeline-item.timeline-event')
+                current_count = len(event_items)
 
-                print(f"[UMA HANDLER] Scroll {i+1}: Found {len(event_items)} total events on page")
+                print(f"[UMA HANDLER] Scroll RIGHT {i+1}: {current_count} events (+{current_count - previous_event_count})")
 
-                # Find the latest event date currently visible
-                max_date = None
-                for item in event_items:
-                    date_tag = await item.query_selector('.event-date')
-                    if not date_tag:
-                        continue
-                    date_str = (await date_tag.inner_text()).strip()
-                    start_date, end_date = parse_event_date(date_str)
-                    # Use end_date for comparison
-                    event_date = end_date if end_date else start_date
-                    if event_date and (not max_date or event_date > max_date):
-                        max_date = event_date
-
-                uma_handler_logger.info(f"Scroll {i+1}: Latest event date found: {max_date}")
-
-                if max_date and (not latest_event_date or max_date > latest_event_date):
-                    latest_event_date = max_date
-                    no_new_date_scrolls = 0
+                if current_count > previous_event_count:
+                    previous_event_count = current_count
+                    no_new_events_count = 0
                 else:
-                    no_new_date_scrolls += 1
-                    uma_handler_logger.info(f"No newer date found. ({no_new_date_scrolls}/10)")
-                    if no_new_date_scrolls >= 10:  # Increased from 5
-                        uma_handler_logger.info("No newer event date found after 10 scrolls, stopping.")
-                        print(f"[UMA HANDLER] Stopping scroll - no new dates after 10 scrolls. Total events: {len(event_items)}")
+                    no_new_events_count += 1
+                    if no_new_events_count >= 10:
+                        print(f"[UMA HANDLER] No new events after 10 RIGHT scrolls. Total: {current_count}")
+                        break
+            
+            # === SCROLL LEFT (to past/older events) ===
+            print("[UMA HANDLER] Phase 2: Scrolling LEFT to load past events...")
+            scroll_amount = -400  # Scroll LEFT
+            no_new_events_count = 0
+            
+            for i in range(max_scrolls):
+                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
+                await asyncio.sleep(1.5)
+                event_items = await page.query_selector_all('.timeline-item.timeline-event')
+                current_count = len(event_items)
+
+                print(f"[UMA HANDLER] Scroll LEFT {i+1}: {current_count} events (+{current_count - previous_event_count})")
+
+                if current_count > previous_event_count:
+                    previous_event_count = current_count
+                    no_new_events_count = 0
+                else:
+                    no_new_events_count += 1
+                    if no_new_events_count >= 10:
+                        print(f"[UMA HANDLER] No new events after 10 LEFT scrolls. Final total: {current_count}")
                         break
 
             # Extract raw events - grab ALL events without filtering
