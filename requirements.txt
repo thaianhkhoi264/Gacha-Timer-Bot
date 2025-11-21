@@ -13,3 +13,4 @@ onnx
 onnxruntime
 llama-cpp-python
 anthropic
+pillow
