@@ -42,6 +42,8 @@ UMA_UPDATE_TASK = None
 
 async def init_uma_db():
     """Initialize Uma Musume database with tables for events and messages."""
+    os.makedirs("data", exist_ok=True)
+    uma_logger.info(f"[DB Init] Ensuring database directory exists: data/")
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS events (
@@ -65,6 +67,7 @@ async def init_uma_db():
             )
         ''')
         await conn.commit()
+        uma_logger.info(f"[DB Init] Database initialized successfully at: {UMA_DB_PATH}")
 
 def combine_images_vertically(img_url1, img_url2):
     """
@@ -89,10 +92,11 @@ def combine_images_vertically(img_url1, img_url2):
         combined.paste(img2, (0, img1.height))
         
         # Save combined image
-        os.makedirs("combined_images", exist_ok=True)
+        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
         filename = f"combined_{int(datetime.now().timestamp())}.png"
-        filepath = os.path.join("combined_images", filename)
+        filepath = os.path.join("data", "combined_images", filename)
         combined.save(filepath)
+        uma_logger.info(f"[Image] Combined images saved to: {filepath}")
         
         return filepath
     except Exception as e:
@@ -224,8 +228,10 @@ async def uma_update_timers(_guild=None):
     Updates Uma Musume event dashboards.
     Only shows events within 1 month from now.
     """
+    uma_logger.info("[Update Timers] Starting dashboard update...")
     main_guild = bot.get_guild(MAIN_SERVER_ID)
     if not main_guild:
+        uma_logger.error("[Update Timers] Main guild not found!")
         return
     
     now = int(datetime.now(timezone.utc).timestamp())
@@ -233,6 +239,14 @@ async def uma_update_timers(_guild=None):
     
     ongoing_channel = main_guild.get_channel(ONGOING_EVENTS_CHANNELS["UMA"])
     upcoming_channel = main_guild.get_channel(UPCOMING_EVENTS_CHANNELS["UMA"])
+    
+    if not ongoing_channel:
+        uma_logger.error(f"[Update Timers] Ongoing channel not found: {ONGOING_EVENTS_CHANNELS['UMA']}")
+    if not upcoming_channel:
+        uma_logger.error(f"[Update Timers] Upcoming channel not found: {UPCOMING_EVENTS_CHANNELS['UMA']}")
+    
+    uma_logger.info(f"[Update Timers] Ongoing channel: {ongoing_channel.name if ongoing_channel else 'None'}")
+    uma_logger.info(f"[Update Timers] Upcoming channel: {upcoming_channel.name if upcoming_channel else 'None'}")
     
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         # Fetch all events
@@ -244,6 +258,13 @@ async def uma_update_timers(_guild=None):
                 image=row[4], category=row[5], description=row[6]
             ) async for row in cursor]
         
+        uma_logger.info(f"[Update Timers] Fetched {len(events)} events from database")
+        
+        ongoing_count = 0
+        upcoming_count = 0
+        deleted_count = 0
+        skipped_count = 0
+        
         for event in events:
             # Delete ended events
             if event["end"] < now:
@@ -251,10 +272,13 @@ async def uma_update_timers(_guild=None):
                 await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["UMA"], event["id"])
                 await conn.execute("DELETE FROM events WHERE id=?", (event["id"],))
                 await conn.commit()
+                deleted_count += 1
+                uma_logger.info(f"[Update Timers] Deleted ended event: {event['title']}")
                 continue
             
             # Skip events more than 1 month away
             if event["start"] > one_month_later:
+                skipped_count += 1
                 continue
             
             # Ongoing events
@@ -262,15 +286,22 @@ async def uma_update_timers(_guild=None):
                 await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["UMA"], event["id"])
                 if ongoing_channel:
                     await upsert_event_message(main_guild, ongoing_channel, event, event["id"])
+                    ongoing_count += 1
+                    uma_logger.info(f"[Update Timers] Posted ongoing event: {event['title']}")
             
             # Upcoming events (within 1 month)
             elif event["start"] > now:
                 if upcoming_channel:
                     await upsert_event_message(main_guild, upcoming_channel, event, event["id"])
+                    upcoming_count += 1
+                    uma_logger.info(f"[Update Timers] Posted upcoming event: {event['title']}")
                 await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["UMA"], event["id"])
+        
+        uma_logger.info(f"[Update Timers] Summary - Ongoing: {ongoing_count}, Upcoming: {upcoming_count}, Deleted: {deleted_count}, Skipped (>1mo): {skipped_count}")
 
 async def add_uma_event(ctx, event_data):
     """Adds an Uma Musume event to the database."""
+    uma_logger.info(f"[Add Event] Adding event: {event_data.get('title', 'Unknown')}")
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         await conn.execute(
             '''INSERT INTO events (user_id, title, start_date, end_date, image, category, profile, description)

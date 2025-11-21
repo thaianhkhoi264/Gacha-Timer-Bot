@@ -66,94 +66,108 @@ async def download_timeline():
     """
     Downloads Uma Musume timeline events from uma.moe/timeline and processes them.
     Returns a list of parsed events ready to be saved.
+    
+    Note: Requires Playwright browser binaries. Run: playwright install chromium
     """
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
-        uma_handler_logger.info("Navigating to https://uma.moe/timeline ...")
-        await page.goto("https://uma.moe/timeline", timeout=60000)
-        await page.wait_for_load_state("networkidle")
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            uma_handler_logger.info("Navigating to https://uma.moe/timeline ...")
+            await page.goto("https://uma.moe/timeline", timeout=60000)
+            await page.wait_for_load_state("networkidle")
 
-        timeline = await page.query_selector('.timeline-container')
-        if not timeline:
-            uma_handler_logger.error("Timeline container not found!")
-            await browser.close()
-            return []
+            timeline = await page.query_selector('.timeline-container')
+            if not timeline:
+                uma_handler_logger.error("Timeline container not found!")
+                await browser.close()
+                return []
 
-        # Scroll through timeline to load all events
-        scroll_amount = 400
-        max_scrolls = 60
-        no_new_date_scrolls = 0
-        latest_event_date = None
+            # Scroll through timeline to load all events
+            scroll_amount = 400
+            max_scrolls = 60
+            no_new_date_scrolls = 0
+            latest_event_date = None
 
-        for i in range(max_scrolls):
-            await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-            await asyncio.sleep(1.2)
+            for i in range(max_scrolls):
+                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
+                await asyncio.sleep(1.2)
+                event_items = await page.query_selector_all('.timeline-item.timeline-event')
+
+                # Find the latest event date currently visible
+                max_date = None
+                for item in event_items:
+                    date_tag = await item.query_selector('.event-date')
+                    if not date_tag:
+                        continue
+                    date_str = (await date_tag.inner_text()).strip()
+                    _, end_date = parse_event_date(date_str)
+                    if end_date and (not max_date or end_date > max_date):
+                        max_date = end_date
+
+                uma_handler_logger.info(f"Scroll {i+1}: Latest event date found: {max_date}")
+
+                if max_date and (not latest_event_date or max_date > latest_event_date):
+                    latest_event_date = max_date
+                    no_new_date_scrolls = 0
+                else:
+                    no_new_date_scrolls += 1
+                    uma_handler_logger.info(f"No newer date found. ({no_new_date_scrolls}/5)")
+                    if no_new_date_scrolls >= 5:
+                        uma_handler_logger.info("No newer event date found after 5 scrolls, stopping.")
+                        break
+
+            # Extract raw events
+            raw_events = []
             event_items = await page.query_selector_all('.timeline-item.timeline-event')
-
-            # Find the latest event date currently visible
-            max_date = None
+            
             for item in event_items:
+                # Extract event title and description
+                title_tag = await item.query_selector('.event-title')
+                if not title_tag:
+                    continue
+                full_title = (await title_tag.inner_text()).strip()
+                
+                # Extract event image
+                img_tag = await item.query_selector('.event-image img')
+                img_url = None
+                if img_tag:
+                    img_src = await img_tag.get_attribute("src")
+                    if img_src:
+                        img_url = urljoin(BASE_URL, img_src)
+                
+                # Extract event date
                 date_tag = await item.query_selector('.event-date')
                 if not date_tag:
                     continue
                 date_str = (await date_tag.inner_text()).strip()
-                _, end_date = parse_event_date(date_str)
-                if end_date and (not max_date or end_date > max_date):
-                    max_date = end_date
+                start_date, end_date = parse_event_date(date_str)
+                
+                raw_events.append({
+                    "full_title": full_title,
+                    "image_url": img_url,
+                    "start_date": start_date,
+                    "end_date": end_date
+                })
 
-            uma_handler_logger.info(f"Scroll {i+1}: Latest event date found: {max_date}")
-
-            if max_date and (not latest_event_date or max_date > latest_event_date):
-                latest_event_date = max_date
-                no_new_date_scrolls = 0
-            else:
-                no_new_date_scrolls += 1
-                uma_handler_logger.info(f"No newer date found. ({no_new_date_scrolls}/5)")
-                if no_new_date_scrolls >= 5:
-                    uma_handler_logger.info("No newer event date found after 5 scrolls, stopping.")
-                    break
-
-        # Extract raw events
-        raw_events = []
-        event_items = await page.query_selector_all('.timeline-item.timeline-event')
-        
-        for item in event_items:
-            # Extract event title and description
-            title_tag = await item.query_selector('.event-title')
-            if not title_tag:
-                continue
-            full_title = (await title_tag.inner_text()).strip()
+            await browser.close()
             
-            # Extract event image
-            img_tag = await item.query_selector('.event-image img')
-            img_url = None
-            if img_tag:
-                img_src = await img_tag.get_attribute("src")
-                if img_src:
-                    img_url = urljoin(BASE_URL, img_src)
+            uma_handler_logger.info(f"Downloaded {len(raw_events)} raw events from timeline")
             
-            # Extract event date
-            date_tag = await item.query_selector('.event-date')
-            if not date_tag:
-                continue
-            date_str = (await date_tag.inner_text()).strip()
-            start_date, end_date = parse_event_date(date_str)
+            # Process and combine events
+            processed_events = process_events(raw_events)
             
-            raw_events.append({
-                "full_title": full_title,
-                "image_url": img_url,
-                "start_date": start_date,
-                "end_date": end_date
-            })
-
-        await browser.close()
-        
-        # Process and combine events
-        processed_events = process_events(raw_events)
-        
-        uma_handler_logger.info(f"\nProcessed {len(processed_events)} events from {len(raw_events)} raw events!")
-        return processed_events
+            uma_handler_logger.info(f"Processed {len(processed_events)} events from {len(raw_events)} raw events!")
+            
+            if len(processed_events) == 0:
+                uma_handler_logger.warning("No events were processed! Check if timeline structure has changed.")
+            return processed_events
+    
+    except Exception as e:
+        uma_handler_logger.error(f"Failed to download timeline: {e}")
+        import traceback
+        uma_handler_logger.error(traceback.format_exc())
+        return []
 
 def process_events(raw_events):
     """
