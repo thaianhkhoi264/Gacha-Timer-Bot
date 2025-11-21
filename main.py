@@ -471,8 +471,8 @@ async def on_ready():
     asyncio.create_task(init_ak_db())
     print("[DEBUG] Loading scheduled AK update tasks...")
     await load_scheduled_ak_update_tasks()
-    print("[DEBUG] Running periodic AK cleanup...")
-    await periodic_ak_cleanup()
+    print("[DEBUG] Running periodic AK cleanup as background task...")
+    asyncio.create_task(periodic_ak_cleanup())
     print("[DEBUG] AK initialization completed.")
 
     print("[DEBUG] Initializing Shadowverse DB...")
