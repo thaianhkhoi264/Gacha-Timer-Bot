@@ -68,6 +68,47 @@ UMA_UPDATE_TASK = None
 print("[INIT] Global variables initialized")
 print("[INIT] Defining async functions...")
 
+def get_event_color(event):
+    """Determine embed color based on event type.
+    
+    Blue - Character Banner
+    Green - Support Banner
+    Yellow - Story Event
+    Purple - Champions Meeting
+    Pink/Magenta - Legend Race
+    Orange - Paid Banner
+    """
+    category = event.get("category", "").lower()
+    title = event.get("title", "").lower()
+    
+    # Paid Banner - Orange
+    if category == "offer" or "paid banner" in title:
+        return discord.Color.orange()
+    
+    # Character/Support Banner
+    if category == "banner":
+        # Support Banner - Green
+        if "support" in title:
+            return discord.Color.green()
+        # Character Banner - Blue
+        else:
+            return discord.Color.blue()
+    
+    # Champions Meeting - Purple
+    if "champions meeting" in title:
+        return discord.Color.purple()
+    
+    # Legend Race - Pink/Magenta
+    if "legend race" in title:
+        return discord.Color.magenta()
+    
+    # Story Event or generic Event - Yellow/Gold
+    if category == "event" or "story" in title:
+        return discord.Color.gold()
+    
+    # Default - Gray
+    return discord.Color.default()
+
 async def init_uma_db():
     """Initialize Uma Musume database with tables for events and messages."""
     os.makedirs("data", exist_ok=True)
@@ -137,15 +178,8 @@ def combine_images_vertically(img_url1, img_url2):
 
 async def post_event_embed(channel, event):
     """Posts an embed for the Uma Musume event."""
-    category = event.get("category", "").lower()
-    if category == "banner":
-        color = discord.Color.teal()
-    elif category == "event":
-        color = discord.Color.gold()
-    elif category == "offer":
-        color = discord.Color.fuchsia()
-    else:
-        color = discord.Color.default()
+    # Determine color based on event type
+    color = get_event_color(event)
     
     description = f"**Start:** <t:{event['start']}:F>\n**End:** <t:{event['end']}:F>"
     if event.get("description"):
@@ -199,15 +233,8 @@ async def upsert_event_message(guild, channel, event, event_id):
         ) as cursor:
             row = await cursor.fetchone()
         
-        category = event.get("category", "").lower()
-        if category == "banner":
-            color = discord.Color.teal()
-        elif category == "event":
-            color = discord.Color.gold()
-        elif category == "offer":
-            color = discord.Color.fuchsia()
-        else:
-            color = discord.Color.default()
+        # Determine color based on event type
+        color = get_event_color(event)
         
         description = f"**Start:** <t:{event['start']}:F>\n**End:** <t:{event['end']}:F>"
         if event.get("description"):
