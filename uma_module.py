@@ -46,13 +46,27 @@ if not any(isinstance(h, logging.FileHandler) for h in uma_logger.handlers):
 uma_logger.propagate = True
 
 # Test log to verify module loaded
+print("[INIT] Logger configured successfully")
 uma_logger.info("[Module Load] uma_module.py imported successfully")
+print("[INIT] Test log written successfully")
+
+# Diagnostic: Write directly to file to verify file I/O works
+try:
+    with open("uma_debug.txt", "a") as f:
+        from datetime import datetime as dt
+        f.write(f"[{dt.now()}] uma_module.py module-level code executing\n")
+    print("[INIT] Direct file write successful")
+except Exception as e:
+    print(f"[ERROR] Direct file write failed: {e}")
 
 # Path to Uma Musume database
 UMA_DB_PATH = os.path.join("data", "uma_musume_data.db")
+print(f"[INIT] Database path set to: {UMA_DB_PATH}")
 
 # Background task for periodic updates
 UMA_UPDATE_TASK = None
+print("[INIT] Global variables initialized")
+print("[INIT] Defining async functions...")
 
 async def init_uma_db():
     """Initialize Uma Musume database with tables for events and messages."""
@@ -357,6 +371,8 @@ async def add_uma_event(ctx, event_data):
     # Refresh dashboard
     await uma_update_timers()
 
+print("[INIT] Functions defined, now registering bot commands...")
+
 @commands.has_permissions(manage_guild=True)
 @bot.command(name="uma_remove")
 async def uma_remove(ctx, *, title: str):
@@ -385,12 +401,18 @@ async def uma_remove(ctx, *, title: str):
     await ctx.send(f"Deleted event '{event_title}' and its notifications.")
     await uma_update_timers()
 
+print("[INIT] uma_remove command registered")
+print("[INIT] Defining uma_refresh command...")
+
 @commands.has_permissions(manage_guild=True)
 @bot.command(name="uma_refresh")
 async def uma_refresh(ctx):
     """Refreshes Uma Musume event dashboards."""
     await uma_update_timers()
     await ctx.send("Uma Musume event dashboards have been refreshed.")
+
+print("[INIT] uma_refresh command registered")
+print("[INIT] Defining uma_update command...")
 
 @commands.has_permissions(administrator=True)
 @bot.command(name="uma_update")
@@ -473,3 +495,6 @@ async def stop_uma_background_tasks():
         except asyncio.CancelledError:
             pass
         uma_logger.info("[Shutdown] Uma Musume background tasks stopped.")
+
+print("[INIT] uma_module.py fully loaded - all commands registered")
+print("=" * 60)
