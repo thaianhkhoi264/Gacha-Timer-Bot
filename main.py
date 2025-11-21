@@ -16,6 +16,7 @@ from global_config import *
 from arknights_module import *
 import reminder_module
 import control_panel
+import uma_module
 import api_server  # Import API server
 
 import sys
@@ -472,6 +473,11 @@ async def on_ready():
 
     await shadowverse_handler.init_sv_db()
     
+    # Initialize Uma Musume background tasks (DB init + initial update + periodic updates)
+    print("[DEBUG] Initializing Uma Musume background tasks...")
+    asyncio.create_task(uma_module.start_uma_background_tasks())
+    print("[DEBUG] Uma Musume tasks scheduled.")
+    
     await ml_handler.check_llm_table()  # Ensure LLM table exists
 
 @bot.event # Checks for "good girl" and "good boy" in messages
@@ -752,6 +758,14 @@ async def shutdown_and_exit():
     
     # Send shutdown messages to Discord
     await shutdown_message()
+    
+    # Stop Uma Musume background tasks
+    print("[Shutdown] Stopping Uma Musume background tasks...")
+    try:
+        await uma_module.stop_uma_background_tasks()
+        print("[Shutdown] Uma Musume tasks stopped.")
+    except Exception as e:
+        print(f"[Shutdown] Error stopping Uma tasks: {e}")
     
     # Stop API server if running
     if api_runner:
