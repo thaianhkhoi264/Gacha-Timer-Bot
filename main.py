@@ -475,8 +475,13 @@ async def on_ready():
     
     # Initialize Uma Musume background tasks (DB init + initial update + periodic updates)
     print("[DEBUG] Initializing Uma Musume background tasks...")
-    asyncio.create_task(uma_module.start_uma_background_tasks())
-    print("[DEBUG] Uma Musume tasks scheduled.")
+    try:
+        await uma_module.start_uma_background_tasks()
+        print("[DEBUG] Uma Musume tasks initialized successfully.")
+    except Exception as e:
+        print(f"[ERROR] Uma Musume initialization failed: {e}")
+        import traceback
+        traceback.print_exc()
     
     await ml_handler.check_llm_table()  # Ensure LLM table exists
 
