@@ -456,29 +456,37 @@ async def start_uma_background_tasks():
     
     try:
         uma_logger.info("[Startup] Initializing Uma Musume background tasks...")
+        print("[UMA STARTUP] Initializing Uma Musume background tasks...")
         
         # Initialize database
         await init_uma_db()
         uma_logger.info("[Startup] Uma Musume database initialized.")
+        print("[UMA STARTUP] Database initialized.")
         
         # Run initial update on startup
         try:
             uma_logger.info("[Startup] Running initial Uma Musume event update...")
+            print("[UMA STARTUP] Running initial event update (this may take 2-3 minutes)...")
             from uma_handler import update_uma_events
             await update_uma_events()
             uma_logger.info("[Startup] Initial update completed successfully.")
+            print("[UMA STARTUP] Initial update completed successfully!")
         except Exception as e:
             uma_logger.error(f"[Startup] Initial update failed: {e}")
+            print(f"[UMA ERROR] Initial update failed: {e}")
             import traceback
             uma_logger.error(traceback.format_exc())
+            traceback.print_exc()
         
         # Start periodic update task (every 3 days)
         if UMA_UPDATE_TASK is None or UMA_UPDATE_TASK.done():
             UMA_UPDATE_TASK = asyncio.create_task(periodic_uma_update())
             uma_logger.info("[Startup] Periodic update task scheduled (every 3 days).")
+            print("[UMA STARTUP] Periodic update task scheduled (every 3 days).")
     
     except Exception as e:
         uma_logger.error(f"[Startup] CRITICAL ERROR in start_uma_background_tasks: {e}")
+        print(f"[UMA ERROR] CRITICAL ERROR in start_uma_background_tasks: {e}")
         import traceback
         uma_logger.error(traceback.format_exc())
         print(f"[ERROR] Uma Musume initialization failed: {e}")

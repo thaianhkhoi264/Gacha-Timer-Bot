@@ -69,11 +69,14 @@ async def download_timeline():
     
     Note: Requires Playwright browser binaries. Run: playwright install chromium
     """
+    print("[UMA HANDLER] Starting Playwright browser...")
     try:
         async with async_playwright() as p:
+            print("[UMA HANDLER] Launching headless Chromium...")
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             uma_handler_logger.info("Navigating to https://uma.moe/timeline ...")
+            print("[UMA HANDLER] Navigating to https://uma.moe/timeline ...")
             await page.goto("https://uma.moe/timeline", timeout=60000)
             await page.wait_for_load_state("networkidle")
 
@@ -323,13 +326,18 @@ async def update_uma_events():
     This should be called periodically or manually to refresh Uma Musume events.
     """
     uma_handler_logger.info("Starting Uma Musume event update...")
+    print("[UMA HANDLER] Starting Uma Musume event update...")
     
     # Download and process events
+    print("[UMA HANDLER] Downloading timeline from uma.moe...")
     events = await download_timeline()
     
     if not events:
         uma_handler_logger.warning("No events downloaded.")
+        print("[UMA HANDLER] WARNING: No events downloaded!")
         return
+    
+    print(f"[UMA HANDLER] Downloaded {len(events)} events, adding to database...")
     
     # Import module functions
     from uma_module import add_uma_event, uma_update_timers
@@ -352,10 +360,13 @@ async def update_uma_events():
             uma_handler_logger.error(f"Failed to add event '{event_data['title']}': {e}")
     
     uma_handler_logger.info(f"Added {added_count}/{len(events)} events to database.")
+    print(f"[UMA HANDLER] Added {added_count}/{len(events)} events to database.")
     
     # Refresh dashboard
+    print("[UMA HANDLER] Refreshing Discord dashboards...")
     await uma_update_timers()
     uma_handler_logger.info("Dashboard updated successfully!")
+    print("[UMA HANDLER] Dashboard updated successfully!")
 
 if __name__ == "__main__":
     asyncio.run(update_uma_events())
