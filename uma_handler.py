@@ -49,14 +49,17 @@ def parse_event_date(date_str):
         except Exception:
             pass
     
-    # Try simple single date (just the end date)
+    # Try simple single date (return as both start and end for compatibility)
     simple_match = re.search(r'([A-Za-z]+)\s*(\d{1,2}),?\s*(\d{4})', date_str)
     if simple_match:
         month, day, year = simple_match.groups()
         try:
+            # Use the date as END date, estimate START as 7 days before
             end_date = datetime.strptime(f"{month} {day} {year} 21:59", "%b %d %Y %H:%M")
             end_date = end_date.replace(tzinfo=timezone.utc)
-            return (None, end_date)
+            start_date = end_date - timedelta(days=7)
+            start_date = start_date.replace(hour=22, minute=0)
+            return (start_date, end_date)
         except Exception:
             pass
     
@@ -72,8 +75,8 @@ async def download_timeline():
     print("[UMA HANDLER] Starting Playwright browser...")
     try:
         async with async_playwright() as p:
-            print("[UMA HANDLER] Launching Chromium (visible mode for debugging)...")
-            browser = await p.chromium.launch(headless=False)  # Non-headless for Pi 5 debugging
+            print("[UMA HANDLER] Launching headless Chromium...")
+            browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             uma_handler_logger.info("Navigating to https://uma.moe/timeline ...")
             print("[UMA HANDLER] Navigating to https://uma.moe/timeline ...")
@@ -90,9 +93,14 @@ async def download_timeline():
             initial_events = await page.query_selector_all('.timeline-item.timeline-event')
             print(f"[UMA HANDLER] Initial event count on page load: {len(initial_events)}")
             uma_handler_logger.info(f"Initial event count: {len(initial_events)}")
+            
+            # Take screenshot for debugging
+            await page.screenshot(path="uma_timeline_initial.png")
+            print("[UMA HANDLER] Screenshot saved: uma_timeline_initial.png")
 
             # Scroll through timeline to load all events
-            scroll_amount = 400
+            # Try NEGATIVE scroll (left/up) to go to future events
+            scroll_amount = -400  # NEGATIVE to scroll backwards/left
             max_scrolls = 100  # Increased from 60
             no_new_date_scrolls = 0
             latest_event_date = None
@@ -111,9 +119,11 @@ async def download_timeline():
                     if not date_tag:
                         continue
                     date_str = (await date_tag.inner_text()).strip()
-                    _, end_date = parse_event_date(date_str)
-                    if end_date and (not max_date or end_date > max_date):
-                        max_date = end_date
+                    start_date, end_date = parse_event_date(date_str)
+                    # Use end_date for comparison
+                    event_date = end_date if end_date else start_date
+                    if event_date and (not max_date or event_date > max_date):
+                        max_date = event_date
 
                 uma_handler_logger.info(f"Scroll {i+1}: Latest event date found: {max_date}")
 
@@ -128,12 +138,14 @@ async def download_timeline():
                         print(f"[UMA HANDLER] Stopping scroll - no new dates after 10 scrolls. Total events: {len(event_items)}")
                         break
 
-            # Extract raw events
+            # Extract raw events - grab ALL events without filtering
             raw_events = []
             event_items = await page.query_selector_all('.timeline-item.timeline-event')
             
+            print(f"[UMA HANDLER] Extracting {len(event_items)} events from timeline...")
+            
             for item in event_items:
-                # Extract event title and description
+                # Extract event title
                 title_tag = await item.query_selector('.event-title')
                 if not title_tag:
                     continue
@@ -154,12 +166,18 @@ async def download_timeline():
                 date_str = (await date_tag.inner_text()).strip()
                 start_date, end_date = parse_event_date(date_str)
                 
+                # Store ALL events - don't skip any here
                 raw_events.append({
                     "full_title": full_title,
                     "image_url": img_url,
                     "start_date": start_date,
-                    "end_date": end_date
+                    "end_date": end_date,
+                    "date_str": date_str
                 })
+                
+                # Debug: Print first few events
+                if len(raw_events) <= 5:
+                    print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Date: {date_str}")
 
             await browser.close()
             
@@ -187,6 +205,9 @@ def process_events(raw_events):
     """
     processed = []
     skip_indices = set()
+    skipped_no_date = 0
+    
+    print(f"[UMA HANDLER] Processing {len(raw_events)} raw events...")
     
     for i, event in enumerate(raw_events):
         if i in skip_indices:
@@ -197,8 +218,10 @@ def process_events(raw_events):
         end_date = event["end_date"]
         img_url = event["image_url"]
         
-        # Skip events without end dates
-        if not end_date:
+        # Skip events without dates (but count them)
+        if not end_date and not start_date:
+            skipped_no_date += 1
+            print(f"[UMA HANDLER] Skipped (no date): {full_title[:60]}")
             continue
         
         # Parse title components
@@ -318,13 +341,27 @@ def process_events(raw_events):
             
             processed.append({
                 "title": "Champions Meeting",
-                "start": int(start_date.timestamp()),
+                "start": int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60),
                 "end": int(end_date.timestamp()),
                 "image": img_url,
                 "category": "Event",
                 "description": details
             })
             continue
+        
+        # === FALLBACK: Store all other events with their original titles ===
+        # This ensures we don't lose events that don't match specific patterns
+        processed.append({
+            "title": full_title[:100],  # Limit title length
+            "start": int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60),
+            "end": int(end_date.timestamp()),
+            "image": img_url,
+            "category": "Event",
+            "description": ""
+        })
+    
+    print(f"[UMA HANDLER] Processed: {len(processed)} events | Skipped (no date): {skipped_no_date} | Combined/Skipped: {len(skip_indices)}")
+    uma_handler_logger.info(f"Processing complete - {len(processed)} events ready for database")
     
     return processed
 
