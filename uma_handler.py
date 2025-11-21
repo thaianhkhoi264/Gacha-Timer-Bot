@@ -72,8 +72,8 @@ async def download_timeline():
     print("[UMA HANDLER] Starting Playwright browser...")
     try:
         async with async_playwright() as p:
-            print("[UMA HANDLER] Launching headless Chromium...")
-            browser = await p.chromium.launch(headless=True)
+            print("[UMA HANDLER] Launching Chromium (visible mode for debugging)...")
+            browser = await p.chromium.launch(headless=False)  # Non-headless for Pi 5 debugging
             page = await browser.new_page()
             uma_handler_logger.info("Navigating to https://uma.moe/timeline ...")
             print("[UMA HANDLER] Navigating to https://uma.moe/timeline ...")
@@ -86,9 +86,14 @@ async def download_timeline():
                 await browser.close()
                 return []
 
+            # Check initial event count
+            initial_events = await page.query_selector_all('.timeline-item.timeline-event')
+            print(f"[UMA HANDLER] Initial event count on page load: {len(initial_events)}")
+            uma_handler_logger.info(f"Initial event count: {len(initial_events)}")
+
             # Scroll through timeline to load all events
             scroll_amount = 400
-            max_scrolls = 60
+            max_scrolls = 100  # Increased from 60
             no_new_date_scrolls = 0
             latest_event_date = None
 
@@ -96,6 +101,8 @@ async def download_timeline():
                 await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
                 await asyncio.sleep(1.2)
                 event_items = await page.query_selector_all('.timeline-item.timeline-event')
+
+                print(f"[UMA HANDLER] Scroll {i+1}: Found {len(event_items)} total events on page")
 
                 # Find the latest event date currently visible
                 max_date = None
@@ -115,9 +122,10 @@ async def download_timeline():
                     no_new_date_scrolls = 0
                 else:
                     no_new_date_scrolls += 1
-                    uma_handler_logger.info(f"No newer date found. ({no_new_date_scrolls}/5)")
-                    if no_new_date_scrolls >= 5:
-                        uma_handler_logger.info("No newer event date found after 5 scrolls, stopping.")
+                    uma_handler_logger.info(f"No newer date found. ({no_new_date_scrolls}/10)")
+                    if no_new_date_scrolls >= 10:  # Increased from 5
+                        uma_handler_logger.info("No newer event date found after 10 scrolls, stopping.")
+                        print(f"[UMA HANDLER] Stopping scroll - no new dates after 10 scrolls. Total events: {len(event_items)}")
                         break
 
             # Extract raw events
