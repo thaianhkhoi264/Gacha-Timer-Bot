@@ -1,3 +1,6 @@
+"""Uma Musume Event Tracking Module"""
+print("[INIT] Loading uma_module.py...")
+
 import os
 import aiosqlite
 import asyncio
@@ -7,7 +10,15 @@ from bot import bot
 from datetime import datetime, timezone, timedelta
 from global_config import ONGOING_EVENTS_CHANNELS, UPCOMING_EVENTS_CHANNELS, OWNER_USER_ID, MAIN_SERVER_ID
 import logging
-from PIL import Image
+
+# Test PIL import early to catch errors
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError as e:
+    print(f"[WARNING] PIL (Pillow) not available: {e}")
+    PIL_AVAILABLE = False
+
 import requests
 from io import BytesIO
 
@@ -33,6 +44,9 @@ if not any(isinstance(h, logging.FileHandler) for h in uma_logger.handlers):
     uma_logger.addHandler(file_handler)
 
 uma_logger.propagate = True
+
+# Test log to verify module loaded
+uma_logger.info("[Module Load] uma_module.py imported successfully")
 
 # Path to Uma Musume database
 UMA_DB_PATH = os.path.join("data", "uma_musume_data.db")
@@ -74,6 +88,10 @@ def combine_images_vertically(img_url1, img_url2):
     Downloads two images and combines them vertically.
     Returns the path to the saved combined image.
     """
+    if not PIL_AVAILABLE:
+        uma_logger.warning("[Image] PIL not available, cannot combine images")
+        return img_url1  # Return first image URL as fallback
+    
     try:
         # Download images
         response1 = requests.get(img_url1)
@@ -414,25 +432,35 @@ async def start_uma_background_tasks():
     """Starts background tasks for Uma Musume (initial update + periodic updates)."""
     global UMA_UPDATE_TASK
     
-    uma_logger.info("[Startup] Initializing Uma Musume background tasks...")
-    
-    # Initialize database
-    await init_uma_db()
-    uma_logger.info("[Startup] Uma Musume database initialized.")
-    
-    # Run initial update on startup
     try:
-        uma_logger.info("[Startup] Running initial Uma Musume event update...")
-        from uma_handler import update_uma_events
-        await update_uma_events()
-        uma_logger.info("[Startup] Initial update completed successfully.")
-    except Exception as e:
-        uma_logger.error(f"[Startup] Initial update failed: {e}")
+        uma_logger.info("[Startup] Initializing Uma Musume background tasks...")
+        
+        # Initialize database
+        await init_uma_db()
+        uma_logger.info("[Startup] Uma Musume database initialized.")
+        
+        # Run initial update on startup
+        try:
+            uma_logger.info("[Startup] Running initial Uma Musume event update...")
+            from uma_handler import update_uma_events
+            await update_uma_events()
+            uma_logger.info("[Startup] Initial update completed successfully.")
+        except Exception as e:
+            uma_logger.error(f"[Startup] Initial update failed: {e}")
+            import traceback
+            uma_logger.error(traceback.format_exc())
+        
+        # Start periodic update task (every 3 days)
+        if UMA_UPDATE_TASK is None or UMA_UPDATE_TASK.done():
+            UMA_UPDATE_TASK = asyncio.create_task(periodic_uma_update())
+            uma_logger.info("[Startup] Periodic update task scheduled (every 3 days).")
     
-    # Start periodic update task (every 3 days)
-    if UMA_UPDATE_TASK is None or UMA_UPDATE_TASK.done():
-        UMA_UPDATE_TASK = asyncio.create_task(periodic_uma_update())
-        uma_logger.info("[Startup] Periodic update task scheduled (every 3 days).")
+    except Exception as e:
+        uma_logger.error(f"[Startup] CRITICAL ERROR in start_uma_background_tasks: {e}")
+        import traceback
+        uma_logger.error(traceback.format_exc())
+        print(f"[ERROR] Uma Musume initialization failed: {e}")
+        print(traceback.format_exc())
 
 async def stop_uma_background_tasks():
     """Stops Uma Musume background tasks."""
