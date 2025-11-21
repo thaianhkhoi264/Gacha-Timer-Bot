@@ -350,19 +350,24 @@ async def update_uma_events():
     
     ctx = DummyCtx()
     
-    # Add events to database
+    # Add or update events in database
     added_count = 0
+    updated_count = 0
+    skipped_count = 0
+    
     for event_data in events:
         try:
-            await add_uma_event(ctx, event_data)
+            result = await add_uma_event(ctx, event_data)
             added_count += 1
         except Exception as e:
-            uma_handler_logger.error(f"Failed to add event '{event_data['title']}': {e}")
+            uma_handler_logger.error(f"Failed to process event '{event_data.get('title', 'Unknown')}': {e}")
+            import traceback
+            uma_handler_logger.error(traceback.format_exc())
     
-    uma_handler_logger.info(f"Added {added_count}/{len(events)} events to database.")
-    print(f"[UMA HANDLER] Added {added_count}/{len(events)} events to database.")
+    uma_handler_logger.info(f"Processed {added_count}/{len(events)} events.")
+    print(f"[UMA HANDLER] Processed {added_count}/{len(events)} events.")
     
-    # Refresh dashboard
+    # Always refresh dashboard to update channels
     print("[UMA HANDLER] Refreshing Discord dashboards...")
     await uma_update_timers()
     uma_handler_logger.info("Dashboard updated successfully!")

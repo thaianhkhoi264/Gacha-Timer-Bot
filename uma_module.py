@@ -332,26 +332,62 @@ async def uma_update_timers(_guild=None):
         uma_logger.info(f"[Update Timers] Summary - Ongoing: {ongoing_count}, Upcoming: {upcoming_count}, Deleted: {deleted_count}, Skipped (>1mo): {skipped_count}")
 
 async def add_uma_event(ctx, event_data):
-    """Adds an Uma Musume event to the database."""
-    uma_logger.info(f"[Add Event] Adding event: {event_data.get('title', 'Unknown')}")
-    async with aiosqlite.connect(UMA_DB_PATH) as conn:
-        await conn.execute(
-            '''INSERT INTO events (user_id, title, start_date, end_date, image, category, profile, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-            (
-                str(ctx.author.id) if hasattr(ctx, 'author') else "0",
-                event_data["title"],
-                event_data["start"],
-                event_data["end"],
-                event_data.get("image"),
-                event_data["category"],
-                "UMA",
-                event_data.get("description", "")
-            )
-        )
-        await conn.commit()
+    """Adds or updates an Uma Musume event in the database (only if changed)."""
+    uma_logger.info(f"[Add Event] Processing event: {event_data.get('title', 'Unknown')}")
     
-    # Schedule notifications
+    async with aiosqlite.connect(UMA_DB_PATH) as conn:
+        # Check if event already exists
+        async with conn.execute(
+            '''SELECT id, start_date, end_date, image, description 
+               FROM events 
+               WHERE title = ? AND category = ? AND profile = 'UMA' ''',
+            (event_data["title"], event_data["category"])
+        ) as cursor:
+            existing = await cursor.fetchone()
+        
+        if existing:
+            event_id, old_start, old_end, old_image, old_desc = existing
+            
+            # Check if anything changed
+            changed = False
+            if (str(event_data["start"]) != str(old_start) or 
+                str(event_data["end"]) != str(old_end) or
+                event_data.get("image") != old_image or
+                event_data.get("description", "") != old_desc):
+                changed = True
+            
+            if changed:
+                # Update existing event
+                await conn.execute(
+                    '''UPDATE events 
+                       SET start_date = ?, end_date = ?, image = ?, description = ?, user_id = ?
+                       WHERE id = ?''',
+                    (event_data["start"], event_data["end"], event_data.get("image"),
+                     event_data.get("description", ""), str(ctx.author.id) if hasattr(ctx, 'author') else "0",
+                     event_id)
+                )
+                await conn.commit()
+                uma_logger.info(f"[Add Event] Updated existing event: {event_data['title']}")
+                print(f"[UMA] Updated event: {event_data['title']}")
+            else:
+                uma_logger.info(f"[Add Event] Event unchanged, skipping: {event_data['title']}")
+                print(f"[UMA] Event unchanged: {event_data['title']}")
+                return  # Don't reschedule notifications if nothing changed
+        else:
+            # Insert new event
+            await conn.execute(
+                '''INSERT INTO events (user_id, title, start_date, end_date, image, category, profile, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (str(ctx.author.id) if hasattr(ctx, 'author') else "0",
+                 event_data["title"], event_data["start"], event_data["end"],
+                 event_data.get("image"), event_data["category"], "UMA",
+                 event_data.get("description", ""))
+            )
+            await conn.commit()
+            uma_logger.info(f"[Add Event] Inserted new event: {event_data['title']}")
+            print(f"[UMA] New event: {event_data['title']}")
+    
+    # Schedule notifications (for new or updated events)
     event_for_notification = {
         'category': event_data['category'],
         'profile': "UMA",
@@ -361,15 +397,6 @@ async def add_uma_event(ctx, event_data):
     }
     from notification_handler import schedule_notifications_for_event
     await schedule_notifications_for_event(event_for_notification)
-    
-    if hasattr(ctx, 'send'):
-        await ctx.send(
-            f"Added `{event_data['title']}` as **{event_data['category']}** for Uma Musume!\n"
-            f"Start: <t:{event_data['start']}:F>\nEnd: <t:{event_data['end']}:F>"
-        )
-    
-    # Refresh dashboard
-    await uma_update_timers()
 
 print("[INIT] Functions defined, now registering bot commands...")
 
