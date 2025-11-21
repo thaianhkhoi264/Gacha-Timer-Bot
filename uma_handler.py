@@ -157,6 +157,20 @@ async def download_timeline():
                     continue
                 full_title = (await title_tag.inner_text()).strip()
                 
+                # Extract character/event tags (e.g., character names, event types)
+                tags = []
+                tag_elements = await item.query_selector_all('.tag')
+                for tag_el in tag_elements:
+                    tag_text = (await tag_el.inner_text()).strip()
+                    if tag_text:
+                        tags.append(tag_text)
+                
+                # Extract event description/subtitle
+                description = ""
+                desc_tag = await item.query_selector('.event-description')
+                if desc_tag:
+                    description = (await desc_tag.inner_text()).strip()
+                
                 # Extract event image
                 img_tag = await item.query_selector('.event-image img')
                 img_url = None
@@ -175,6 +189,8 @@ async def download_timeline():
                 # Store ALL events - don't skip any here
                 raw_events.append({
                     "full_title": full_title,
+                    "tags": tags,
+                    "description": description,
                     "image_url": img_url,
                     "start_date": start_date,
                     "end_date": end_date,
@@ -183,7 +199,7 @@ async def download_timeline():
                 
                 # Debug: Print first few events
                 if len(raw_events) <= 5:
-                    print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Date: {date_str}")
+                    print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Tags: {tags} | Date: {date_str}")
 
             await browser.close()
             
@@ -220,6 +236,8 @@ def process_events(raw_events):
             continue
         
         full_title = event["full_title"]
+        tags = event.get("tags", [])
+        description = event.get("description", "")
         start_date = event["start_date"]
         end_date = event["end_date"]
         img_url = event["image_url"]
@@ -234,22 +252,29 @@ def process_events(raw_events):
         title_lower = full_title.lower()
         
         # === CHARACTER + SUPPORT BANNER COMBINATION ===
-        if "character banner featuring:" in title_lower:
-            # Extract character names
-            char_match = re.search(r"Character banner featuring:\s*(.+)", full_title, re.IGNORECASE)
-            char_names = char_match.group(1).strip() if char_match else ""
+        if "character banner featuring:" in title_lower or "character banner" in title_lower:
+            # Use tags for character names (more accurate than truncated title)
+            char_names = " & ".join(tags) if tags else ""
+            if not char_names:
+                # Fallback to parsing title
+                char_match = re.search(r"Character banner featuring:\s*(.+)", full_title, re.IGNORECASE)
+                char_names = char_match.group(1).strip() if char_match else "Character Banner"
             
             # Look for matching Support banner
             support_names = ""
             support_img = None
+            support_tags = []
             for j in range(i+1, min(i+5, len(raw_events))):
                 next_event = raw_events[j]
                 if "support" in next_event["full_title"].lower() and "support cards:" in next_event["full_title"].lower():
                     # Check if dates match
                     if (next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 86400 and
                         next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 86400):
-                        support_match = re.search(r"SUPPORT CARDS:\s*(.+)", next_event["full_title"], re.IGNORECASE)
-                        support_names = support_match.group(1).strip() if support_match else ""
+                        support_tags = next_event.get("tags", [])
+                        support_names = " & ".join(support_tags) if support_tags else ""
+                        if not support_names:
+                            support_match = re.search(r"SUPPORT CARDS:\s*(.+)", next_event["full_title"], re.IGNORECASE)
+                            support_names = support_match.group(1).strip() if support_match else ""
                         support_img = next_event["image_url"]
                         skip_indices.add(j)
                         break
@@ -264,7 +289,7 @@ def process_events(raw_events):
             
             # Create combined event
             title = f"{char_names} Banner"
-            description = f"**Characters:** {char_names}\n**Support Cards:** {support_names}" if support_names else f"**Characters:** {char_names}"
+            event_desc = f"**Characters:** {char_names}\n**Support Cards:** {support_names}" if support_names else f"**Characters:** {char_names}"
             
             processed.append({
                 "title": title,
@@ -272,7 +297,7 @@ def process_events(raw_events):
                 "end": int(end_date.timestamp()),
                 "image": combined_img,
                 "category": "Banner",
-                "description": description
+                "description": event_desc
             })
             continue
         
@@ -313,21 +338,28 @@ def process_events(raw_events):
             story_match = re.search(r"Story Event:\s*(.+)", full_title, re.IGNORECASE)
             story_name = story_match.group(1).strip() if story_match else full_title
             
+            # Use description if available
+            event_desc = description if description else ""
+            
             processed.append({
                 "title": story_name,
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
                 "image": img_url,
                 "category": "Event",
-                "description": ""
+                "description": event_desc
             })
             continue
         
         # === LEGEND RACE ===
         if "legend race" in title_lower:
-            # Extract race details
-            details_match = re.search(r"Legend Race\s+(.+)", full_title)
-            details = details_match.group(1).strip() if details_match else ""
+            # Use extracted description, or try tags, or parse from title
+            details = description
+            if not details and tags:
+                details = " ".join(tags)
+            if not details:
+                details_match = re.search(r"Legend Race\s+(.+)", full_title)
+                details = details_match.group(1).strip() if details_match else ""
             
             processed.append({
                 "title": "Legend Race",
@@ -341,9 +373,13 @@ def process_events(raw_events):
         
         # === CHAMPIONS MEETING ===
         if "champions meeting" in title_lower:
-            # Extract meeting details
-            details_match = re.search(r"Champions Meeting\s+(.+)", full_title)
-            details = details_match.group(1).strip() if details_match else ""
+            # Use extracted description, or try tags, or parse from title
+            details = description
+            if not details and tags:
+                details = " ".join(tags)
+            if not details:
+                details_match = re.search(r"Champions Meeting\s+(.+)", full_title)
+                details = details_match.group(1).strip() if details_match else ""
             
             processed.append({
                 "title": "Champions Meeting",
