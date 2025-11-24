@@ -458,11 +458,8 @@ async def update_uma_events():
     uma_handler_logger.info(f"Processed {added_count}/{len(events)} events.")
     print(f"[UMA HANDLER] Processed {added_count}/{len(events)} events.")
     
-    # Always refresh dashboard to update channels
-    print("[UMA HANDLER] Refreshing Discord dashboards...")
-    await uma_update_timers()
-    uma_handler_logger.info("Dashboard updated successfully!")
-    print("[UMA HANDLER] Dashboard updated successfully!")
+    # Refresh dashboard will be called by the module if needed
+    print(f"[UMA HANDLER] Event update complete!")
 
 if __name__ == "__main__":
     asyncio.run(update_uma_events())
