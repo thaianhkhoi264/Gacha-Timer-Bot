@@ -6,6 +6,7 @@ from global_config import CONTROL_PANEL_CHANNELS, GAME_PROFILES, MAIN_SERVER_ID
 
 # --- Profile-specific imports ---
 from arknights_module import AK_DB_PATH, add_ak_event, delete_event_message, arknights_update_timers, AK_TIMEZONE
+from uma_module import UMA_DB_PATH, add_uma_event, delete_event_message as uma_delete_event_message, uma_update_timers
 # from hsr_module import HSR_DB_PATH, add_hsr_event, ... (future)
 # from zzz_module import ZZZ_DB_PATH, add_zzz_event, ... (future)
 from notification_handler import NOTIF_DB_PATH, delete_notifications_for_event, schedule_notifications_for_event
@@ -20,6 +21,13 @@ PROFILE_CONFIG = {
         "delete_event_message": delete_event_message,
         "update_timers": arknights_update_timers,
         "TIMEZONE": AK_TIMEZONE,
+    },
+    "UMA": {
+        "DB_PATH": UMA_DB_PATH,
+        "add_event": add_uma_event,
+        "delete_event_message": uma_delete_event_message,
+        "update_timers": uma_update_timers,
+        "TIMEZONE": "UTC",  # Uma Musume uses UTC
     },
     # "HSR": {...},  # Add these as you implement other modules
     # "ZZZ": {...},
