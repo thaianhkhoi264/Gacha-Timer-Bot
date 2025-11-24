@@ -313,6 +313,10 @@ async def uma_update_timers(_guild=None, force_update=False):
     uma_logger.info("[Update Timers] Starting dashboard update...")
     print("[UMA] Starting dashboard update...")
     
+    if force_update:
+        print("[UMA] ⚠️ FORCE UPDATE MODE ENABLED - Will delete and recreate all messages")
+        uma_logger.info("[Update Timers] Force update mode enabled")
+    
     # Check if bot is ready
     if not bot.is_ready():
         uma_logger.warning("[Update Timers] Bot not ready yet, skipping dashboard update")
