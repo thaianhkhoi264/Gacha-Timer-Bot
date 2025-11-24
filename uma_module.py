@@ -461,9 +461,59 @@ async def add_uma_event(ctx, event_data):
         'end_date': event_data['end']
     }
     from notification_handler import schedule_notifications_for_event
-    await schedule_notifications_for_event(event_for_notification)
+    print(f"[UMA] Scheduling notifications for: {event_data['title']} (start: {event_data['start']})")
+    try:
+        await schedule_notifications_for_event(event_for_notification)
+        print(f"[UMA] Notifications scheduled successfully for: {event_data['title']}")
+    except Exception as e:
+        print(f"[UMA] ERROR scheduling notifications: {e}")
+        uma_logger.error(f"Failed to schedule notifications for {event_data['title']}: {e}")
 
 print("[INIT] Functions defined, now registering bot commands...")
+
+@commands.has_permissions(manage_guild=True)
+@bot.command(name="uma_force_refresh")
+async def uma_force_refresh(ctx):
+    """Forces a complete refresh: updates all events from timeline and reschedules all notifications."""
+    await ctx.send("🔄 Force refreshing Uma Musume events...")
+    print("[UMA] Force refresh triggered by user command")
+    
+    # Import and run the update
+    from uma_handler import update_uma_events
+    try:
+        await update_uma_events()
+        
+        # Reschedule notifications for ALL events in database
+        from notification_handler import schedule_notifications_for_event
+        async with aiosqlite.connect(UMA_DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT id, title, category, start_date, end_date FROM events WHERE profile='UMA'"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        
+        rescheduled = 0
+        for row in rows:
+            event_id, title, category, start_date, end_date = row
+            event_for_notification = {
+                'category': category,
+                'profile': "UMA",
+                'title': title,
+                'start_date': int(start_date),
+                'end_date': int(end_date)
+            }
+            try:
+                await schedule_notifications_for_event(event_for_notification)
+                rescheduled += 1
+            except Exception as e:
+                print(f"[UMA] Failed to reschedule notifications for {title}: {e}")
+        
+        await ctx.send(f"✅ Refresh complete! Rescheduled notifications for {rescheduled} events.")
+        print(f"[UMA] Force refresh complete - {rescheduled} notifications rescheduled")
+    except Exception as e:
+        await ctx.send(f"❌ Error during refresh: {e}")
+        print(f"[UMA] Force refresh failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 @commands.has_permissions(manage_guild=True)
 @bot.command(name="uma_remove")
