@@ -64,7 +64,7 @@ CONTROL_PANEL_CHANNELS = {
     "AK": 0,
     # "STRI": 0,
     # "WUWA": 0,
-    # "UMA": 0,
+    "UMA": 0,
 }
 
 # Role IDs (by profile)
