@@ -225,7 +225,7 @@ async def delete_event_message(guild, channel_id, event_id):
         await conn.commit()
 
 async def upsert_event_message(guild, channel, event, event_id):
-    """Edits the event message if it exists, otherwise sends a new one."""
+    """Edits the event message if it exists and changed, otherwise sends a new one."""
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         async with conn.execute(
             "SELECT message_id FROM event_messages WHERE event_id=? AND channel_id=?",
@@ -250,6 +250,24 @@ async def upsert_event_message(guild, channel, event, event_id):
         if row and row[0]:
             try:
                 msg = await channel.fetch_message(int(row[0]))
+                
+                # Check if embed actually changed to avoid unnecessary edits
+                needs_update = False
+                if msg.embeds:
+                    old_embed = msg.embeds[0]
+                    if (old_embed.title != embed.title or 
+                        old_embed.description != embed.description or
+                        old_embed.color != embed.color or
+                        (old_embed.image.url if old_embed.image else None) != (event.get("image") if event.get("image", "").startswith("http") else None)):
+                        needs_update = True
+                else:
+                    needs_update = True
+                
+                if not needs_update:
+                    # Message unchanged, skip edit
+                    return
+                
+                # Update message
                 if event.get("image"):
                     if event["image"].startswith("http"):
                         embed.set_image(url=event["image"])
@@ -261,7 +279,8 @@ async def upsert_event_message(guild, channel, event, event_id):
                 else:
                     await msg.edit(embed=embed)
                 return
-            except Exception:
+            except Exception as e:
+                print(f"[UMA] Failed to edit message: {e}")
                 pass
         
         # Send new message
@@ -282,10 +301,14 @@ async def upsert_event_message(guild, channel, event, event_id):
         )
         await conn.commit()
 
-async def uma_update_timers(_guild=None):
+async def uma_update_timers(_guild=None, force_update=False):
     """
     Updates Uma Musume event dashboards.
     Only shows events within 1 month from now.
+    
+    Args:
+        _guild: Guild to update (unused, kept for compatibility)
+        force_update: If True, forces update of all event embeds even if unchanged
     """
     uma_logger.info("[Update Timers] Starting dashboard update...")
     print("[UMA] Starting dashboard update...")
@@ -379,6 +402,9 @@ async def uma_update_timers(_guild=None):
                 print(f"[UMA] Event '{event['title']}' is ONGOING (start: {event['start']}, end: {event['end']}, now: {now})")
                 await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["UMA"], event["id"])
                 if ongoing_channel:
+                    if force_update:
+                        # Force message update by deleting and recreating
+                        await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["UMA"], event["id"])
                     await upsert_event_message(main_guild, ongoing_channel, event, event["id"])
                     ongoing_count += 1
                     uma_logger.info(f"[Update Timers] Posted ongoing event: {event['title']}")
@@ -388,6 +414,9 @@ async def uma_update_timers(_guild=None):
             elif event["start"] > now:
                 print(f"[UMA] Event '{event['title']}' is UPCOMING (start: {event['start']}, now: {now})")
                 if upcoming_channel:
+                    if force_update:
+                        # Force message update by deleting and recreating
+                        await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["UMA"], event["id"])
                     await upsert_event_message(main_guild, upcoming_channel, event, event["id"])
                     upcoming_count += 1
                     uma_logger.info(f"[Update Timers] Posted upcoming event: {event['title']}")
@@ -395,6 +424,16 @@ async def uma_update_timers(_guild=None):
                 await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["UMA"], event["id"])
         
         uma_logger.info(f"[Update Timers] Summary - Ongoing: {ongoing_count}, Upcoming: {upcoming_count}, Deleted: {deleted_count}, Skipped (>1mo): {skipped_count}")
+    
+    # Update control panel if events were deleted
+    if deleted_count > 0:
+        uma_logger.info("[uma_update_timers] Events were deleted, updating control panel...")
+        try:
+            from control_panel import update_control_panel_messages
+            await update_control_panel_messages("UMA")
+            uma_logger.info("[uma_update_timers] Control panel updated.")
+        except Exception as e:
+            uma_logger.error(f"[uma_update_timers] Failed to update control panel: {e}")
 
 async def add_uma_event(ctx, event_data):
     """Adds or updates an Uma Musume event in the database (only if changed)."""
@@ -468,6 +507,15 @@ async def add_uma_event(ctx, event_data):
     except Exception as e:
         print(f"[UMA] ERROR scheduling notifications: {e}")
         uma_logger.error(f"Failed to schedule notifications for {event_data['title']}: {e}")
+    
+    # Update control panel to show new event in Remove/Edit/Notif panels
+    uma_logger.info("[add_uma_event] Updating control panel with new event...")
+    try:
+        from control_panel import update_control_panel_messages
+        await update_control_panel_messages("UMA")
+        uma_logger.info("[add_uma_event] Control panel updated.")
+    except Exception as e:
+        uma_logger.error(f"[add_uma_event] Failed to update control panel: {e}")
 
 print("[INIT] Functions defined, now registering bot commands...")
 
@@ -482,6 +530,10 @@ async def uma_force_refresh(ctx):
     from uma_handler import update_uma_events
     try:
         await update_uma_events()
+        
+        # Force refresh all embeds with new colors/titles
+        print("[UMA] Force updating all event embeds...")
+        await uma_update_timers(force_update=True)
         
         # Reschedule notifications for ALL events in database
         from notification_handler import schedule_notifications_for_event
@@ -541,31 +593,193 @@ async def uma_remove(ctx, *, title: str):
     await delete_notifications_for_event(event_title, event_category, event_profile)
     
     await ctx.send(f"Deleted event '{event_title}' and its notifications.")
+    
+    # Refresh dashboard after removing event
+    uma_logger.info("[uma_remove] Refreshing dashboard after removing event...")
+    await uma_update_timers()
+    uma_logger.info("[uma_remove] Dashboard refresh completed.")
+    
+    # Update control panel to remove event from lists
+    uma_logger.info("[uma_remove] Updating control panel after removing event...")
+    try:
+        from control_panel import update_control_panel_messages
+        await update_control_panel_messages("UMA")
+        uma_logger.info("[uma_remove] Control panel updated.")
+    except Exception as e:
+        uma_logger.error(f"[uma_remove] Failed to update control panel: {e}")
     await uma_update_timers()
 
 print("[INIT] uma_remove command registered")
-print("[INIT] Defining uma_refresh command...")
+print("[INIT] Defining uma_edit command...")
+
+@commands.has_permissions(manage_guild=True)
+@bot.command(name="uma_edit")
+async def uma_edit(ctx, title: str, item: str, *, value: str):
+    """
+    Edits an Uma Musume event in the database.
+    Usage: !uma_edit "<title>" <item> <value>
+    Allowed items: start, end, category, profile, image, title, description
+    For start/end, accepts UNIX timestamp or "YYYY-MM-DD HH:MM" (will prompt for timezone if missing).
+    """
+    allowed_items = ["start", "end", "category", "profile", "image", "title", "description"]
+    
+    async with aiosqlite.connect(UMA_DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT id, title, category, profile FROM events WHERE LOWER(title)=?",
+            (title.lower(),)
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            await ctx.send(f"No event found with the title `{title}`.")
+            return
+        event_id, old_title, old_category, old_profile = row
+        
+        # Edit start/end times
+        if item.lower() in ("start", "end"):
+            # Try to parse as unix timestamp, else as date string
+            try:
+                unix_time = int(value)
+            except ValueError:
+                # Prompt for timezone if not present
+                import re
+                tz_match = re.search(r'(UTC[+-]\d+|GMT[+-]\d+|[A-Za-z]+/[A-Za-z_]+)', value)
+                if tz_match:
+                    timezone_str = tz_match.group(1)
+                else:
+                    await ctx.send("No timezone detected. Please enter the timezone for this event (e.g. `Asia/Tokyo`, `UTC+9`, etc.):")
+                    def check(m): return m.author == ctx.author and m.channel == ctx.channel
+                    try:
+                        msg = await bot.wait_for("message", timeout=60.0, check=check)
+                        timezone_str = msg.content.strip()
+                    except Exception:
+                        await ctx.send("No timezone provided. Cancelling.")
+                        return
+                # Split date/time from value
+                date_time = value.split()
+                if len(date_time) == 2:
+                    date, time = date_time
+                else:
+                    await ctx.send("Invalid date/time format. Use `YYYY-MM-DD HH:MM`.")
+                    return
+                from database_handler import convert_to_unix_tz
+                unix_time = convert_to_unix_tz(date, time, timezone_str)
+            # Update start or end
+            if item.lower() == "start":
+                await conn.execute("UPDATE events SET start_date=? WHERE id=?", (str(unix_time), event_id))
+            else:
+                await conn.execute("UPDATE events SET end_date=? WHERE id=?", (str(unix_time), event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `{item}` for `{old_title}` to `{value}`.")
+        # Edit other fields
+        elif item.lower() == "category":
+            await conn.execute("UPDATE events SET category=? WHERE id=?", (value, event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `category` for `{old_title}` to `{value}`.")
+        elif item.lower() == "profile":
+            await conn.execute("UPDATE events SET profile=? WHERE id=?", (value.upper(), event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `profile` for `{old_title}` to `{value.upper()}`.")
+        elif item.lower() == "image":
+            await conn.execute("UPDATE events SET image=? WHERE id=?", (value, event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `image` for `{old_title}`.")
+        elif item.lower() == "title":
+            await conn.execute("UPDATE events SET title=? WHERE id=?", (value, event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `title` for `{old_title}` to `{value}`.")
+        elif item.lower() == "description":
+            await conn.execute("UPDATE events SET description=? WHERE id=?", (value, event_id))
+            await conn.commit()
+            await ctx.send(f"Updated `description` for `{old_title}`.")
+        else:
+            await ctx.send(f"Cannot edit `{item}`. Only {', '.join(allowed_items)} can be edited.")
+            return
+    
+    # Delete and reschedule notifications
+    from notification_handler import delete_notifications_for_event, schedule_notifications_for_event
+    await delete_notifications_for_event(old_title, old_category, old_profile)
+    
+    # Fetch updated event info for notification rescheduling
+    async with aiosqlite.connect(UMA_DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT title, start_date, end_date, category, profile FROM events WHERE id=?",
+            (event_id,)
+        ) as cursor:
+            updated = await cursor.fetchone()
+    if updated:
+        new_title, new_start, new_end, new_category, new_profile = updated
+        event_for_notification = {
+            'category': new_category,
+            'profile': new_profile,
+            'title': new_title,
+            'start_date': str(new_start),
+            'end_date': str(new_end)
+        }
+        await schedule_notifications_for_event(event_for_notification)
+    
+    # Refresh dashboard after editing event
+    uma_logger.info("[uma_edit] Refreshing dashboard after editing event...")
+    await uma_update_timers()
+    uma_logger.info("[uma_edit] Dashboard refresh completed.")
+    
+    # Update control panel to reflect edits
+    uma_logger.info("[uma_edit] Updating control panel after editing event...")
+    try:
+        from control_panel import update_control_panel_messages
+        await update_control_panel_messages("UMA")
+        uma_logger.info("[uma_edit] Control panel updated.")
+    except Exception as e:
+        uma_logger.error(f"[uma_edit] Failed to update control panel: {e}")
+
+print("[INIT] uma_edit command registered")
+print("[INIT] Defining uma_force_refresh command...")
 
 @commands.has_permissions(manage_guild=True)
 @bot.command(name="uma_refresh")
-async def uma_refresh(ctx):
-    """Refreshes Uma Musume event dashboards."""
-    await uma_update_timers()
-    await ctx.send("Uma Musume event dashboards have been refreshed.")
+async def uma_refresh(ctx, force: str = ""):
+    """Refreshes Uma Musume event dashboards. Use 'force' to update all embeds."""
+    force_update = (force.lower() == "force")
+    await ctx.send("🔄 Refreshing Uma Musume dashboards...")
+    await uma_update_timers(force_update=force_update)
+    msg = "✅ Dashboards refreshed!"
+    if force_update:
+        msg += " (All embeds force-updated with new colors/titles)"
+    await ctx.send(msg)
 
 print("[INIT] uma_refresh command registered")
 print("[INIT] Defining uma_update command...")
+
+async def uma_notification_refresh(message):
+    """
+    Call this from main.py's on_message to auto-refresh dashboard when bot posts notifications.
+    Returns True if message was in UMA notification channel and refresh was triggered.
+    """
+    from global_config import NOTIFICATION_CHANNELS
+    
+    # Only trigger for bot's own messages
+    if not message.author.bot or message.author.id != bot.user.id:
+        return False
+    
+    # Check if message is in UMA notification channel
+    uma_notif_channel_id = NOTIFICATION_CHANNELS.get("UMA")
+    if not uma_notif_channel_id or message.channel.id != uma_notif_channel_id:
+        return False
+    
+    uma_logger.info("[Auto-Refresh] Bot sent notification in UMA channel, refreshing dashboard...")
+    await uma_update_timers()
+    uma_logger.info("[Auto-Refresh] Dashboard refreshed for UMA.")
+    return True
 
 @commands.has_permissions(administrator=True)
 @bot.command(name="uma_update")
 async def uma_update(ctx):
     """Downloads and updates Uma Musume events from uma.moe/timeline."""
-    await ctx.send("Starting Uma Musume event update from timeline... This may take a few minutes.")
+    await ctx.send("🔄 Updating Uma Musume events from timeline... This may take a few minutes.")
     
     try:
         from uma_handler import update_uma_events
         await update_uma_events()
-        await ctx.send("✅ Uma Musume events have been updated successfully!")
+        await ctx.send("✅ Uma Musume events updated! Use `!uma_refresh force` to update all embeds with new colors/titles.")
     except Exception as e:
         uma_logger.error(f"Failed to update Uma Musume events: {e}")
         await ctx.send(f"❌ Failed to update Uma Musume events: {e}")
