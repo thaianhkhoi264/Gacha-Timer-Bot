@@ -818,10 +818,8 @@ async def start_uma_background_tasks():
         uma_logger.info("[Startup] Initializing Uma Musume background tasks...")
         print("[UMA STARTUP] Initializing Uma Musume background tasks...")
         
-        # Initialize database
-        await init_uma_db()
-        uma_logger.info("[Startup] Uma Musume database initialized.")
-        print("[UMA STARTUP] Database initialized.")
+        # Database already initialized in main.py before control panels
+        # No need to initialize again here
         
         # Run initial update on startup
         try:

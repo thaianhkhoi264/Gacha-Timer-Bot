@@ -455,6 +455,16 @@ async def on_ready():
     asyncio.create_task(hsr_scraper.periodic_hsr_scraping_task())
     print("[DEBUG] HSR periodic scraping task created.")
 
+    # Initialize Uma Musume database BEFORE control panels (control panel needs DB to exist)
+    print("[DEBUG] Initializing Uma Musume database...")
+    try:
+        await uma_module.init_uma_db()
+        print("[DEBUG] Uma Musume database initialized.")
+    except Exception as e:
+        print(f"[ERROR] Uma Musume database initialization failed: {e}")
+        import traceback
+        traceback.print_exc()
+
     # Now initialize control panels
     print("[DEBUG] About to call ensure_control_panels...")
     await control_panel.ensure_control_panels()
