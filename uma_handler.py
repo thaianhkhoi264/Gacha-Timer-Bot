@@ -458,7 +458,17 @@ async def update_uma_events():
     uma_handler_logger.info(f"Processed {added_count}/{len(events)} events.")
     print(f"[UMA HANDLER] Processed {added_count}/{len(events)} events.")
     
-    # Refresh dashboard will be called by the module if needed
+    # Refresh dashboard to display new events
+    print(f"[UMA HANDLER] Refreshing dashboard to display events...")
+    try:
+        await uma_update_timers()
+        print(f"[UMA HANDLER] Dashboard refreshed successfully!")
+    except Exception as e:
+        uma_handler_logger.error(f"Failed to refresh dashboard: {e}")
+        print(f"[UMA HANDLER] ERROR: Failed to refresh dashboard: {e}")
+        import traceback
+        traceback.print_exc()
+    
     print(f"[UMA HANDLER] Event update complete!")
 
 if __name__ == "__main__":
