@@ -254,11 +254,13 @@ def process_events(raw_events):
         # === CHARACTER + SUPPORT BANNER COMBINATION ===
         if "character banner featuring:" in title_lower or "character banner" in title_lower:
             # Use tags for character names (more accurate than truncated title)
+            print(f"[UMA HANDLER] Character banner found - Tags: {tags}, Title: {full_title[:80]}")
             char_names = " & ".join(tags) if tags else ""
             if not char_names:
                 # Fallback to parsing title
                 char_match = re.search(r"Character banner featuring:\s*(.+)", full_title, re.IGNORECASE)
                 char_names = char_match.group(1).strip() if char_match else "Character Banner"
+                print(f"[UMA HANDLER] No tags found, using parsed name: {char_names}")
             
             # Look for matching Support banner
             support_names = ""
@@ -272,9 +274,11 @@ def process_events(raw_events):
                         next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 86400):
                         support_tags = next_event.get("tags", [])
                         support_names = " & ".join(support_tags) if support_tags else ""
+                        print(f"[UMA HANDLER] Found matching support banner - Tags: {support_tags}, Title: {next_event['full_title'][:80]}")
                         if not support_names:
                             support_match = re.search(r"SUPPORT CARDS:\s*(.+)", next_event["full_title"], re.IGNORECASE)
                             support_names = support_match.group(1).strip() if support_match else ""
+                            print(f"[UMA HANDLER] No support tags, using parsed name: {support_names}")
                         support_img = next_event["image_url"]
                         skip_indices.add(j)
                         break
