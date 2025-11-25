@@ -251,8 +251,50 @@ def process_events(raw_events):
         # Parse title components
         title_lower = full_title.lower()
         
+        # === SUPPORT BANNER (standalone or for combination) ===
+        if "support" in title_lower and ("support cards:" in title_lower or "support card" in title_lower):
+            # Use tags for support card names
+            support_names = " & ".join(tags) if tags else ""
+            if not support_names:
+                support_match = re.search(r"SUPPORT CARDS?:\s*(.+)", full_title, re.IGNORECASE)
+                support_names = support_match.group(1).strip() if support_match else "Support Banner"
+            
+            print(f"[UMA HANDLER] Support banner found - Tags: {tags}, Names: {support_names}")
+            
+            # Check if there's a matching Character banner (look backward and forward)
+            char_banner_idx = None
+            for j in range(max(0, i-5), min(i+5, len(raw_events))):
+                if j == i or j in skip_indices:
+                    continue
+                check_event = raw_events[j]
+                check_title = check_event["full_title"].lower()
+                if "character banner" in check_title and "support" not in check_title:
+                    # Check if dates match within 24 hours
+                    if (check_event["start_date"] and abs((check_event["start_date"] - start_date).total_seconds()) < 86400 and
+                        check_event["end_date"] and abs((check_event["end_date"] - end_date).total_seconds()) < 86400):
+                        char_banner_idx = j
+                        break
+            
+            # If no matching character banner, create standalone support banner
+            if char_banner_idx is None:
+                processed.append({
+                    "title": f"{support_names} Support Banner",
+                    "start": int(start_date.timestamp()),
+                    "end": int(end_date.timestamp()),
+                    "image": img_url,
+                    "category": "Banner",
+                    "description": f"**Support Cards:** {support_names}"
+                })
+                print(f"[UMA HANDLER] Created standalone support banner: {support_names}")
+                continue
+            else:
+                # Skip this support banner, will be combined with character banner
+                skip_indices.add(i)
+                print(f"[UMA HANDLER] Support banner will be combined with character banner")
+                continue
+        
         # === CHARACTER + SUPPORT BANNER COMBINATION ===
-        if "character banner featuring:" in title_lower or "character banner" in title_lower:
+        if "character banner" in title_lower and "support" not in title_lower:
             # Use tags for character names (more accurate than truncated title)
             print(f"[UMA HANDLER] Character banner found - Tags: {tags}, Title: {full_title[:80]}")
             char_names = " & ".join(tags) if tags else ""
@@ -262,13 +304,15 @@ def process_events(raw_events):
                 char_names = char_match.group(1).strip() if char_match else "Character Banner"
                 print(f"[UMA HANDLER] No tags found, using parsed name: {char_names}")
             
-            # Look for matching Support banner
+            # Look for matching Support banner (search backward and forward)
             support_names = ""
             support_img = None
             support_tags = []
-            for j in range(i+1, min(i+5, len(raw_events))):
+            for j in range(max(0, i-5), min(i+5, len(raw_events))):
+                if j == i or j in skip_indices:
+                    continue
                 next_event = raw_events[j]
-                if "support" in next_event["full_title"].lower() and "support cards:" in next_event["full_title"].lower():
+                if "support" in next_event["full_title"].lower() and "support card" in next_event["full_title"].lower():
                     # Check if dates match
                     if (next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 86400 and
                         next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 86400):
@@ -276,7 +320,7 @@ def process_events(raw_events):
                         support_names = " & ".join(support_tags) if support_tags else ""
                         print(f"[UMA HANDLER] Found matching support banner - Tags: {support_tags}, Title: {next_event['full_title'][:80]}")
                         if not support_names:
-                            support_match = re.search(r"SUPPORT CARDS:\s*(.+)", next_event["full_title"], re.IGNORECASE)
+                            support_match = re.search(r"SUPPORT CARDS?:\s*(.+)", next_event["full_title"], re.IGNORECASE)
                             support_names = support_match.group(1).strip() if support_match else ""
                             print(f"[UMA HANDLER] No support tags, using parsed name: {support_names}")
                         support_img = next_event["image_url"]

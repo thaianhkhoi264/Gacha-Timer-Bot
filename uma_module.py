@@ -236,6 +236,9 @@ async def upsert_event_message(guild, channel, event, event_id):
         # Determine color based on event type
         color = get_event_color(event)
         
+        # Debug: Log event details for troubleshooting
+        uma_logger.debug(f"[Upsert] Event: {event['title']} | Category: {event.get('category', 'N/A')} | Color: {color}")
+        
         description = f"**Start:** <t:{event['start']}:F>\n**End:** <t:{event['end']}:F>"
         if event.get("description"):
             description += f"\n\n{event['description']}"
@@ -331,6 +334,7 @@ async def uma_update_timers(_guild=None, force_update=False):
     
     now = int(datetime.now(timezone.utc).timestamp())
     one_month_later = now + (30 * 24 * 60 * 60)  # 30 days
+    one_month_earlier = now - (30 * 24 * 60 * 60)  # 30 days in the past
     
     ongoing_channel = main_guild.get_channel(ONGOING_EVENTS_CHANNELS["UMA"])
     upcoming_channel = main_guild.get_channel(UPCOMING_EVENTS_CHANNELS["UMA"])
@@ -356,9 +360,13 @@ async def uma_update_timers(_guild=None, force_update=False):
     uma_logger.info(f"[Update Timers] Upcoming channel: {upcoming_channel.name if upcoming_channel else 'None'}")
     
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
-        # Fetch all events
+        # Fetch events that either:
+        # 1. Haven't ended yet (ongoing or upcoming)
+        # 2. Started within the past month (to catch recently started events)
+        # This ensures we show events that started in the past but are still running
         async with conn.execute(
-            "SELECT id, title, start_date, end_date, image, category, description FROM events ORDER BY start_date ASC"
+            "SELECT id, title, start_date, end_date, image, category, description FROM events WHERE end_date >= ? OR start_date >= ? ORDER BY start_date ASC",
+            (now, one_month_earlier)
         ) as cursor:
             events = [dict(
                 id=row[0], title=row[1], start=int(row[2]), end=int(row[3]), 
@@ -395,13 +403,13 @@ async def uma_update_timers(_guild=None, force_update=False):
                 uma_logger.info(f"[Update Timers] Deleted ended event: {event['title']}")
                 continue
             
-            # Skip events more than 1 month away
-            if event["start"] > one_month_later:
+            # Skip upcoming events more than 1 month away (but keep ongoing events regardless of start date)
+            if event["start"] > one_month_later and event["end"] > one_month_later:
                 skipped_count += 1
-                print(f"[UMA] SKIPPED (>1 month): '{event['title']}' starts at {start_dt} (now: {dt.fromtimestamp(now, tz=timezone.utc)}, cutoff: {dt.fromtimestamp(one_month_later, tz=timezone.utc)})")
+                print(f"[UMA] SKIPPED (>1 month away): '{event['title']}' starts at {start_dt}")
                 continue
             
-            # Ongoing events
+            # Ongoing events (includes events that started in the past but haven't ended)
             if event["start"] <= now < event["end"]:
                 print(f"[UMA] Event '{event['title']}' is ONGOING (start: {event['start']}, end: {event['end']}, now: {now})")
                 await delete_event_message(main_guild, UPCOMING_EVENTS_CHANNELS["UMA"], event["id"])
@@ -415,7 +423,7 @@ async def uma_update_timers(_guild=None, force_update=False):
                     print(f"[UMA] Posted to ongoing channel: {event['title']}")
             
             # Upcoming events (within 1 month)
-            elif event["start"] > now:
+            elif event["start"] > now and event["start"] <= one_month_later:
                 print(f"[UMA] Event '{event['title']}' is UPCOMING (start: {event['start']}, now: {now})")
                 if upcoming_channel:
                     if force_update:
