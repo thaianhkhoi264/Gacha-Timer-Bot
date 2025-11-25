@@ -165,6 +165,19 @@ async def download_timeline():
                     if tag_text:
                         tags.append(tag_text)
                 
+                # If no tags found with .tag selector, try alternative selectors
+                if not tags:
+                    # Try finding links within the event that might contain character names
+                    link_elements = await item.query_selector_all('a')
+                    for link_el in link_elements:
+                        link_text = (await link_el.inner_text()).strip()
+                        # Skip empty or very long text (likely not a character name)
+                        if link_text and len(link_text) < 50 and link_text != full_title:
+                            tags.append(link_text)
+                
+                # Debug: Show what we extracted
+                print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Tags: {tags}")
+                
                 # Extract event description/subtitle
                 description = ""
                 desc_tag = await item.query_selector('.event-description')
@@ -252,12 +265,13 @@ def process_events(raw_events):
         title_lower = full_title.lower()
         
         # === SUPPORT BANNER (standalone or for combination) ===
-        if "support" in title_lower and ("support cards:" in title_lower or "support card" in title_lower):
-            # Use tags for support card names
+        if "support" in title_lower and ("support card" in title_lower or title_lower.startswith("support")):
+            # Use tags for support card names - tags are the actual character names
             support_names = " & ".join(tags) if tags else ""
             if not support_names:
+                # Fallback: try to parse from title text
                 support_match = re.search(r"SUPPORT CARDS?:\s*(.+)", full_title, re.IGNORECASE)
-                support_names = support_match.group(1).strip() if support_match else "Support Banner"
+                support_names = support_match.group(1).strip() if support_match else "Support Cards"
             
             print(f"[UMA HANDLER] Support banner found - Tags: {tags}, Names: {support_names}")
             
@@ -268,7 +282,7 @@ def process_events(raw_events):
                     continue
                 check_event = raw_events[j]
                 check_title = check_event["full_title"].lower()
-                if "character banner" in check_title and "support" not in check_title:
+                if "character" in check_title and "banner" in check_title and "support" not in check_title:
                     # Check if dates match within 24 hours
                     if (check_event["start_date"] and abs((check_event["start_date"] - start_date).total_seconds()) < 86400 and
                         check_event["end_date"] and abs((check_event["end_date"] - end_date).total_seconds()) < 86400):
@@ -401,41 +415,72 @@ def process_events(raw_events):
         
         # === LEGEND RACE ===
         if "legend race" in title_lower:
-            # Use extracted description, or try tags, or parse from title
-            details = description
-            if not details and tags:
-                details = " ".join(tags)
-            if not details:
-                details_match = re.search(r"Legend Race\s+(.+)", full_title)
-                details = details_match.group(1).strip() if details_match else ""
+            # Extract race details from title (e.g., "2400m - Medium - Turf")
+            details = ""
+            details_match = re.search(r"Legend Race\s+(.+)", full_title)
+            if details_match:
+                details = details_match.group(1).strip()
+            elif description:
+                details = description
+            
+            # Try to extract race name from details (e.g., "Kikkasho" from description if available)
+            race_name = "Legend Race"
+            # For now, just use "Legend Race" - we can enhance this later if race names are in HTML
+            
+            # Collect multiple images for Legend Race (they typically have 3-4 character images)
+            legend_images = [img_url] if img_url else []
+            # Look ahead for additional Legend Race images (same event, multiple image elements)
+            for j in range(i+1, min(i+10, len(raw_events))):
+                next_event = raw_events[j]
+                # If next event has same title and date, it's another image for same Legend Race
+                if ("legend race" in next_event["full_title"].lower() and 
+                    next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 3600 and
+                    next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 3600):
+                    if next_event["image_url"]:
+                        legend_images.append(next_event["image_url"])
+                        skip_indices.add(j)
+                else:
+                    break
+            
+            print(f"[UMA HANDLER] Legend Race found with {len(legend_images)} images")
+            
+            # For now, use first image (combining horizontally would require PIL changes)
+            # TODO: Implement horizontal image combination
+            combined_img = legend_images[0] if legend_images else img_url
             
             processed.append({
-                "title": "Legend Race",
+                "title": race_name,
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
-                "image": img_url,
+                "image": combined_img,
                 "category": "Event",
-                "description": details
+                "description": details if details else ""
             })
             continue
         
         # === CHAMPIONS MEETING ===
         if "champions meeting" in title_lower:
-            # Use extracted description, or try tags, or parse from title
-            details = description
-            if not details and tags:
-                details = " ".join(tags)
-            if not details:
-                details_match = re.search(r"Champions Meeting\s+(.+)", full_title)
-                details = details_match.group(1).strip() if details_match else ""
+            # Extract location/cup details from title (e.g., "Tokyo - Turf2400m - Medium - Counterclockwise...")
+            details = ""
+            cup_name = "Champions Meeting"
+            
+            details_match = re.search(r"Champions Meeting\s+(.+)", full_title)
+            if details_match:
+                details = details_match.group(1).strip()
+                # Extract location as cup name (first word before dash)
+                location_match = re.search(r"^([A-Za-z]+)", details)
+                if location_match:
+                    cup_name = f"Champions Meeting: {location_match.group(1)} Cup"
+            elif description:
+                details = description
             
             processed.append({
-                "title": "Champions Meeting",
+                "title": cup_name,
                 "start": int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60),
                 "end": int(end_date.timestamp()),
                 "image": img_url,
                 "category": "Event",
-                "description": details
+                "description": details if details else ""
             })
             continue
         
