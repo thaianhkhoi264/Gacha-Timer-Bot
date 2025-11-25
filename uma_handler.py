@@ -157,23 +157,41 @@ async def download_timeline():
                     continue
                 full_title = (await title_tag.inner_text()).strip()
                 
-                # Extract character/event tags (e.g., character names, event types)
+                # Extract character/event tags from text content
+                # Character names appear as text after "CHARACTERS:" or "SUPPORT CARDS:" headings
                 tags = []
-                tag_elements = await item.query_selector_all('.tag')
-                for tag_el in tag_elements:
-                    tag_text = (await tag_el.inner_text()).strip()
-                    if tag_text:
-                        tags.append(tag_text)
+                full_text = await item.inner_text()
                 
-                # If no tags found with .tag selector, try alternative selectors
-                if not tags:
-                    # Try finding links within the event that might contain character names
-                    link_elements = await item.query_selector_all('a')
-                    for link_el in link_elements:
-                        link_text = (await link_el.inner_text()).strip()
-                        # Skip empty or very long text (likely not a character name)
-                        if link_text and len(link_text) < 50 and link_text != full_title:
-                            tags.append(link_text)
+                # Look for CHARACTERS: section
+                if "CHARACTERS:" in full_text:
+                    # Find the line after CHARACTERS:
+                    lines = full_text.split('\n')
+                    char_idx = None
+                    for i, line in enumerate(lines):
+                        if "CHARACTERS:" in line:
+                            char_idx = i
+                            break
+                    
+                    if char_idx is not None and char_idx + 1 < len(lines):
+                        # Get the next line which contains character names
+                        char_line = lines[char_idx + 1].strip()
+                        # Split by double spaces (how character names are separated)
+                        char_names = [name.strip() for name in re.split(r'\s{2,}', char_line) if name.strip()]
+                        tags = char_names
+                
+                # Look for SUPPORT CARDS: section
+                elif "SUPPORT" in full_text and "CARDS:" in full_text:
+                    lines = full_text.split('\n')
+                    support_idx = None
+                    for i, line in enumerate(lines):
+                        if "SUPPORT" in line and "CARDS:" in line:
+                            support_idx = i
+                            break
+                    
+                    if support_idx is not None and support_idx + 1 < len(lines):
+                        support_line = lines[support_idx + 1].strip()
+                        support_names = [name.strip() for name in re.split(r'\s{2,}', support_line) if name.strip()]
+                        tags = support_names
                 
                 # Debug: Show what we extracted
                 print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Tags: {tags}")
