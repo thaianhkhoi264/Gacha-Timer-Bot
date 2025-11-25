@@ -304,6 +304,38 @@ async def upsert_event_message(guild, channel, event, event_id):
         )
         await conn.commit()
 
+async def clear_channel_messages(channel, event_ids_to_keep):
+    """Clears messages in channel that don't correspond to events in the database.
+    
+    Args:
+        channel: Discord channel to clean
+        event_ids_to_keep: Set of event IDs that should have messages
+    """
+    try:
+        async for message in channel.history(limit=100):
+            if message.author.id != bot.user.id:
+                continue
+            # Check if this message is in our database
+            async with aiosqlite.connect(UMA_DB_PATH) as conn:
+                async with conn.execute(
+                    "SELECT event_id FROM event_messages WHERE message_id=?",
+                    (str(message.id),)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        event_id = row[0]
+                        if event_id not in event_ids_to_keep:
+                            # Delete orphaned message
+                            await message.delete()
+                            await conn.execute(
+                                "DELETE FROM event_messages WHERE message_id=?",
+                                (str(message.id),)
+                            )
+                            await conn.commit()
+                            print(f"[UMA] Deleted orphaned message for event ID {event_id}")
+    except Exception as e:
+        uma_logger.error(f"[Clear Channel] Failed to clear channel: {e}")
+
 async def uma_update_timers(_guild=None, force_update=False):
     """
     Updates Uma Musume event dashboards.
@@ -375,6 +407,13 @@ async def uma_update_timers(_guild=None, force_update=False):
         
         uma_logger.info(f"[Update Timers] Fetched {len(events)} events from database")
         print(f"[UMA] Fetched {len(events)} events from database")
+        
+        # Clear orphaned messages (handles database resets)
+        event_ids_to_keep = {event["id"] for event in events}
+        if ongoing_channel:
+            await clear_channel_messages(ongoing_channel, event_ids_to_keep)
+        if upcoming_channel:
+            await clear_channel_messages(upcoming_channel, event_ids_to_keep)
         
         if len(events) == 0:
             print("[UMA] No events in database!")
