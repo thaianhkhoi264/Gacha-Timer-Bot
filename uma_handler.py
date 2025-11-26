@@ -163,10 +163,6 @@ async def download_timeline():
                 full_text = await item.inner_text()
                 lines = [line.strip() for line in full_text.split('\n') if line.strip()]
                 
-                # Debug: Print structure for character/support banners
-                if "+" in full_title and "more" in full_title:
-                    print(f"[UMA DEBUG LINES] {lines}")
-                
                 # For CHARACTER BANNER or SUPPORT CARD BANNER:
                 # Structure is: [type] [title with +1 more] [date] [name1] [name2] ...
                 if "CHARACTER BANNER" in full_text or "SUPPORT CARD BANNER" in full_text:
@@ -189,18 +185,28 @@ async def download_timeline():
                             if name in ["CHARACTERS:", "SUPPORT CARDS:", "CHARACTER BANNER", "SUPPORT CARD BANNER"]:
                                 continue
                             tags.append(name)
-                        
-                        print(f"[UMA DEBUG EXTRACTION] Found {len(tags)} names after date line {date_idx}: {tags}")
                 
-                # Extract banner type from full text
+                # Extract banner/event type from full text
+                # The type label (Story Event, Legend Race, etc.) appears in full_text but NOT in .event-title
                 banner_type = ""
-                if "CHARACTER BANNER" in full_text:
+                event_type = ""
+                full_text_upper = full_text.upper()
+                
+                if "CHARACTER BANNER" in full_text_upper:
                     banner_type = "CHARACTER BANNER"
-                elif "SUPPORT CARD BANNER" in full_text:
+                elif "SUPPORT CARD BANNER" in full_text_upper:
                     banner_type = "SUPPORT CARD BANNER"
+                elif "PAID BANNER" in full_text_upper:
+                    event_type = "PAID BANNER"
+                elif "STORY EVENT" in full_text_upper:
+                    event_type = "STORY EVENT"
+                elif "LEGEND RACE" in full_text_upper:
+                    event_type = "LEGEND RACE"
+                elif "CHAMPIONS MEETING" in full_text_upper:
+                    event_type = "CHAMPIONS MEETING"
                 
                 # Debug: Show what we extracted
-                print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Tags: {tags}")
+                print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Type: {banner_type or event_type} | Tags: {tags}")
                 
                 # Extract event description/subtitle
                 description = ""
@@ -234,6 +240,7 @@ async def download_timeline():
                 raw_events.append({
                     "full_title": full_title,
                     "banner_type": banner_type,
+                    "event_type": event_type,  # Store event type (Story Event, Legend Race, etc.)
                     "tags": tags,
                     "all_images": img_urls,  # Store ALL images for Legend Race
                     "description": description,
@@ -245,7 +252,7 @@ async def download_timeline():
                 
                 # Debug: Print first few events
                 if len(raw_events) <= 5:
-                    print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Tags: {tags} | Date: {date_str}")
+                    print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Type: {banner_type or event_type} | Tags: {tags}")
 
             await browser.close()
             
@@ -283,6 +290,7 @@ def process_events(raw_events):
         
         full_title = event["full_title"]
         banner_type = event.get("banner_type", "")
+        event_type = event.get("event_type", "")  # Get the event type (Story Event, Legend Race, etc.)
         tags = event.get("tags", [])
         description = event.get("description", "")
         start_date = event["start_date"]
@@ -397,12 +405,12 @@ def process_events(raw_events):
             continue
         
         # === PAID BANNER COMBINATION ===
-        if "paid banner" in title_lower:
+        if event_type == "PAID BANNER" or "paid banner" in title_lower:
             # Look for another Paid Banner at the same time
             paired_img = None
             for j in range(i+1, min(i+3, len(raw_events))):
                 next_event = raw_events[j]
-                if "paid banner" in next_event["full_title"].lower():
+                if next_event.get("event_type") == "PAID BANNER" or "paid banner" in next_event["full_title"].lower():
                     # Check if dates match
                     if (next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 3600 and
                         next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 3600):
@@ -429,12 +437,15 @@ def process_events(raw_events):
             continue
         
         # === STORY EVENT ===
-        if "story event" in title_lower:
-            story_match = re.search(r"Story Event:\s*(.+)", full_title, re.IGNORECASE)
-            story_name = story_match.group(1).strip() if story_match else full_title
+        # Event type is detected from full_text which contains "Story Event" label
+        if event_type == "STORY EVENT":
+            # The full_title is just the event name (e.g., "Make up in Halloween!")
+            story_name = full_title
             
             # Use description if available
             event_desc = description if description else ""
+            
+            print(f"[UMA HANDLER] Story Event found: {story_name}")
             
             processed.append({
                 "title": story_name,
@@ -447,18 +458,12 @@ def process_events(raw_events):
             continue
         
         # === LEGEND RACE ===
-        if "legend race" in title_lower:
-            # Extract race details from title (e.g., "2400m - Medium - Turf")
-            details = ""
-            details_match = re.search(r"Legend Race\s+(.+)", full_title)
-            if details_match:
-                details = details_match.group(1).strip()
-            elif description:
-                details = description
+        # Event type is detected from full_text which contains "Legend Race" label
+        if event_type == "LEGEND RACE":
+            # The full_title contains race details (e.g., "2400m - Medium - Turf")
+            details = full_title  # Use entire title as details
             
-            # Try to extract race name from details (e.g., "Kikkasho" from description if available)
             race_name = "Legend Race"
-            # For now, just use "Legend Race" - we can enhance this later if race names are in HTML
             
             # Use all_images field which contains ALL images from this event
             legend_images = event.get("all_images", [])
@@ -482,19 +487,16 @@ def process_events(raw_events):
             continue
         
         # === CHAMPIONS MEETING ===
-        if "champions meeting" in title_lower:
-            # Extract location/cup details from title (e.g., "Tokyo - Turf2400m - Medium - Counterclockwise...")
-            details = ""
+        # Event type is detected from full_text which contains "Champions Meeting" label
+        if event_type == "CHAMPIONS MEETING":
+            # The full_title contains location/course details (e.g., "Tokyo - Turf2400m - Medium - Counterclockwise...")
+            details = full_title
             cup_name = "Champions Meeting"
             
-            details_match = re.search(r"Champions Meeting\s+(.+)", full_title)
-            if details_match:
-                details = details_match.group(1).strip()
-                # Extract location as cup name (first word before dash)
-                location_match = re.search(r"^([A-Za-z]+)", details)
-                if location_match:
-                    cup_name = f"Champions Meeting: {location_match.group(1)} Cup"
-            elif description:
+            # Extract location as cup name (first word)
+            location_match = re.search(r"^([A-Za-z]+)", full_title)
+            if location_match:
+                cup_name = f"Champions Meeting: {location_match.group(1)} Cup"
                 details = description
             
             processed.append({
