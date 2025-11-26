@@ -158,46 +158,39 @@ async def download_timeline():
                 full_title = (await title_tag.inner_text()).strip()
                 
                 # Extract character/event tags from text content
-                # Character names appear as text after "CHARACTERS:" or "SUPPORT CARDS:" headings
+                # Character names appear on separate lines after the event type and date
                 tags = []
                 full_text = await item.inner_text()
+                lines = [line.strip() for line in full_text.split('\n') if line.strip()]
                 
-                # Debug: Print first 300 chars of text to see structure
-                if "Fine Motion" in full_title or "Rice Shower" in full_title:
-                    print(f"[UMA DEBUG FULL TEXT] {full_text[:300]}")
+                # Debug: Print structure for character/support banners
+                if "+" in full_title and "more" in full_title:
+                    print(f"[UMA DEBUG LINES] {lines}")
                 
-                # Look for CHARACTERS: section
-                if "CHARACTERS:" in full_text:
-                    # Find the line after CHARACTERS:
-                    lines = full_text.split('\n')
-                    char_idx = None
+                # For CHARACTER BANNER or SUPPORT CARD BANNER:
+                # Structure is: [type] [title with +1 more] [date] [name1] [name2] ...
+                if "CHARACTER BANNER" in full_text or "SUPPORT CARD BANNER" in full_text:
+                    # Find the date line (contains " – " and year)
+                    date_idx = None
                     for i, line in enumerate(lines):
-                        if "CHARACTERS:" in line:
-                            char_idx = i
+                        if "–" in line and "202" in line:
+                            date_idx = i
                             break
                     
-                    if char_idx is not None and char_idx + 1 < len(lines):
-                        # Get the next line which contains character names
-                        char_line = lines[char_idx + 1].strip()
-                        # Split by double spaces (how character names are separated)
-                        char_names = [name.strip() for name in re.split(r'\s{2,}', char_line) if name.strip()]
-                        tags = char_names
-                        print(f"[UMA DEBUG CHARS] Found CHARACTERS: line, next line: '{char_line}' -> {char_names}")
-                
-                # Look for SUPPORT CARDS: section
-                elif "SUPPORT" in full_text and "CARDS:" in full_text:
-                    lines = full_text.split('\n')
-                    support_idx = None
-                    for i, line in enumerate(lines):
-                        if "SUPPORT" in line and "CARDS:" in line:
-                            support_idx = i
-                            break
-                    
-                    if support_idx is not None and support_idx + 1 < len(lines):
-                        support_line = lines[support_idx + 1].strip()
-                        support_names = [name.strip() for name in re.split(r'\s{2,}', support_line) if name.strip()]
-                        tags = support_names
-                        print(f"[UMA DEBUG SUPPORT] Found SUPPORT CARDS: line, next line: '{support_line}' -> {support_names}")
+                    if date_idx is not None:
+                        # Character names are on lines after the date
+                        # Collect lines that look like character names (not too long, not special keywords)
+                        for i in range(date_idx + 1, min(date_idx + 5, len(lines))):
+                            name = lines[i]
+                            # Stop if we hit a new section or empty line
+                            if not name or len(name) > 50:
+                                break
+                            # Skip if it's a common non-name line
+                            if name in ["CHARACTERS:", "SUPPORT CARDS:", "CHARACTER BANNER", "SUPPORT CARD BANNER"]:
+                                continue
+                            tags.append(name)
+                        
+                        print(f"[UMA DEBUG EXTRACTION] Found {len(tags)} names after date line {date_idx}: {tags}")
                 
                 # Debug: Show what we extracted
                 print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Tags: {tags}")
