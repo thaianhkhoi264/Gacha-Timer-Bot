@@ -192,6 +192,13 @@ async def download_timeline():
                         
                         print(f"[UMA DEBUG EXTRACTION] Found {len(tags)} names after date line {date_idx}: {tags}")
                 
+                # Extract banner type from full text
+                banner_type = ""
+                if "CHARACTER BANNER" in full_text:
+                    banner_type = "CHARACTER BANNER"
+                elif "SUPPORT CARD BANNER" in full_text:
+                    banner_type = "SUPPORT CARD BANNER"
+                
                 # Debug: Show what we extracted
                 print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Tags: {tags}")
                 
@@ -201,13 +208,20 @@ async def download_timeline():
                 if desc_tag:
                     description = (await desc_tag.inner_text()).strip()
                 
-                # Extract event image
-                img_tag = await item.query_selector('.event-image img')
-                img_url = None
-                if img_tag:
+                # Extract event images - get ALL images for Legend Race
+                img_urls = []
+                all_img_tags = await item.query_selector_all('.event-image img')
+                for img_tag in all_img_tags:
                     img_src = await img_tag.get_attribute("src")
                     if img_src:
-                        img_url = urljoin(BASE_URL, img_src)
+                        img_urls.append(urljoin(BASE_URL, img_src))
+                
+                # Primary image is first one
+                img_url = img_urls[0] if img_urls else None
+                
+                # Debug: Show if we found multiple images
+                if len(img_urls) > 1:
+                    print(f"[UMA HANDLER] Found {len(img_urls)} images for: {full_title[:50]}")
                 
                 # Extract event date
                 date_tag = await item.query_selector('.event-date')
@@ -219,7 +233,9 @@ async def download_timeline():
                 # Store ALL events - don't skip any here
                 raw_events.append({
                     "full_title": full_title,
+                    "banner_type": banner_type,
                     "tags": tags,
+                    "all_images": img_urls,  # Store ALL images for Legend Race
                     "description": description,
                     "image_url": img_url,
                     "start_date": start_date,
@@ -266,6 +282,7 @@ def process_events(raw_events):
             continue
         
         full_title = event["full_title"]
+        banner_type = event.get("banner_type", "")
         tags = event.get("tags", [])
         description = event.get("description", "")
         start_date = event["start_date"]
@@ -282,7 +299,7 @@ def process_events(raw_events):
         title_lower = full_title.lower()
         
         # === SUPPORT BANNER (standalone or for combination) ===
-        if "support" in title_lower and ("support card" in title_lower or title_lower.startswith("support")):
+        if banner_type == "SUPPORT CARD BANNER":
             # Use tags for support card names - tags are the actual character names
             support_names = " & ".join(tags) if tags else ""
             if not support_names:
@@ -298,8 +315,7 @@ def process_events(raw_events):
                 if j == i or j in skip_indices:
                     continue
                 check_event = raw_events[j]
-                check_title = check_event["full_title"].lower()
-                if "character" in check_title and "banner" in check_title and "support" not in check_title:
+                if check_event.get("banner_type") == "CHARACTER BANNER":
                     # Check if dates match within 24 hours
                     if (check_event["start_date"] and abs((check_event["start_date"] - start_date).total_seconds()) < 86400 and
                         check_event["end_date"] and abs((check_event["end_date"] - end_date).total_seconds()) < 86400):
@@ -325,7 +341,7 @@ def process_events(raw_events):
                 continue
         
         # === CHARACTER + SUPPORT BANNER COMBINATION ===
-        if "character banner" in title_lower and "support" not in title_lower:
+        if banner_type == "CHARACTER BANNER":
             # Use tags for character names (more accurate than truncated title)
             print(f"[UMA HANDLER] Character banner found - Tags: {tags}, Title: {full_title[:80]}")
             char_names = " & ".join(tags) if tags else ""
@@ -343,7 +359,7 @@ def process_events(raw_events):
                 if j == i or j in skip_indices:
                     continue
                 next_event = raw_events[j]
-                if "support" in next_event["full_title"].lower() and "support card" in next_event["full_title"].lower():
+                if next_event.get("banner_type") == "SUPPORT CARD BANNER":
                     # Check if dates match
                     if (next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 86400 and
                         next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 86400):
@@ -444,22 +460,12 @@ def process_events(raw_events):
             race_name = "Legend Race"
             # For now, just use "Legend Race" - we can enhance this later if race names are in HTML
             
-            # Collect multiple images for Legend Race (they typically have 3-4 character images)
-            legend_images = [img_url] if img_url else []
-            # Look ahead for additional Legend Race images (same event, multiple image elements)
-            for j in range(i+1, min(i+10, len(raw_events))):
-                next_event = raw_events[j]
-                # If next event has same title and date, it's another image for same Legend Race
-                if ("legend race" in next_event["full_title"].lower() and 
-                    next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 3600 and
-                    next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 3600):
-                    if next_event["image_url"]:
-                        legend_images.append(next_event["image_url"])
-                        skip_indices.add(j)
-                else:
-                    break
+            # Use all_images field which contains ALL images from this event
+            legend_images = event.get("all_images", [])
+            if not legend_images and img_url:
+                legend_images = [img_url]
             
-            print(f"[UMA HANDLER] Legend Race found with {len(legend_images)} images")
+            print(f"[UMA HANDLER] Legend Race found with {len(legend_images)} images: {legend_images}")
             
             # For now, use first image (combining horizontally would require PIL changes)
             # TODO: Implement horizontal image combination
