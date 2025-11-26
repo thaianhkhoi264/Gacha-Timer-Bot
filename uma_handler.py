@@ -162,6 +162,10 @@ async def download_timeline():
                 tags = []
                 full_text = await item.inner_text()
                 
+                # Debug: Print first 300 chars of text to see structure
+                if "Fine Motion" in full_title or "Rice Shower" in full_title:
+                    print(f"[UMA DEBUG FULL TEXT] {full_text[:300]}")
+                
                 # Look for CHARACTERS: section
                 if "CHARACTERS:" in full_text:
                     # Find the line after CHARACTERS:
@@ -178,6 +182,7 @@ async def download_timeline():
                         # Split by double spaces (how character names are separated)
                         char_names = [name.strip() for name in re.split(r'\s{2,}', char_line) if name.strip()]
                         tags = char_names
+                        print(f"[UMA DEBUG CHARS] Found CHARACTERS: line, next line: '{char_line}' -> {char_names}")
                 
                 # Look for SUPPORT CARDS: section
                 elif "SUPPORT" in full_text and "CARDS:" in full_text:
@@ -192,6 +197,7 @@ async def download_timeline():
                         support_line = lines[support_idx + 1].strip()
                         support_names = [name.strip() for name in re.split(r'\s{2,}', support_line) if name.strip()]
                         tags = support_names
+                        print(f"[UMA DEBUG SUPPORT] Found SUPPORT CARDS: line, next line: '{support_line}' -> {support_names}")
                 
                 # Debug: Show what we extracted
                 print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Tags: {tags}")
