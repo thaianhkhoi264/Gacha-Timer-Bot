@@ -158,39 +158,47 @@ async def download_timeline():
                 full_title = (await title_tag.inner_text()).strip()
                 
                 # Extract character/event tags from text content
-                # Character names appear on separate lines after the event type and date
+                # Character names appear on separate lines in the CHARACTERS: or SUPPORT CARDS: section
                 tags = []
                 full_text = await item.inner_text()
+                full_text_upper = full_text.upper()
                 lines = [line.strip() for line in full_text.split('\n') if line.strip()]
                 
                 # For CHARACTER BANNER or SUPPORT CARD BANNER:
-                # Structure is: [type] [title with +1 more] [date] [name1] [name2] ...
-                if "CHARACTER BANNER" in full_text or "SUPPORT CARD BANNER" in full_text:
-                    # Find the date line (contains " – " and year)
-                    date_idx = None
-                    for i, line in enumerate(lines):
-                        if "–" in line and "202" in line:
-                            date_idx = i
+                # Structure: [type] [title] [CHARACTERS:/SUPPORT CARDS:] [name1] [name2] [date line]
+                # Names appear AFTER "CHARACTERS:" or "SUPPORT CARDS:" but BEFORE the date line
+                if "CHARACTER BANNER" in full_text_upper or "SUPPORT CARD BANNER" in full_text_upper:
+                    # Find the section header (CHARACTERS: or SUPPORT CARDS:)
+                    section_start = None
+                    for idx, line in enumerate(lines):
+                        if line.upper() in ["CHARACTERS:", "SUPPORT CARDS:"]:
+                            section_start = idx
                             break
                     
-                    if date_idx is not None:
-                        # Character names are on lines after the date
-                        # Collect lines that look like character names (not too long, not special keywords)
-                        for i in range(date_idx + 1, min(date_idx + 5, len(lines))):
-                            name = lines[i]
-                            # Stop if we hit a new section or empty line
-                            if not name or len(name) > 50:
+                    if section_start is not None:
+                        # Collect names from lines after the section header
+                        # Stop at the date line or another section
+                        for idx in range(section_start + 1, len(lines)):
+                            line = lines[idx]
+                            # Stop at date line (contains year)
+                            if any(year in line for year in ["2025", "2026", "2027", "2028"]):
                                 break
-                            # Skip if it's a common non-name line
-                            if name in ["CHARACTERS:", "SUPPORT CARDS:", "CHARACTER BANNER", "SUPPORT CARD BANNER"]:
+                            # Skip empty or section headers
+                            if not line or line.upper() in ["CHARACTERS:", "SUPPORT CARDS:", "CHARACTER BANNER", "SUPPORT CARD BANNER"]:
                                 continue
-                            tags.append(name)
+                            # Skip lines that are too long (likely descriptions)
+                            if len(line) > 50:
+                                continue
+                            # Skip the image alt text (contains + more)
+                            if "+ " in line and "more" in line.lower():
+                                continue
+                            # This should be a character name
+                            tags.append(line)
                 
-                # Extract banner/event type from full text
+                # Extract banner/event type from full text (full_text_upper already defined above)
                 # The type label (Story Event, Legend Race, etc.) appears in full_text but NOT in .event-title
                 banner_type = ""
                 event_type = ""
-                full_text_upper = full_text.upper()
                 
                 if "CHARACTER BANNER" in full_text_upper:
                     banner_type = "CHARACTER BANNER"
