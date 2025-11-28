@@ -158,63 +158,42 @@ async def download_timeline():
                 full_title = (await title_tag.inner_text()).strip()
                 
                 # Extract character/event tags from text content
-                # Character names appear on separate lines in the CHARACTERS: or SUPPORT CARDS: section
+                # Character names appear on separate lines after the event type and date
                 tags = []
                 full_text = await item.inner_text()
-                full_text_upper = full_text.upper()
                 lines = [line.strip() for line in full_text.split('\n') if line.strip()]
                 
+                # Debug: Print structure for character/support banners
+                if "+" in full_title and "more" in full_title:
+                    print(f"[UMA DEBUG LINES] {lines}")
+                
                 # For CHARACTER BANNER or SUPPORT CARD BANNER:
-                # Structure: [type] [title] [CHARACTERS:/SUPPORT CARDS:] [name1] [name2] [date line]
-                # Names appear AFTER "CHARACTERS:" or "SUPPORT CARDS:" but BEFORE the date line
-                if "CHARACTER BANNER" in full_text_upper or "SUPPORT CARD BANNER" in full_text_upper:
-                    # Find the section header (CHARACTERS: or SUPPORT CARDS:)
-                    section_start = None
-                    for idx, line in enumerate(lines):
-                        if line.upper() in ["CHARACTERS:", "SUPPORT CARDS:"]:
-                            section_start = idx
+                # Structure is: [type] [title with +1 more] [date] [name1] [name2] ...
+                if "CHARACTER BANNER" in full_text or "SUPPORT CARD BANNER" in full_text:
+                    # Find the date line (contains " – " and year)
+                    date_idx = None
+                    for i, line in enumerate(lines):
+                        if "–" in line and "202" in line:
+                            date_idx = i
                             break
                     
-                    if section_start is not None:
-                        # Collect names from lines after the section header
-                        # Stop at the date line or another section
-                        for idx in range(section_start + 1, len(lines)):
-                            line = lines[idx]
-                            # Stop at date line (contains year)
-                            if any(year in line for year in ["2025", "2026", "2027", "2028"]):
+                    if date_idx is not None:
+                        # Character names are on lines after the date
+                        # Collect lines that look like character names (not too long, not special keywords)
+                        for i in range(date_idx + 1, min(date_idx + 5, len(lines))):
+                            name = lines[i]
+                            # Stop if we hit a new section or empty line
+                            if not name or len(name) > 50:
                                 break
-                            # Skip empty or section headers
-                            if not line or line.upper() in ["CHARACTERS:", "SUPPORT CARDS:", "CHARACTER BANNER", "SUPPORT CARD BANNER"]:
+                            # Skip if it's a common non-name line
+                            if name in ["CHARACTERS:", "SUPPORT CARDS:", "CHARACTER BANNER", "SUPPORT CARD BANNER"]:
                                 continue
-                            # Skip lines that are too long (likely descriptions)
-                            if len(line) > 50:
-                                continue
-                            # Skip the image alt text (contains + more)
-                            if "+ " in line and "more" in line.lower():
-                                continue
-                            # This should be a character name
-                            tags.append(line)
-                
-                # Extract banner/event type from full text (full_text_upper already defined above)
-                # The type label (Story Event, Legend Race, etc.) appears in full_text but NOT in .event-title
-                banner_type = ""
-                event_type = ""
-                
-                if "CHARACTER BANNER" in full_text_upper:
-                    banner_type = "CHARACTER BANNER"
-                elif "SUPPORT CARD BANNER" in full_text_upper:
-                    banner_type = "SUPPORT CARD BANNER"
-                elif "PAID BANNER" in full_text_upper:
-                    event_type = "PAID BANNER"
-                elif "STORY EVENT" in full_text_upper:
-                    event_type = "STORY EVENT"
-                elif "LEGEND RACE" in full_text_upper:
-                    event_type = "LEGEND RACE"
-                elif "CHAMPIONS MEETING" in full_text_upper:
-                    event_type = "CHAMPIONS MEETING"
+                            tags.append(name)
+                        
+                        print(f"[UMA DEBUG EXTRACTION] Found {len(tags)} names after date line {date_idx}: {tags}")
                 
                 # Debug: Show what we extracted
-                print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Type: {banner_type or event_type} | Tags: {tags}")
+                print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Tags: {tags}")
                 
                 # Extract event description/subtitle
                 description = ""
@@ -222,20 +201,13 @@ async def download_timeline():
                 if desc_tag:
                     description = (await desc_tag.inner_text()).strip()
                 
-                # Extract event images - get ALL images for Legend Race
-                img_urls = []
-                all_img_tags = await item.query_selector_all('.event-image img')
-                for img_tag in all_img_tags:
+                # Extract event image
+                img_tag = await item.query_selector('.event-image img')
+                img_url = None
+                if img_tag:
                     img_src = await img_tag.get_attribute("src")
                     if img_src:
-                        img_urls.append(urljoin(BASE_URL, img_src))
-                
-                # Primary image is first one
-                img_url = img_urls[0] if img_urls else None
-                
-                # Debug: Show if we found multiple images
-                if len(img_urls) > 1:
-                    print(f"[UMA HANDLER] Found {len(img_urls)} images for: {full_title[:50]}")
+                        img_url = urljoin(BASE_URL, img_src)
                 
                 # Extract event date
                 date_tag = await item.query_selector('.event-date')
@@ -247,10 +219,7 @@ async def download_timeline():
                 # Store ALL events - don't skip any here
                 raw_events.append({
                     "full_title": full_title,
-                    "banner_type": banner_type,
-                    "event_type": event_type,  # Store event type (Story Event, Legend Race, etc.)
                     "tags": tags,
-                    "all_images": img_urls,  # Store ALL images for Legend Race
                     "description": description,
                     "image_url": img_url,
                     "start_date": start_date,
@@ -260,7 +229,7 @@ async def download_timeline():
                 
                 # Debug: Print first few events
                 if len(raw_events) <= 5:
-                    print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Type: {banner_type or event_type} | Tags: {tags}")
+                    print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Tags: {tags} | Date: {date_str}")
 
             await browser.close()
             
@@ -297,8 +266,6 @@ def process_events(raw_events):
             continue
         
         full_title = event["full_title"]
-        banner_type = event.get("banner_type", "")
-        event_type = event.get("event_type", "")  # Get the event type (Story Event, Legend Race, etc.)
         tags = event.get("tags", [])
         description = event.get("description", "")
         start_date = event["start_date"]
@@ -315,7 +282,7 @@ def process_events(raw_events):
         title_lower = full_title.lower()
         
         # === SUPPORT BANNER (standalone or for combination) ===
-        if banner_type == "SUPPORT CARD BANNER":
+        if "support" in title_lower and ("support card" in title_lower or title_lower.startswith("support")):
             # Use tags for support card names - tags are the actual character names
             support_names = " & ".join(tags) if tags else ""
             if not support_names:
@@ -331,7 +298,8 @@ def process_events(raw_events):
                 if j == i or j in skip_indices:
                     continue
                 check_event = raw_events[j]
-                if check_event.get("banner_type") == "CHARACTER BANNER":
+                check_title = check_event["full_title"].lower()
+                if "character" in check_title and "banner" in check_title and "support" not in check_title:
                     # Check if dates match within 24 hours
                     if (check_event["start_date"] and abs((check_event["start_date"] - start_date).total_seconds()) < 86400 and
                         check_event["end_date"] and abs((check_event["end_date"] - end_date).total_seconds()) < 86400):
@@ -357,7 +325,7 @@ def process_events(raw_events):
                 continue
         
         # === CHARACTER + SUPPORT BANNER COMBINATION ===
-        if banner_type == "CHARACTER BANNER":
+        if "character banner" in title_lower and "support" not in title_lower:
             # Use tags for character names (more accurate than truncated title)
             print(f"[UMA HANDLER] Character banner found - Tags: {tags}, Title: {full_title[:80]}")
             char_names = " & ".join(tags) if tags else ""
@@ -375,7 +343,7 @@ def process_events(raw_events):
                 if j == i or j in skip_indices:
                     continue
                 next_event = raw_events[j]
-                if next_event.get("banner_type") == "SUPPORT CARD BANNER":
+                if "support" in next_event["full_title"].lower() and "support card" in next_event["full_title"].lower():
                     # Check if dates match
                     if (next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 86400 and
                         next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 86400):
@@ -413,12 +381,12 @@ def process_events(raw_events):
             continue
         
         # === PAID BANNER COMBINATION ===
-        if event_type == "PAID BANNER" or "paid banner" in title_lower:
+        if "paid banner" in title_lower:
             # Look for another Paid Banner at the same time
             paired_img = None
             for j in range(i+1, min(i+3, len(raw_events))):
                 next_event = raw_events[j]
-                if next_event.get("event_type") == "PAID BANNER" or "paid banner" in next_event["full_title"].lower():
+                if "paid banner" in next_event["full_title"].lower():
                     # Check if dates match
                     if (next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 3600 and
                         next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 3600):
@@ -445,15 +413,12 @@ def process_events(raw_events):
             continue
         
         # === STORY EVENT ===
-        # Event type is detected from full_text which contains "Story Event" label
-        if event_type == "STORY EVENT":
-            # The full_title is just the event name (e.g., "Make up in Halloween!")
-            story_name = full_title
+        if "story event" in title_lower:
+            story_match = re.search(r"Story Event:\s*(.+)", full_title, re.IGNORECASE)
+            story_name = story_match.group(1).strip() if story_match else full_title
             
             # Use description if available
             event_desc = description if description else ""
-            
-            print(f"[UMA HANDLER] Story Event found: {story_name}")
             
             processed.append({
                 "title": story_name,
@@ -466,19 +431,35 @@ def process_events(raw_events):
             continue
         
         # === LEGEND RACE ===
-        # Event type is detected from full_text which contains "Legend Race" label
-        if event_type == "LEGEND RACE":
-            # The full_title contains race details (e.g., "2400m - Medium - Turf")
-            details = full_title  # Use entire title as details
+        if "legend race" in title_lower:
+            # Extract race details from title (e.g., "2400m - Medium - Turf")
+            details = ""
+            details_match = re.search(r"Legend Race\s+(.+)", full_title)
+            if details_match:
+                details = details_match.group(1).strip()
+            elif description:
+                details = description
             
+            # Try to extract race name from details (e.g., "Kikkasho" from description if available)
             race_name = "Legend Race"
+            # For now, just use "Legend Race" - we can enhance this later if race names are in HTML
             
-            # Use all_images field which contains ALL images from this event
-            legend_images = event.get("all_images", [])
-            if not legend_images and img_url:
-                legend_images = [img_url]
+            # Collect multiple images for Legend Race (they typically have 3-4 character images)
+            legend_images = [img_url] if img_url else []
+            # Look ahead for additional Legend Race images (same event, multiple image elements)
+            for j in range(i+1, min(i+10, len(raw_events))):
+                next_event = raw_events[j]
+                # If next event has same title and date, it's another image for same Legend Race
+                if ("legend race" in next_event["full_title"].lower() and 
+                    next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 3600 and
+                    next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 3600):
+                    if next_event["image_url"]:
+                        legend_images.append(next_event["image_url"])
+                        skip_indices.add(j)
+                else:
+                    break
             
-            print(f"[UMA HANDLER] Legend Race found with {len(legend_images)} images: {legend_images}")
+            print(f"[UMA HANDLER] Legend Race found with {len(legend_images)} images")
             
             # For now, use first image (combining horizontally would require PIL changes)
             # TODO: Implement horizontal image combination
@@ -495,16 +476,19 @@ def process_events(raw_events):
             continue
         
         # === CHAMPIONS MEETING ===
-        # Event type is detected from full_text which contains "Champions Meeting" label
-        if event_type == "CHAMPIONS MEETING":
-            # The full_title contains location/course details (e.g., "Tokyo - Turf2400m - Medium - Counterclockwise...")
-            details = full_title
+        if "champions meeting" in title_lower:
+            # Extract location/cup details from title (e.g., "Tokyo - Turf2400m - Medium - Counterclockwise...")
+            details = ""
             cup_name = "Champions Meeting"
             
-            # Extract location as cup name (first word)
-            location_match = re.search(r"^([A-Za-z]+)", full_title)
-            if location_match:
-                cup_name = f"Champions Meeting: {location_match.group(1)} Cup"
+            details_match = re.search(r"Champions Meeting\s+(.+)", full_title)
+            if details_match:
+                details = details_match.group(1).strip()
+                # Extract location as cup name (first word before dash)
+                location_match = re.search(r"^([A-Za-z]+)", details)
+                if location_match:
+                    cup_name = f"Champions Meeting: {location_match.group(1)} Cup"
+            elif description:
                 details = description
             
             processed.append({
