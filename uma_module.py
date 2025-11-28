@@ -618,6 +618,146 @@ async def uma_force_refresh(ctx):
         import traceback
         traceback.print_exc()
 
+@bot.command(name="uma_debug")
+async def uma_debug(ctx):
+    """
+    Debug command: Parses uma.moe/timeline and DMs the owner with detailed parsing information.
+    Shows raw HTML structure, extracted events, and how they're being processed.
+    """
+    # Only allow owner to run this
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("❌ This command is restricted to the bot owner.")
+        return
+    
+    await ctx.send("🔍 Running Uma debug parser... Results will be sent to your DMs.")
+    
+    try:
+        from playwright.async_api import async_playwright
+        
+        owner = await bot.fetch_user(OWNER_USER_ID)
+        if not owner:
+            await ctx.send("❌ Could not find owner user.")
+            return
+        
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.goto("https://uma.moe/timeline", timeout=60000)
+            await page.wait_for_load_state("networkidle")
+            
+            # Scroll to load events (simplified version)
+            timeline = await page.query_selector('.timeline-container')
+            if timeline:
+                for _ in range(5):
+                    await timeline.evaluate("el => el.scrollBy(400, 0)")
+                    await asyncio.sleep(0.5)
+                for _ in range(5):
+                    await timeline.evaluate("el => el.scrollBy(-400, 0)")
+                    await asyncio.sleep(0.5)
+            
+            event_items = await page.query_selector_all('.timeline-item.timeline-event')
+            
+            # Build debug output
+            debug_output = []
+            debug_output.append(f"**=== UMA DEBUG REPORT ===**")
+            debug_output.append(f"**Total events found on page:** {len(event_items)}\n")
+            
+            event_summaries = []
+            
+            for idx, item in enumerate(event_items):
+                if idx >= 30:  # Limit to 30 events to avoid message length issues
+                    debug_output.append(f"\n... and {len(event_items) - 30} more events")
+                    break
+                
+                # Get full text content
+                full_text = await item.inner_text()
+                lines = [line.strip() for line in full_text.split('\n') if line.strip()]
+                
+                # Get title element specifically
+                title_tag = await item.query_selector('.event-title')
+                title_text = (await title_tag.inner_text()).strip() if title_tag else "NO TITLE FOUND"
+                
+                # Get date element
+                date_tag = await item.query_selector('.event-date')
+                date_text = (await date_tag.inner_text()).strip() if date_tag else "NO DATE FOUND"
+                
+                # Get image
+                img_tag = await item.query_selector('.event-image img')
+                img_src = None
+                if img_tag:
+                    img_src = await img_tag.get_attribute("src")
+                
+                # Detect event type from full text
+                full_upper = full_text.upper()
+                event_type = "UNKNOWN"
+                if "CHARACTER BANNER" in full_upper:
+                    event_type = "CHARACTER BANNER"
+                elif "SUPPORT CARD BANNER" in full_upper:
+                    event_type = "SUPPORT CARD BANNER"
+                elif "STORY EVENT" in full_upper:
+                    event_type = "STORY EVENT"
+                elif "LEGEND RACE" in full_upper:
+                    event_type = "LEGEND RACE"
+                elif "CHAMPIONS MEETING" in full_upper:
+                    event_type = "CHAMPIONS MEETING"
+                elif "PAID BANNER" in full_upper:
+                    event_type = "PAID BANNER"
+                
+                # Find names for banners
+                detected_names = []
+                if event_type in ["CHARACTER BANNER", "SUPPORT CARD BANNER"]:
+                    # Find date line index
+                    date_idx = None
+                    for i, line in enumerate(lines):
+                        if "–" in line and "202" in line:
+                            date_idx = i
+                            break
+                    
+                    if date_idx is not None:
+                        for i in range(date_idx + 1, min(date_idx + 6, len(lines))):
+                            name = lines[i]
+                            if name and len(name) < 50 and name not in ["CHARACTERS:", "SUPPORT CARDS:", "CHARACTER BANNER", "SUPPORT CARD BANNER"]:
+                                detected_names.append(name)
+                
+                # Build summary for this event
+                summary = []
+                summary.append(f"**Event #{idx + 1}**")
+                summary.append(f"  Type: `{event_type}`")
+                summary.append(f"  Title: `{title_text[:80]}{'...' if len(title_text) > 80 else ''}`")
+                summary.append(f"  Date: `{date_text}`")
+                if detected_names:
+                    summary.append(f"  Detected Names: `{', '.join(detected_names)}`")
+                if img_src:
+                    summary.append(f"  Image: `{img_src[:60]}...`" if len(img_src or '') > 60 else f"  Image: `{img_src}`")
+                summary.append(f"  Raw Lines: `{lines[:5]}...`" if len(lines) > 5 else f"  Raw Lines: `{lines}`")
+                
+                event_summaries.append("\n".join(summary))
+            
+            await browser.close()
+            
+            # Send results in chunks (Discord has 2000 char limit)
+            header_msg = "\n".join(debug_output[:3])
+            await owner.send(header_msg)
+            
+            current_chunk = ""
+            for summary in event_summaries:
+                if len(current_chunk) + len(summary) + 2 > 1900:
+                    await owner.send(current_chunk)
+                    current_chunk = summary
+                else:
+                    current_chunk += "\n\n" + summary if current_chunk else summary
+            
+            if current_chunk:
+                await owner.send(current_chunk)
+            
+            await owner.send("**=== END OF DEBUG REPORT ===**")
+            await ctx.send("✅ Debug report sent to your DMs!")
+            
+    except Exception as e:
+        import traceback
+        error_msg = f"❌ Debug failed: {e}\n```{traceback.format_exc()[:1500]}```"
+        await ctx.send(error_msg)
+
 @commands.has_permissions(manage_guild=True)
 @bot.command(name="uma_remove")
 async def uma_remove(ctx, *, title: str):
