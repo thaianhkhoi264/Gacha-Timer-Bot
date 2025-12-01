@@ -312,9 +312,14 @@ async def clear_channel_messages(channel, event_ids_to_keep):
         event_ids_to_keep: Set of event IDs that should have messages
     """
     try:
+        deleted_count = 0
         async for message in channel.history(limit=100):
             if message.author.id != bot.user.id:
                 continue
+            
+            should_delete = False
+            event_id = None
+            
             # Check if this message is in our database
             async with aiosqlite.connect(UMA_DB_PATH) as conn:
                 async with conn.execute(
@@ -322,19 +327,44 @@ async def clear_channel_messages(channel, event_ids_to_keep):
                     (str(message.id),)
                 ) as cursor:
                     row = await cursor.fetchone()
+                    
                     if row:
+                        # Message is tracked in database
                         event_id = row[0]
                         if event_id not in event_ids_to_keep:
-                            # Delete orphaned message
-                            await message.delete()
+                            # Event no longer exists or is expired
+                            should_delete = True
+                    else:
+                        # Message is NOT in database at all (orphaned after DB reset)
+                        # Check if it looks like an event embed (has embeds)
+                        if message.embeds:
+                            should_delete = True
+                            print(f"[UMA] Found untracked bot message with embed (ID: {message.id})")
+                
+                if should_delete:
+                    try:
+                        await message.delete()
+                        deleted_count += 1
+                        if event_id:
                             await conn.execute(
                                 "DELETE FROM event_messages WHERE message_id=?",
                                 (str(message.id),)
                             )
                             await conn.commit()
                             print(f"[UMA] Deleted orphaned message for event ID {event_id}")
+                        else:
+                            print(f"[UMA] Deleted untracked orphan message (ID: {message.id})")
+                    except discord.NotFound:
+                        print(f"[UMA] Message already deleted (ID: {message.id})")
+                    except Exception as del_err:
+                        print(f"[UMA] Failed to delete message {message.id}: {del_err}")
+        
+        if deleted_count > 0:
+            print(f"[UMA] Cleared {deleted_count} orphaned messages from {channel.name}")
     except Exception as e:
         uma_logger.error(f"[Clear Channel] Failed to clear channel: {e}")
+        import traceback
+        traceback.print_exc()
 
 async def uma_update_timers(_guild=None, force_update=False):
     """
