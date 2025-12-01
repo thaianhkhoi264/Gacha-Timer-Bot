@@ -797,11 +797,13 @@ async def uma_debug(ctx):
                 date_tag = await item.query_selector('.event-date')
                 date_text = (await date_tag.inner_text()).strip() if date_tag else "NO DATE FOUND"
                 
-                # Get image
-                img_tag = await item.query_selector('.event-image img')
-                img_src = None
-                if img_tag:
-                    img_src = await img_tag.get_attribute("src")
+                # Get ALL images (Legend Race can have multiple)
+                img_tags = await item.query_selector_all('.event-image img')
+                img_srcs = []
+                for img_tag in img_tags:
+                    src = await img_tag.get_attribute("src")
+                    if src:
+                        img_srcs.append(src)
                 
                 # Detect event type from full text
                 full_upper = full_text.upper()
@@ -843,9 +845,9 @@ async def uma_debug(ctx):
                 summary.append(f"  Date: `{date_text}`")
                 if detected_names:
                     summary.append(f"  Detected Names: `{', '.join(detected_names)}`")
-                if img_src:
-                    summary.append(f"  Image: `{img_src[:60]}...`" if len(img_src or '') > 60 else f"  Image: `{img_src}`")
-                summary.append(f"  Raw Lines: `{lines[:5]}...`" if len(lines) > 5 else f"  Raw Lines: `{lines}`")
+                # Show image count and list
+                summary.append(f"  Images ({len(img_srcs)}): `{img_srcs}`" if img_srcs else "  Images: None")
+                summary.append(f"  Raw Lines: `{lines}`")
                 
                 event_summaries.append("\n".join(summary))
             
