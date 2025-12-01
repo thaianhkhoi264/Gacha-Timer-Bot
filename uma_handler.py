@@ -201,13 +201,16 @@ async def download_timeline():
                 if desc_tag:
                     description = (await desc_tag.inner_text()).strip()
                 
-                # Extract event image
-                img_tag = await item.query_selector('.event-image img')
-                img_url = None
-                if img_tag:
+                # Extract ALL event images (Legend Race can have 3-4 character images)
+                img_tags = await item.query_selector_all('.event-image img')
+                img_urls = []
+                for img_tag in img_tags:
                     img_src = await img_tag.get_attribute("src")
                     if img_src:
-                        img_url = urljoin(BASE_URL, img_src)
+                        img_urls.append(urljoin(BASE_URL, img_src))
+                
+                # Primary image URL (first one, for backwards compatibility)
+                img_url = img_urls[0] if img_urls else None
                 
                 # Extract event date
                 date_tag = await item.query_selector('.event-date')
@@ -222,7 +225,8 @@ async def download_timeline():
                     "full_text": full_text,  # Store full text for event type detection
                     "tags": tags,
                     "description": description,
-                    "image_url": img_url,
+                    "image_url": img_url,  # Primary image (first one)
+                    "image_urls": img_urls,  # ALL images for this event
                     "start_date": start_date,
                     "end_date": end_date,
                     "date_str": date_str
@@ -454,33 +458,24 @@ def process_events(raw_events):
         
         # === LEGEND RACE ===
         if event_type == "LEGEND_RACE":
-            # Extract race details from title (e.g., "2400m - Medium - Turf")
+            # Extract race details from lines (e.g., "1600m - Mile - Turf")
+            lines = [line.strip() for line in full_text.split('\n') if line.strip()]
             details = ""
-            details_match = re.search(r"Legend Race\s+(.+)", full_title)
-            if details_match:
-                details = details_match.group(1).strip()
-            elif description:
-                details = description
+            for line in lines:
+                # Look for track details line (contains distance and surface)
+                if re.match(r'\d+m\s*-', line):
+                    details = line
+                    break
             
             # Use full_title as race name (e.g., "Asahi Hai Futurity Stakes Legend Race")
             race_name = full_title.strip() if full_title else "Legend Race"
             
-            # Collect multiple images for Legend Race (they typically have 3-4 character images)
-            legend_images = [img_url] if img_url else []
-            # Look ahead for additional Legend Race images (same event, multiple image elements)
-            for j in range(i+1, min(i+10, len(raw_events))):
-                next_event = raw_events[j]
-                # If next event has same title and date, it's another image for same Legend Race
-                if ("LEGEND RACE" in next_event.get("full_text", "").upper() and 
-                    next_event["start_date"] and abs((next_event["start_date"] - start_date).total_seconds()) < 3600 and
-                    next_event["end_date"] and abs((next_event["end_date"] - end_date).total_seconds()) < 3600):
-                    if next_event["image_url"]:
-                        legend_images.append(next_event["image_url"])
-                        skip_indices.add(j)
-                else:
-                    break
+            # Get ALL images from this event element (Legend Race has 3-4 character images)
+            legend_images = event.get("image_urls", [])
+            if not legend_images and img_url:
+                legend_images = [img_url]
             
-            print(f"[UMA HANDLER] Legend Race found with {len(legend_images)} images")
+            print(f"[UMA HANDLER] Legend Race '{race_name}' found with {len(legend_images)} images: {legend_images}")
             
             # Combine images horizontally if multiple
             combined_img = img_url
@@ -508,14 +503,29 @@ def process_events(raw_events):
             # Title is directly the cup name (e.g., "Champions Meeting: Virgo Cup")
             cup_name = full_title.strip() if full_title else "Champions Meeting"
             
-            # Extract details from raw lines if available
+            # Extract ALL detail lines from raw lines
             lines = [line.strip() for line in full_text.split('\n') if line.strip()]
-            details = ""
-            # Look for track details (e.g., "Hanshin - Turf")
+            detail_lines = []
+            
+            # Skip known non-detail lines
+            skip_keywords = ['emoji_events', 'CHAMPIONS MEETING', cup_name, 'Champions Meeting']
+            
             for line in lines:
-                if " - " in line and any(x in line for x in ["Turf", "Dirt", "m"]):
-                    details = line
-                    break
+                # Skip icon names, event type label, and title
+                if any(skip in line for skip in skip_keywords):
+                    continue
+                # Skip date line
+                if '–' in line and '202' in line:
+                    continue
+                # Skip very short lines (likely icons)
+                if len(line) < 3:
+                    continue
+                # This is likely a detail line (track, distance, conditions, etc.)
+                detail_lines.append(line)
+            
+            # Join all detail lines
+            details = "\n".join(detail_lines) if detail_lines else ""
+            print(f"[UMA HANDLER] Champions Meeting '{cup_name}' details: {detail_lines}")
             
             processed.append({
                 "title": cup_name,
