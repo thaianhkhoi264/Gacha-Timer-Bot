@@ -138,16 +138,37 @@ async def init_uma_db():
         await conn.commit()
         uma_logger.info(f"[DB Init] Database initialized successfully at: {UMA_DB_PATH}")
 
+def get_image_hash(urls):
+    """
+    Generate a consistent hash from image URLs to ensure same images always get same filename.
+    This prevents image mismatches after database resets.
+    """
+    import hashlib
+    combined = "|".join(sorted(urls))  # Sort to ensure consistent order
+    return hashlib.md5(combined.encode()).hexdigest()[:12]
+
 def combine_images_vertically(img_url1, img_url2):
     """
     Downloads two images and combines them vertically.
     Returns the path to the saved combined image.
+    Uses content-based filename to ensure consistency after DB resets.
     """
     if not PIL_AVAILABLE:
         uma_logger.warning("[Image] PIL not available, cannot combine images")
         return img_url1  # Return first image URL as fallback
     
     try:
+        # Generate consistent filename based on input URLs
+        img_hash = get_image_hash([img_url1, img_url2])
+        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
+        filename = f"combined_v_{img_hash}.png"
+        filepath = os.path.join("data", "combined_images", filename)
+        
+        # If already exists, return existing file
+        if os.path.exists(filepath):
+            uma_logger.info(f"[Image] Using cached combined image: {filepath}")
+            return filepath
+        
         # Download images
         response1 = requests.get(img_url1)
         response2 = requests.get(img_url2)
@@ -165,16 +186,81 @@ def combine_images_vertically(img_url1, img_url2):
         combined.paste(img2, (0, img1.height))
         
         # Save combined image
-        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
-        filename = f"combined_{int(datetime.now().timestamp())}.png"
-        filepath = os.path.join("data", "combined_images", filename)
         combined.save(filepath)
-        uma_logger.info(f"[Image] Combined images saved to: {filepath}")
+        uma_logger.info(f"[Image] Combined images vertically saved to: {filepath}")
         
         return filepath
     except Exception as e:
-        uma_logger.error(f"Failed to combine images: {e}")
+        uma_logger.error(f"Failed to combine images vertically: {e}")
         return None
+
+def combine_images_horizontally(img_urls):
+    """
+    Downloads multiple images and combines them horizontally.
+    Used for Legend Race character images.
+    Returns the path to the saved combined image.
+    """
+    if not PIL_AVAILABLE:
+        uma_logger.warning("[Image] PIL not available, cannot combine images")
+        return img_urls[0] if img_urls else None
+    
+    if not img_urls:
+        return None
+    
+    if len(img_urls) == 1:
+        return img_urls[0]  # Single image, just return URL
+    
+    try:
+        # Generate consistent filename based on input URLs
+        img_hash = get_image_hash(img_urls)
+        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
+        filename = f"combined_h_{img_hash}.png"
+        filepath = os.path.join("data", "combined_images", filename)
+        
+        # If already exists, return existing file
+        if os.path.exists(filepath):
+            uma_logger.info(f"[Image] Using cached horizontal combined image: {filepath}")
+            return filepath
+        
+        # Download all images
+        images = []
+        for url in img_urls:
+            try:
+                response = requests.get(url)
+                img = Image.open(BytesIO(response.content))
+                images.append(img)
+            except Exception as e:
+                uma_logger.warning(f"[Image] Failed to download {url}: {e}")
+        
+        if not images:
+            return img_urls[0]  # Fallback to first URL
+        
+        if len(images) == 1:
+            return img_urls[0]  # Only one image downloaded successfully
+        
+        # Calculate total dimensions
+        total_width = sum(img.width for img in images)
+        max_height = max(img.height for img in images)
+        
+        # Create new image
+        combined = Image.new('RGB', (total_width, max_height))
+        
+        # Paste images side by side
+        x_offset = 0
+        for img in images:
+            # Center vertically if heights differ
+            y_offset = (max_height - img.height) // 2
+            combined.paste(img, (x_offset, y_offset))
+            x_offset += img.width
+        
+        # Save combined image
+        combined.save(filepath)
+        uma_logger.info(f"[Image] Combined {len(images)} images horizontally saved to: {filepath}")
+        
+        return filepath
+    except Exception as e:
+        uma_logger.error(f"Failed to combine images horizontally: {e}")
+        return img_urls[0] if img_urls else None
 
 async def post_event_embed(channel, event):
     """Posts an embed for the Uma Musume event."""

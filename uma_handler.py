@@ -482,9 +482,16 @@ def process_events(raw_events):
             
             print(f"[UMA HANDLER] Legend Race found with {len(legend_images)} images")
             
-            # For now, use first image (combining horizontally would require PIL changes)
-            # TODO: Implement horizontal image combination
-            combined_img = legend_images[0] if legend_images else img_url
+            # Combine images horizontally if multiple
+            combined_img = img_url
+            if len(legend_images) > 1:
+                from uma_module import combine_images_horizontally
+                combined_path = combine_images_horizontally(legend_images)
+                if combined_path:
+                    combined_img = combined_path
+                    print(f"[UMA HANDLER] Combined {len(legend_images)} Legend Race images into: {combined_path}")
+            elif legend_images:
+                combined_img = legend_images[0]
             
             processed.append({
                 "title": race_name,
