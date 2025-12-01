@@ -173,20 +173,20 @@ def combine_images_vertically(img_url1, img_url2):
         response1 = requests.get(img_url1)
         response2 = requests.get(img_url2)
         
-        img1 = Image.open(BytesIO(response1.content))
-        img2 = Image.open(BytesIO(response2.content))
+        img1 = Image.open(BytesIO(response1.content)).convert('RGBA')
+        img2 = Image.open(BytesIO(response2.content)).convert('RGBA')
         
         # Get dimensions
         width = max(img1.width, img2.width)
         height = img1.height + img2.height
         
-        # Create new image
-        combined = Image.new('RGB', (width, height))
-        combined.paste(img1, (0, 0))
-        combined.paste(img2, (0, img1.height))
+        # Create new image with transparency
+        combined = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        combined.paste(img1, (0, 0), img1 if img1.mode == 'RGBA' else None)
+        combined.paste(img2, (0, img1.height), img2 if img2.mode == 'RGBA' else None)
         
         # Save combined image
-        combined.save(filepath)
+        combined.save(filepath, 'PNG')
         uma_logger.info(f"[Image] Combined images vertically saved to: {filepath}")
         
         return filepath
@@ -227,7 +227,7 @@ def combine_images_horizontally(img_urls):
         for url in img_urls:
             try:
                 response = requests.get(url)
-                img = Image.open(BytesIO(response.content))
+                img = Image.open(BytesIO(response.content)).convert('RGBA')
                 images.append(img)
             except Exception as e:
                 uma_logger.warning(f"[Image] Failed to download {url}: {e}")
@@ -242,19 +242,19 @@ def combine_images_horizontally(img_urls):
         total_width = sum(img.width for img in images)
         max_height = max(img.height for img in images)
         
-        # Create new image
-        combined = Image.new('RGB', (total_width, max_height))
+        # Create new image with transparency
+        combined = Image.new('RGBA', (total_width, max_height), (0, 0, 0, 0))
         
         # Paste images side by side
         x_offset = 0
         for img in images:
             # Center vertically if heights differ
             y_offset = (max_height - img.height) // 2
-            combined.paste(img, (x_offset, y_offset))
+            combined.paste(img, (x_offset, y_offset), img if img.mode == 'RGBA' else None)
             x_offset += img.width
         
         # Save combined image
-        combined.save(filepath)
+        combined.save(filepath, 'PNG')
         uma_logger.info(f"[Image] Combined {len(images)} images horizontally saved to: {filepath}")
         
         return filepath
