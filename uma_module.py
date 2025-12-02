@@ -1167,5 +1167,359 @@ async def stop_uma_background_tasks():
             pass
         uma_logger.info("[Shutdown] Uma Musume background tasks stopped.")
 
+
+# ==================== GAMETORA DEBUG COMMANDS ====================
+
+@bot.command(name="uma_gametora_debug")
+async def uma_gametora_debug(ctx):
+    """
+    Debug command: Scrapes GameTora and shows what the bot sees.
+    Shows raw banner cards, IDs, image URLs, and any parsing issues.
+    Results are sent via DM.
+    """
+    # Only allow owner to run this
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("❌ This command is restricted to the bot owner.")
+        return
+    
+    await ctx.send("🔍 Running GameTora debug scraper... Results will be sent to your DMs.")
+    
+    try:
+        from playwright.async_api import async_playwright
+        import re
+        
+        owner = await bot.fetch_user(OWNER_USER_ID)
+        if not owner:
+            await ctx.send("❌ Could not find owner user.")
+            return
+        
+        debug_messages = []
+        debug_messages.append("**=== GAMETORA DEBUG REPORT ===**")
+        debug_messages.append(f"Timestamp: {datetime.now(timezone.utc).isoformat()}\n")
+        
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            
+            # ===== JP SERVER =====
+            debug_messages.append("**--- JP SERVER (Banner Data) ---**")
+            jp_url = "https://gametora.com/umamusume/gacha/history?server=jp&type=all&year=all"
+            debug_messages.append(f"URL: `{jp_url}`")
+            
+            try:
+                await page.goto(jp_url, timeout=60000)
+                await page.wait_for_load_state("networkidle")
+                await asyncio.sleep(2)
+                
+                # Get page title to verify load
+                page_title = await page.title()
+                debug_messages.append(f"Page Title: `{page_title}`")
+                
+                # Find banner cards
+                banner_cards = await page.query_selector_all('.gacha-card')
+                debug_messages.append(f"**Banner cards found:** {len(banner_cards)}")
+                
+                jp_banners = []
+                for idx, card in enumerate(banner_cards):
+                    if idx >= 15:  # Limit to first 15 for DM
+                        debug_messages.append(f"... and {len(banner_cards) - 15} more banners")
+                        break
+                    
+                    try:
+                        # Get banner image
+                        img_tag = await card.query_selector('img.gacha-banner')
+                        img_src = await img_tag.get_attribute('src') if img_tag else "NO IMG TAG"
+                        
+                        # Extract banner ID
+                        banner_id = "NO ID"
+                        if img_src and "img_bnr_gacha_" in img_src:
+                            match = re.search(r'img_bnr_gacha_(\d+)\.png', img_src)
+                            if match:
+                                banner_id = match.group(1)
+                        
+                        # Get banner type
+                        type_badge = await card.query_selector('.gacha-type')
+                        banner_type = (await type_badge.inner_text()).strip() if type_badge else "NO TYPE"
+                        
+                        # Get description text
+                        desc_elem = await card.query_selector('.gacha-description, .card-text')
+                        description = (await desc_elem.inner_text()).strip()[:100] if desc_elem else "NO DESC"
+                        
+                        # Get linked characters/cards
+                        links = await card.query_selector_all('a[href*="/characters/"], a[href*="/support-cards/"]')
+                        link_texts = []
+                        for link in links[:5]:  # Max 5 links
+                            text = (await link.inner_text()).strip()
+                            href = await link.get_attribute('href')
+                            link_texts.append(f"{text} ({href})")
+                        
+                        jp_banners.append({
+                            "idx": idx + 1,
+                            "id": banner_id,
+                            "type": banner_type,
+                            "img_src": img_src[:80] if img_src else "None",
+                            "desc": description,
+                            "links": link_texts
+                        })
+                    except Exception as card_err:
+                        jp_banners.append({
+                            "idx": idx + 1,
+                            "error": str(card_err)
+                        })
+                
+                for b in jp_banners:
+                    if "error" in b:
+                        debug_messages.append(f"  #{b['idx']}: ❌ Error: `{b['error']}`")
+                    else:
+                        debug_messages.append(f"  **#{b['idx']}** ID:`{b['id']}` Type:`{b['type']}`")
+                        debug_messages.append(f"    Img: `{b['img_src']}`")
+                        debug_messages.append(f"    Desc: `{b['desc']}`")
+                        if b['links']:
+                            debug_messages.append(f"    Links: {b['links']}")
+                
+            except Exception as jp_err:
+                debug_messages.append(f"❌ JP scrape error: `{jp_err}`")
+            
+            # ===== GLOBAL SERVER =====
+            debug_messages.append("\n**--- GLOBAL SERVER (Images) ---**")
+            global_url = "https://gametora.com/umamusume/gacha/history?server=en&type=all&year=all"
+            debug_messages.append(f"URL: `{global_url}`")
+            
+            try:
+                await page.goto(global_url, timeout=60000)
+                await page.wait_for_load_state("networkidle")
+                await asyncio.sleep(2)
+                
+                page_title = await page.title()
+                debug_messages.append(f"Page Title: `{page_title}`")
+                
+                banner_cards = await page.query_selector_all('.gacha-card')
+                debug_messages.append(f"**Banner cards found:** {len(banner_cards)}")
+                
+                global_banners = []
+                for idx, card in enumerate(banner_cards):
+                    if idx >= 10:  # Limit to first 10 for DM
+                        debug_messages.append(f"... and {len(banner_cards) - 10} more banners")
+                        break
+                    
+                    try:
+                        img_tag = await card.query_selector('img.gacha-banner')
+                        img_src = await img_tag.get_attribute('src') if img_tag else "NO IMG TAG"
+                        
+                        banner_id = "NO ID"
+                        if img_src and "img_bnr_gacha_" in img_src:
+                            match = re.search(r'img_bnr_gacha_(\d+)\.png', img_src)
+                            if match:
+                                banner_id = match.group(1)
+                        
+                        global_banners.append({
+                            "idx": idx + 1,
+                            "id": banner_id,
+                            "img_src": img_src
+                        })
+                    except Exception as card_err:
+                        global_banners.append({
+                            "idx": idx + 1,
+                            "error": str(card_err)
+                        })
+                
+                for b in global_banners:
+                    if "error" in b:
+                        debug_messages.append(f"  #{b['idx']}: ❌ Error: `{b['error']}`")
+                    else:
+                        debug_messages.append(f"  **#{b['idx']}** ID:`{b['id']}` Img:`{b['img_src'][:60] if b['img_src'] else 'None'}`")
+                
+            except Exception as global_err:
+                debug_messages.append(f"❌ Global scrape error: `{global_err}`")
+            
+            await browser.close()
+        
+        debug_messages.append("\n**=== END OF GAMETORA DEBUG REPORT ===**")
+        
+        # Send results in chunks
+        current_chunk = ""
+        for msg in debug_messages:
+            if len(current_chunk) + len(msg) + 2 > 1900:
+                await owner.send(current_chunk)
+                current_chunk = msg
+            else:
+                current_chunk += "\n" + msg if current_chunk else msg
+        
+        if current_chunk:
+            await owner.send(current_chunk)
+        
+        await ctx.send("✅ GameTora debug report sent to your DMs!")
+        
+    except Exception as e:
+        import traceback
+        error_msg = f"❌ GameTora debug failed: {e}\n```{traceback.format_exc()[:1500]}```"
+        await ctx.send(error_msg)
+
+
+@bot.command(name="uma_gametora_status")
+async def uma_gametora_status(ctx):
+    """
+    Shows GameTora database status: counts, recent entries, downloaded images.
+    Results are sent via DM.
+    """
+    # Only allow owner to run this
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("❌ This command is restricted to the bot owner.")
+        return
+    
+    await ctx.send("📊 Checking GameTora database status... Results will be sent to your DMs.")
+    
+    try:
+        from uma_handler import GAMETORA_DB_PATH, GAMETORA_IMAGES_PATH
+        
+        owner = await bot.fetch_user(OWNER_USER_ID)
+        if not owner:
+            await ctx.send("❌ Could not find owner user.")
+            return
+        
+        debug_messages = []
+        debug_messages.append("**=== GAMETORA DATABASE STATUS ===**")
+        debug_messages.append(f"Timestamp: {datetime.now(timezone.utc).isoformat()}\n")
+        
+        # Check if database exists
+        db_exists = os.path.exists(GAMETORA_DB_PATH)
+        debug_messages.append(f"**Database Path:** `{GAMETORA_DB_PATH}`")
+        debug_messages.append(f"**Database Exists:** {'✅ Yes' if db_exists else '❌ No'}")
+        
+        if db_exists:
+            db_size = os.path.getsize(GAMETORA_DB_PATH)
+            debug_messages.append(f"**Database Size:** {db_size / 1024:.2f} KB")
+            
+            async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
+                # Count banners
+                async with conn.execute("SELECT COUNT(*) FROM banners") as cursor:
+                    banner_count = (await cursor.fetchone())[0]
+                debug_messages.append(f"\n**📌 Banners:** {banner_count}")
+                
+                # Count characters
+                async with conn.execute("SELECT COUNT(*) FROM characters") as cursor:
+                    char_count = (await cursor.fetchone())[0]
+                debug_messages.append(f"**👤 Characters:** {char_count}")
+                
+                # Count support cards
+                async with conn.execute("SELECT COUNT(*) FROM support_cards") as cursor:
+                    support_count = (await cursor.fetchone())[0]
+                debug_messages.append(f"**🃏 Support Cards:** {support_count}")
+                
+                # Count global banner images
+                async with conn.execute("SELECT COUNT(*) FROM global_banner_images") as cursor:
+                    img_count = (await cursor.fetchone())[0]
+                debug_messages.append(f"**🖼️ Global Banner Image Links:** {img_count}")
+                
+                # Get recent banners (last 5)
+                debug_messages.append("\n**--- Recent Banners (Last 5) ---**")
+                async with conn.execute(
+                    "SELECT banner_id, banner_type, description FROM banners ORDER BY ROWID DESC LIMIT 5"
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                    for row in rows:
+                        debug_messages.append(f"  ID:`{row[0]}` Type:`{row[1]}` Desc:`{(row[2] or '')[:50]}`")
+                
+                if not rows:
+                    debug_messages.append("  (No banners in database)")
+                
+                # Get metadata
+                debug_messages.append("\n**--- Metadata ---**")
+                async with conn.execute("SELECT key, value FROM metadata") as cursor:
+                    meta_rows = await cursor.fetchall()
+                    for row in meta_rows:
+                        debug_messages.append(f"  `{row[0]}`: `{row[1]}`")
+                
+                if not meta_rows:
+                    debug_messages.append("  (No metadata)")
+        
+        # Check images folder
+        debug_messages.append(f"\n**--- Downloaded Images ---**")
+        debug_messages.append(f"**Images Path:** `{GAMETORA_IMAGES_PATH}`")
+        
+        images_folder_exists = os.path.exists(GAMETORA_IMAGES_PATH)
+        debug_messages.append(f"**Folder Exists:** {'✅ Yes' if images_folder_exists else '❌ No'}")
+        
+        if images_folder_exists:
+            image_files = [f for f in os.listdir(GAMETORA_IMAGES_PATH) if f.endswith(('.png', '.jpg', '.jpeg', '.webp'))]
+            debug_messages.append(f"**Image Count:** {len(image_files)}")
+            
+            # List first 10 images
+            if image_files:
+                debug_messages.append("**Sample Images:**")
+                for img in image_files[:10]:
+                    img_path = os.path.join(GAMETORA_IMAGES_PATH, img)
+                    img_size = os.path.getsize(img_path)
+                    debug_messages.append(f"  `{img}` ({img_size / 1024:.1f} KB)")
+                
+                if len(image_files) > 10:
+                    debug_messages.append(f"  ... and {len(image_files) - 10} more images")
+            else:
+                debug_messages.append("  (No images downloaded)")
+        
+        debug_messages.append("\n**=== END OF STATUS REPORT ===**")
+        
+        # Send results in chunks
+        current_chunk = ""
+        for msg in debug_messages:
+            if len(current_chunk) + len(msg) + 2 > 1900:
+                await owner.send(current_chunk)
+                current_chunk = msg
+            else:
+                current_chunk += "\n" + msg if current_chunk else msg
+        
+        if current_chunk:
+            await owner.send(current_chunk)
+        
+        await ctx.send("✅ GameTora status report sent to your DMs!")
+        
+    except Exception as e:
+        import traceback
+        error_msg = f"❌ Status check failed: {e}\n```{traceback.format_exc()[:1500]}```"
+        await ctx.send(error_msg)
+
+
+@bot.command(name="uma_gametora_refresh")
+async def uma_gametora_refresh(ctx):
+    """
+    Force a full GameTora database refresh, ignoring incremental checks.
+    """
+    # Only allow owner to run this
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("❌ This command is restricted to the bot owner.")
+        return
+    
+    await ctx.send("🔄 Starting forced GameTora database refresh... This may take a few minutes.")
+    
+    try:
+        from uma_handler import update_gametora_database
+        
+        result = await update_gametora_database(force_full_scan=True)
+        
+        if result:
+            jp_result = result.get("jp", {})
+            global_result = result.get("global", {})
+            
+            msg = "✅ **GameTora Refresh Complete!**\n"
+            if jp_result:
+                msg += f"  JP: {jp_result.get('banners', 0)} banners, {jp_result.get('characters', 0)} chars, {jp_result.get('support_cards', 0)} supports\n"
+            else:
+                msg += "  JP: ❌ Failed or skipped\n"
+            
+            if global_result:
+                msg += f"  Global: {global_result.get('images_saved', 0)} images saved"
+            else:
+                msg += "  Global: ❌ Failed or skipped"
+            
+            await ctx.send(msg)
+        else:
+            await ctx.send("❌ GameTora refresh returned no results.")
+            
+    except Exception as e:
+        import traceback
+        error_msg = f"❌ Refresh failed: {e}\n```{traceback.format_exc()[:1500]}```"
+        await ctx.send(error_msg)
+
+
 print("[INIT] uma_module.py fully loaded - all commands registered")
 print("=" * 60)
