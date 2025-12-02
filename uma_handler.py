@@ -721,7 +721,7 @@ async def get_website_banner_ids(page, server: str = "JP"):
     
     return banner_ids
 
-async def scrape_gametora_jp_banners(force_full_scan: bool = False):
+async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries: int = 3):
     """
     Step 1: Scrape JP server banners from GameTora.
     Extracts banner ID, type, description, and linked characters/support cards.
@@ -733,177 +733,200 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False):
     
     await init_gametora_db()
     
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            
-            # Navigate to JP server, all years, all types
-            url = "https://gametora.com/umamusume/gacha/history?server=jp&type=all&year=all"
-            print(f"[GameTora] Navigating to {url}")
-            await page.goto(url, timeout=60000)
-            await page.wait_for_load_state("networkidle")
-            await asyncio.sleep(2)  # Wait for dynamic content
-            
-            # Quick check: Get banner IDs from website
-            website_banner_ids = await get_website_banner_ids(page, "JP")
-            print(f"[GameTora] Found {len(website_banner_ids)} banners on website")
-            
-            # Get existing banner IDs from database
-            existing_banner_ids = await get_existing_banner_ids("JP")
-            print(f"[GameTora] Have {len(existing_banner_ids)} banners in database")
-            
-            # Find new banners
-            new_banner_ids = website_banner_ids - existing_banner_ids
-            
-            if not new_banner_ids and not force_full_scan:
-                print(f"[GameTora] No new JP banners found. Skipping full scan.")
-                uma_handler_logger.info("[GameTora] No new JP banners found. Skipping full scan.")
-                await browser.close()
-                return {"banners": 0, "characters": 0, "support_cards": 0, "skipped": True}
-            
-            if new_banner_ids:
-                print(f"[GameTora] Found {len(new_banner_ids)} NEW banners: {new_banner_ids}")
-            elif force_full_scan:
-                print(f"[GameTora] Force full scan requested.")
-            
-            # Find all banner cards
-            banner_cards = await page.query_selector_all('.gacha-card')
-            print(f"[GameTora] Processing {len(banner_cards)} banner cards...")
-            
-            banners_added = 0
-            characters_added = 0
-            supports_added = 0
-            
-            async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
-                for card in banner_cards:
-                    try:
-                        # Get banner image to extract ID
-                        img_tag = await card.query_selector('img.gacha-banner')
-                        if not img_tag:
-                            continue
-                        
-                        img_src = await img_tag.get_attribute('src')
-                        if not img_src:
-                            continue
-                        
-                        # Extract banner ID from image URL (e.g., img_bnr_gacha_30380.png -> 30380)
-                        banner_id_match = re.search(r'img_bnr_gacha_(\d+)\.png', img_src)
-                        if not banner_id_match:
-                            continue
-                        
-                        banner_id = banner_id_match.group(1)
-                        
-                        # Skip if already in database and not force scanning
-                        if banner_id in existing_banner_ids and not force_full_scan:
-                            continue
-                        
-                        # Get banner type (Character Gacha or Support Card Gacha)
-                        type_tag = await card.query_selector('.gacha-type')
-                        banner_type_text = (await type_tag.inner_text()).strip() if type_tag else ""
-                        
-                        if "Character" in banner_type_text:
-                            banner_type = "Character"
-                        elif "Support" in banner_type_text:
-                            banner_type = "Support"
-                        else:
-                            banner_type = "Unknown"
-                        
-                        # Get description (rate-up info if present)
-                        desc_tag = await card.query_selector('.gacha-rate-up')
-                        description = (await desc_tag.inner_text()).strip() if desc_tag else ""
-                        
-                        # Insert banner into database
-                        await conn.execute('''
-                            INSERT OR REPLACE INTO banners (banner_id, banner_type, description, server)
-                            VALUES (?, ?, ?, 'JP')
-                        ''', (banner_id, banner_type, description))
-                        banners_added += 1
-                        
-                        # Get all character/card links in this banner
-                        item_links = await card.query_selector_all('a[href*="/characters/"], a[href*="/support-cards/"]')
-                        
-                        for link in item_links:
-                            href = await link.get_attribute('href')
-                            if not href:
+    url = "https://gametora.com/umamusume/gacha/history?server=jp&type=all&year=all"
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                
+                # Set longer default timeout for slow connections (Raspberry Pi)
+                page.set_default_timeout(90000)
+                
+                # Navigate to JP server, all years, all types
+                print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
+                await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+                
+                # Wait for content to render (more reliable than networkidle on slow connections)
+                await asyncio.sleep(5)
+                
+                # Wait for banner cards to appear
+                try:
+                    await page.wait_for_selector('.gacha-card', timeout=30000)
+                except Exception as selector_err:
+                    print(f"[GameTora] Warning: No .gacha-card found, page may not have loaded correctly: {selector_err}")
+                    uma_handler_logger.warning(f"[GameTora] No .gacha-card selector found: {selector_err}")
+                
+                # Quick check: Get banner IDs from website
+                website_banner_ids = await get_website_banner_ids(page, "JP")
+                print(f"[GameTora] Found {len(website_banner_ids)} banners on website")
+                
+                # Get existing banner IDs from database
+                existing_banner_ids = await get_existing_banner_ids("JP")
+                print(f"[GameTora] Have {len(existing_banner_ids)} banners in database")
+                
+                # Find new banners
+                new_banner_ids = website_banner_ids - existing_banner_ids
+                
+                if not new_banner_ids and not force_full_scan:
+                    print(f"[GameTora] No new JP banners found. Skipping full scan.")
+                    uma_handler_logger.info("[GameTora] No new JP banners found. Skipping full scan.")
+                    await browser.close()
+                    return {"banners": 0, "characters": 0, "support_cards": 0, "skipped": True}
+                
+                if new_banner_ids:
+                    print(f"[GameTora] Found {len(new_banner_ids)} NEW banners: {new_banner_ids}")
+                elif force_full_scan:
+                    print(f"[GameTora] Force full scan requested.")
+                
+                # Find all banner cards
+                banner_cards = await page.query_selector_all('.gacha-card')
+                print(f"[GameTora] Processing {len(banner_cards)} banner cards...")
+                
+                banners_added = 0
+                characters_added = 0
+                supports_added = 0
+                
+                async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
+                    for card in banner_cards:
+                        try:
+                            # Get banner image to extract ID
+                            img_tag = await card.query_selector('img.gacha-banner')
+                            if not img_tag:
                                 continue
                             
-                            # Get item name
-                            item_name = (await link.inner_text()).strip()
-                            # Clean up name (remove rate info like "New, 0.75%")
-                            item_name = re.sub(r'\s*(New|Rerun),?\s*[\d.]+%?', '', item_name).strip()
+                            img_src = await img_tag.get_attribute('src')
+                            if not img_src:
+                                continue
                             
-                            if '/characters/' in href:
-                                # Character link: /umamusume/characters/109001-verxina
-                                char_match = re.search(r'/characters/(\d+)-', href)
-                                if char_match:
-                                    char_id = char_match.group(1)
-                                    full_link = f"https://gametora.com{href}" if href.startswith('/') else href
-                                    
-                                    # Insert character
-                                    await conn.execute('''
-                                        INSERT OR IGNORE INTO characters (character_id, name, link)
-                                        VALUES (?, ?, ?)
-                                    ''', (char_id, item_name, full_link))
-                                    characters_added += 1
-                                    
-                                    # Link to banner
-                                    await conn.execute('''
-                                        INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
-                                        VALUES (?, ?, 'Character')
-                                    ''', (banner_id, char_id))
+                            # Extract banner ID from image URL (e.g., img_bnr_gacha_30380.png -> 30380)
+                            banner_id_match = re.search(r'img_bnr_gacha_(\d+)\.png', img_src)
+                            if not banner_id_match:
+                                continue
                             
-                            elif '/support-cards/' in href:
-                                # Support card link: /umamusume/support-cards/30001-special-week
-                                card_match = re.search(r'/support-cards/(\d+)-', href)
-                                if card_match:
-                                    card_id = card_match.group(1)
-                                    full_link = f"https://gametora.com{href}" if href.startswith('/') else href
-                                    
-                                    # Insert support card
-                                    await conn.execute('''
-                                        INSERT OR IGNORE INTO support_cards (card_id, name, link)
-                                        VALUES (?, ?, ?)
-                                    ''', (card_id, item_name, full_link))
-                                    supports_added += 1
-                                    
-                                    # Link to banner
-                                    await conn.execute('''
-                                        INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
-                                        VALUES (?, ?, 'Support')
-                                    ''', (banner_id, card_id))
-                        
-                    except Exception as e:
-                        uma_handler_logger.warning(f"[GameTora] Error processing banner card: {e}")
-                        continue
+                            banner_id = banner_id_match.group(1)
+                            
+                            # Skip if already in database and not force scanning
+                            if banner_id in existing_banner_ids and not force_full_scan:
+                                continue
+                            
+                            # Get banner type (Character Gacha or Support Card Gacha)
+                            type_tag = await card.query_selector('.gacha-type')
+                            banner_type_text = (await type_tag.inner_text()).strip() if type_tag else ""
+                            
+                            if "Character" in banner_type_text:
+                                banner_type = "Character"
+                            elif "Support" in banner_type_text:
+                                banner_type = "Support"
+                            else:
+                                banner_type = "Unknown"
+                            
+                            # Get description (rate-up info if present)
+                            desc_tag = await card.query_selector('.gacha-rate-up')
+                            description = (await desc_tag.inner_text()).strip() if desc_tag else ""
+                            
+                            # Insert banner into database
+                            await conn.execute('''
+                                INSERT OR REPLACE INTO banners (banner_id, banner_type, description, server)
+                                VALUES (?, ?, ?, 'JP')
+                            ''', (banner_id, banner_type, description))
+                            banners_added += 1
+                            
+                            # Get all character/card links in this banner
+                            item_links = await card.query_selector_all('a[href*="/characters/"], a[href*="/support-cards/"]')
+                            
+                            for link in item_links:
+                                href = await link.get_attribute('href')
+                                if not href:
+                                    continue
+                                
+                                # Get item name
+                                item_name = (await link.inner_text()).strip()
+                                # Clean up name (remove rate info like "New, 0.75%")
+                                item_name = re.sub(r'\s*(New|Rerun),?\s*[\d.]+%?', '', item_name).strip()
+                                
+                                if '/characters/' in href:
+                                    # Character link: /umamusume/characters/109001-verxina
+                                    char_match = re.search(r'/characters/(\d+)-', href)
+                                    if char_match:
+                                        char_id = char_match.group(1)
+                                        full_link = f"https://gametora.com{href}" if href.startswith('/') else href
+                                        
+                                        # Insert character
+                                        await conn.execute('''
+                                            INSERT OR IGNORE INTO characters (character_id, name, link)
+                                            VALUES (?, ?, ?)
+                                        ''', (char_id, item_name, full_link))
+                                        characters_added += 1
+                                        
+                                        # Link to banner
+                                        await conn.execute('''
+                                            INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
+                                            VALUES (?, ?, 'Character')
+                                        ''', (banner_id, char_id))
+                                
+                                elif '/support-cards/' in href:
+                                    # Support card link: /umamusume/support-cards/30001-special-week
+                                    card_match = re.search(r'/support-cards/(\d+)-', href)
+                                    if card_match:
+                                        card_id = card_match.group(1)
+                                        full_link = f"https://gametora.com{href}" if href.startswith('/') else href
+                                        
+                                        # Insert support card
+                                        await conn.execute('''
+                                            INSERT OR IGNORE INTO support_cards (card_id, name, link)
+                                            VALUES (?, ?, ?)
+                                        ''', (card_id, item_name, full_link))
+                                        supports_added += 1
+                                        
+                                        # Link to banner
+                                        await conn.execute('''
+                                            INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
+                                            VALUES (?, ?, 'Support')
+                                        ''', (banner_id, card_id))
+                            
+                        except Exception as e:
+                            uma_handler_logger.warning(f"[GameTora] Error processing banner card: {e}")
+                            continue
+                    
+                    # Update last scan timestamp
+                    await conn.execute('''
+                        INSERT OR REPLACE INTO metadata (key, value)
+                        VALUES ('last_jp_scan', ?)
+                    ''', (datetime.now(timezone.utc).isoformat(),))
+                    
+                    await conn.commit()
                 
-                # Update last scan timestamp
-                await conn.execute('''
-                    INSERT OR REPLACE INTO metadata (key, value)
-                    VALUES ('last_jp_scan', ?)
-                ''', (datetime.now(timezone.utc).isoformat(),))
+                await browser.close()
                 
-                await conn.commit()
-            
-            await browser.close()
-            
-            print(f"[GameTora] JP scrape complete: {banners_added} banners, {characters_added} characters, {supports_added} support cards")
-            uma_handler_logger.info(f"[GameTora] JP scrape complete: {banners_added} banners, {characters_added} chars, {supports_added} supports")
-            
-            return {
-                "banners": banners_added,
-                "characters": characters_added,
-                "support_cards": supports_added,
-                "skipped": False
-            }
-            
-    except Exception as e:
-        uma_handler_logger.error(f"[GameTora] Failed to scrape JP banners: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+                print(f"[GameTora] JP scrape complete: {banners_added} banners, {characters_added} characters, {supports_added} support cards")
+                uma_handler_logger.info(f"[GameTora] JP scrape complete: {banners_added} banners, {characters_added} chars, {supports_added} supports")
+                
+                return {
+                    "banners": banners_added,
+                    "characters": characters_added,
+                    "support_cards": supports_added,
+                    "skipped": False
+                }
+                
+        except Exception as e:
+            last_error = e
+            uma_handler_logger.warning(f"[GameTora] JP scrape attempt {attempt + 1}/{max_retries} failed: {e}")
+            print(f"[GameTora] JP scrape attempt {attempt + 1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 10  # 10s, 20s, 30s backoff
+                print(f"[GameTora] Retrying in {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+    
+    # All retries failed
+    uma_handler_logger.error(f"[GameTora] Failed to scrape JP banners after {max_retries} attempts: {last_error}")
+    import traceback
+    traceback.print_exc()
+    return None
 
-async def scrape_gametora_global_images(force_full_scan: bool = False):
+async def scrape_gametora_global_images(force_full_scan: bool = False, max_retries: int = 3):
     """
     Step 2: Scrape Global server banner images from GameTora.
     Downloads banner images and links them to banner IDs.
@@ -915,123 +938,146 @@ async def scrape_gametora_global_images(force_full_scan: bool = False):
     
     await init_gametora_db()
     
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            
-            # Navigate to Global server, all years, all types
-            url = "https://gametora.com/umamusume/gacha/history?server=en&type=all&year=all"
-            print(f"[GameTora] Navigating to {url}")
-            await page.goto(url, timeout=60000)
-            await page.wait_for_load_state("networkidle")
-            await asyncio.sleep(2)
-            
-            # Quick check: Get banner IDs from website
-            website_banner_ids = await get_website_banner_ids(page, "Global")
-            print(f"[GameTora] Found {len(website_banner_ids)} Global banners on website")
-            
-            # Get existing banner IDs from database
-            existing_banner_ids = await get_existing_banner_ids("Global")
-            print(f"[GameTora] Have {len(existing_banner_ids)} Global banner images in database")
-            
-            # Find new banners
-            new_banner_ids = website_banner_ids - existing_banner_ids
-            
-            if not new_banner_ids and not force_full_scan:
-                print(f"[GameTora] No new Global banners found. Skipping image download.")
-                uma_handler_logger.info("[GameTora] No new Global banners found. Skipping image download.")
-                await browser.close()
-                return {"images_saved": 0, "skipped": True}
-            
-            if new_banner_ids:
-                print(f"[GameTora] Found {len(new_banner_ids)} NEW Global banners to download: {new_banner_ids}")
-            elif force_full_scan:
-                print(f"[GameTora] Force full scan requested.")
-            
-            # Find all banner cards
-            banner_cards = await page.query_selector_all('.gacha-card')
-            print(f"[GameTora] Processing {len(banner_cards)} Global banner cards...")
-            
-            images_saved = 0
-            
-            async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
-                for card in banner_cards:
-                    try:
-                        # Get banner image
-                        img_tag = await card.query_selector('img.gacha-banner')
-                        if not img_tag:
-                            continue
-                        
-                        img_src = await img_tag.get_attribute('src')
-                        if not img_src:
-                            continue
-                        
-                        # Extract banner ID from image URL
-                        banner_id_match = re.search(r'img_bnr_gacha_(\d+)\.png', img_src)
-                        if not banner_id_match:
-                            continue
-                        
-                        banner_id = banner_id_match.group(1)
-                        
-                        # Skip if already in database and not force scanning
-                        if banner_id in existing_banner_ids and not force_full_scan:
-                            continue
-                        
-                        # Build full image URL
-                        if img_src.startswith('/'):
-                            full_img_url = f"https://gametora.com{img_src}"
-                        elif img_src.startswith('http'):
-                            full_img_url = img_src
-                        else:
-                            full_img_url = f"https://gametora.com/{img_src}"
-                        
-                        # Download and save image
-                        filename = f"banner_{banner_id}.png"
-                        filepath = os.path.join(GAMETORA_IMAGES_PATH, filename)
-                        
-                        if not os.path.exists(filepath):
-                            try:
-                                response = requests.get(full_img_url, timeout=30)
-                                if response.status_code == 200:
-                                    with open(filepath, 'wb') as f:
-                                        f.write(response.content)
-                                    print(f"[GameTora] Saved image: {filename}")
-                            except Exception as dl_err:
-                                uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: {dl_err}")
+    url = "https://gametora.com/umamusume/gacha/history?server=en&type=all&year=all"
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                
+                # Set longer default timeout for slow connections (Raspberry Pi)
+                page.set_default_timeout(90000)
+                
+                # Navigate to Global server, all years, all types
+                print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
+                await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+                
+                # Wait for content to render (more reliable than networkidle on slow connections)
+                await asyncio.sleep(5)
+                
+                # Wait for banner cards to appear
+                try:
+                    await page.wait_for_selector('.gacha-card', timeout=30000)
+                except Exception as selector_err:
+                    print(f"[GameTora] Warning: No .gacha-card found, page may not have loaded correctly: {selector_err}")
+                    uma_handler_logger.warning(f"[GameTora] No .gacha-card selector found: {selector_err}")
+                
+                # Quick check: Get banner IDs from website
+                website_banner_ids = await get_website_banner_ids(page, "Global")
+                print(f"[GameTora] Found {len(website_banner_ids)} Global banners on website")
+                
+                # Get existing banner IDs from database
+                existing_banner_ids = await get_existing_banner_ids("Global")
+                print(f"[GameTora] Have {len(existing_banner_ids)} Global banner images in database")
+                
+                # Find new banners
+                new_banner_ids = website_banner_ids - existing_banner_ids
+                
+                if not new_banner_ids and not force_full_scan:
+                    print(f"[GameTora] No new Global banners found. Skipping image download.")
+                    uma_handler_logger.info("[GameTora] No new Global banners found. Skipping image download.")
+                    await browser.close()
+                    return {"images_saved": 0, "skipped": True}
+                
+                if new_banner_ids:
+                    print(f"[GameTora] Found {len(new_banner_ids)} NEW Global banners to download: {new_banner_ids}")
+                elif force_full_scan:
+                    print(f"[GameTora] Force full scan requested.")
+                
+                # Find all banner cards
+                banner_cards = await page.query_selector_all('.gacha-card')
+                print(f"[GameTora] Processing {len(banner_cards)} Global banner cards...")
+                
+                images_saved = 0
+                
+                async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
+                    for card in banner_cards:
+                        try:
+                            # Get banner image
+                            img_tag = await card.query_selector('img.gacha-banner')
+                            if not img_tag:
                                 continue
-                        
-                        # Link banner ID to image filename
-                        await conn.execute('''
-                            INSERT OR REPLACE INTO global_banner_images (banner_id, image_filename)
-                            VALUES (?, ?)
-                        ''', (banner_id, filename))
-                        images_saved += 1
-                        
-                    except Exception as e:
-                        uma_handler_logger.warning(f"[GameTora] Error processing Global banner: {e}")
-                        continue
+                            
+                            img_src = await img_tag.get_attribute('src')
+                            if not img_src:
+                                continue
+                            
+                            # Extract banner ID from image URL
+                            banner_id_match = re.search(r'img_bnr_gacha_(\d+)\.png', img_src)
+                            if not banner_id_match:
+                                continue
+                            
+                            banner_id = banner_id_match.group(1)
+                            
+                            # Skip if already in database and not force scanning
+                            if banner_id in existing_banner_ids and not force_full_scan:
+                                continue
+                            
+                            # Build full image URL
+                            if img_src.startswith('/'):
+                                full_img_url = f"https://gametora.com{img_src}"
+                            elif img_src.startswith('http'):
+                                full_img_url = img_src
+                            else:
+                                full_img_url = f"https://gametora.com/{img_src}"
+                            
+                            # Download and save image
+                            filename = f"banner_{banner_id}.png"
+                            filepath = os.path.join(GAMETORA_IMAGES_PATH, filename)
+                            
+                            if not os.path.exists(filepath):
+                                try:
+                                    response = requests.get(full_img_url, timeout=30)
+                                    if response.status_code == 200:
+                                        with open(filepath, 'wb') as f:
+                                            f.write(response.content)
+                                        print(f"[GameTora] Saved image: {filename}")
+                                except Exception as dl_err:
+                                    uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: {dl_err}")
+                                    continue
+                            
+                            # Link banner ID to image filename
+                            await conn.execute('''
+                                INSERT OR REPLACE INTO global_banner_images (banner_id, image_filename)
+                                VALUES (?, ?)
+                            ''', (banner_id, filename))
+                            images_saved += 1
+                            
+                        except Exception as e:
+                            uma_handler_logger.warning(f"[GameTora] Error processing Global banner: {e}")
+                            continue
+                    
+                    # Update last scan timestamp
+                    await conn.execute('''
+                        INSERT OR REPLACE INTO metadata (key, value)
+                        VALUES ('last_global_scan', ?)
+                    ''', (datetime.now(timezone.utc).isoformat(),))
+                    
+                    await conn.commit()
                 
-                # Update last scan timestamp
-                await conn.execute('''
-                    INSERT OR REPLACE INTO metadata (key, value)
-                    VALUES ('last_global_scan', ?)
-                ''', (datetime.now(timezone.utc).isoformat(),))
+                await browser.close()
                 
-                await conn.commit()
-            
-            await browser.close()
-            
-            print(f"[GameTora] Global image scrape complete: {images_saved} images saved")
-            uma_handler_logger.info(f"[GameTora] Global image scrape complete: {images_saved} images")
-            
-            return {"images_saved": images_saved, "skipped": False}
-            
-    except Exception as e:
-        uma_handler_logger.error(f"[GameTora] Failed to scrape Global images: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+                print(f"[GameTora] Global image scrape complete: {images_saved} images saved")
+                uma_handler_logger.info(f"[GameTora] Global image scrape complete: {images_saved} images")
+                
+                return {"images_saved": images_saved, "skipped": False}
+                
+        except Exception as e:
+            last_error = e
+            uma_handler_logger.warning(f"[GameTora] Global scrape attempt {attempt + 1}/{max_retries} failed: {e}")
+            print(f"[GameTora] Global scrape attempt {attempt + 1}/{max_retries} failed: {e}")
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 10  # 10s, 20s, 30s backoff
+                print(f"[GameTora] Retrying in {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+    
+    # All retries failed
+    uma_handler_logger.error(f"[GameTora] Failed to scrape Global images after {max_retries} attempts: {last_error}")
+    import traceback
+    traceback.print_exc()
+    return None
 
 async def update_gametora_database(force_full_scan: bool = False):
     """
