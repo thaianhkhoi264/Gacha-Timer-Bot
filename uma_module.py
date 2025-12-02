@@ -1207,27 +1207,30 @@ async def uma_gametora_debug(ctx):
             debug_messages.append(f"URL: `{jp_url}`")
             
             try:
-                await page.goto(jp_url, timeout=60000)
-                await page.wait_for_load_state("networkidle")
-                await asyncio.sleep(2)
+                await page.goto(jp_url, timeout=90000, wait_until="domcontentloaded")
+                await asyncio.sleep(5)
                 
                 # Get page title to verify load
                 page_title = await page.title()
                 debug_messages.append(f"Page Title: `{page_title}`")
                 
-                # Find banner cards
-                banner_cards = await page.query_selector_all('.gacha-card')
-                debug_messages.append(f"**Banner cards found:** {len(banner_cards)}")
+                # Find banner containers using the actual CSS class
+                banner_containers = await page.query_selector_all('.sc-37bc0b3c-0')
+                debug_messages.append(f"**Banner containers (.sc-37bc0b3c-0) found:** {len(banner_containers)}")
+                
+                # Also check banner images
+                banner_images = await page.query_selector_all('img[src*="img_bnr_gacha_"]')
+                debug_messages.append(f"**Banner images found:** {len(banner_images)}")
                 
                 jp_banners = []
-                for idx, card in enumerate(banner_cards):
+                for idx, container in enumerate(banner_containers):
                     if idx >= 15:  # Limit to first 15 for DM
-                        debug_messages.append(f"... and {len(banner_cards) - 15} more banners")
+                        debug_messages.append(f"... and {len(banner_containers) - 15} more banners")
                         break
                     
                     try:
-                        # Get banner image
-                        img_tag = await card.query_selector('img.gacha-banner')
+                        # Get banner image src
+                        img_tag = await container.query_selector('img[src*="img_bnr_gacha_"]')
                         img_src = await img_tag.get_attribute('src') if img_tag else "NO IMG TAG"
                         
                         # Extract banner ID
@@ -1237,21 +1240,28 @@ async def uma_gametora_debug(ctx):
                             if match:
                                 banner_id = match.group(1)
                         
-                        # Get banner type
-                        type_badge = await card.query_selector('.gacha-type')
-                        banner_type = (await type_badge.inner_text()).strip() if type_badge else "NO TYPE"
+                        # Get character/support list
+                        items_list = await container.query_selector('ul.sc-37bc0b3c-3')
+                        item_names = []
                         
-                        # Get description text
-                        desc_elem = await card.query_selector('.gacha-description, .card-text')
-                        description = (await desc_elem.inner_text()).strip()[:100] if desc_elem else "NO DESC"
+                        if items_list:
+                            list_items = await items_list.query_selector_all('li')
+                            for li in list_items:
+                                name_span = await li.query_selector('.gacha_link_alt__mZW_P, span.sc-37bc0b3c-5')
+                                if name_span:
+                                    name_text = (await name_span.inner_text()).strip()
+                                    if name_text:
+                                        item_names.append(name_text)
                         
-                        # Get linked characters/cards
-                        links = await card.query_selector_all('a[href*="/characters/"], a[href*="/support-cards/"]')
-                        link_texts = []
-                        for link in links[:5]:  # Max 5 links
-                            text = (await link.inner_text()).strip()
-                            href = await link.get_attribute('href')
-                            link_texts.append(f"{text} ({href})")
+                        # Get container text for type detection
+                        container_text = await container.inner_text()
+                        banner_type = "Unknown"
+                        if "Character" in container_text:
+                            banner_type = "Character"
+                        elif "Support" in container_text or item_names:
+                            banner_type = "Support (assumed)"
+                        
+                        description = ", ".join(item_names[:3]) if item_names else "No items found"
                         
                         jp_banners.append({
                             "idx": idx + 1,
@@ -1259,7 +1269,7 @@ async def uma_gametora_debug(ctx):
                             "type": banner_type,
                             "img_src": img_src[:80] if img_src else "None",
                             "desc": description,
-                            "links": link_texts
+                            "items": item_names
                         })
                     except Exception as card_err:
                         jp_banners.append({
@@ -1273,9 +1283,7 @@ async def uma_gametora_debug(ctx):
                     else:
                         debug_messages.append(f"  **#{b['idx']}** ID:`{b['id']}` Type:`{b['type']}`")
                         debug_messages.append(f"    Img: `{b['img_src']}`")
-                        debug_messages.append(f"    Desc: `{b['desc']}`")
-                        if b['links']:
-                            debug_messages.append(f"    Links: {b['links']}")
+                        debug_messages.append(f"    Items: `{b['items']}`")
                 
             except Exception as jp_err:
                 debug_messages.append(f"❌ JP scrape error: `{jp_err}`")
@@ -1286,24 +1294,23 @@ async def uma_gametora_debug(ctx):
             debug_messages.append(f"URL: `{global_url}`")
             
             try:
-                await page.goto(global_url, timeout=60000)
-                await page.wait_for_load_state("networkidle")
-                await asyncio.sleep(2)
+                await page.goto(global_url, timeout=90000, wait_until="domcontentloaded")
+                await asyncio.sleep(5)
                 
                 page_title = await page.title()
                 debug_messages.append(f"Page Title: `{page_title}`")
                 
-                banner_cards = await page.query_selector_all('.gacha-card')
-                debug_messages.append(f"**Banner cards found:** {len(banner_cards)}")
+                banner_containers = await page.query_selector_all('.sc-37bc0b3c-0')
+                debug_messages.append(f"**Banner containers found:** {len(banner_containers)}")
                 
                 global_banners = []
-                for idx, card in enumerate(banner_cards):
+                for idx, container in enumerate(banner_containers):
                     if idx >= 10:  # Limit to first 10 for DM
-                        debug_messages.append(f"... and {len(banner_cards) - 10} more banners")
+                        debug_messages.append(f"... and {len(banner_containers) - 10} more banners")
                         break
                     
                     try:
-                        img_tag = await card.query_selector('img.gacha-banner')
+                        img_tag = await container.query_selector('img[src*="img_bnr_gacha_"]')
                         img_src = await img_tag.get_attribute('src') if img_tag else "NO IMG TAG"
                         
                         banner_id = "NO ID"
