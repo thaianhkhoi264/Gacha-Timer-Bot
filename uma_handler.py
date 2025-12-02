@@ -749,19 +749,57 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                 print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
                 await page.goto(url, timeout=90000, wait_until="domcontentloaded")
                 
-                # Wait for content to render (more reliable than networkidle on slow connections)
+                # Wait for initial content to render
                 await asyncio.sleep(5)
                 
-                # Wait for banner cards to appear
+                # Wait for banner containers to appear
                 try:
-                    await page.wait_for_selector('.gacha-card', timeout=30000)
+                    await page.wait_for_selector('.sc-37bc0b3c-0', timeout=30000)
                 except Exception as selector_err:
-                    print(f"[GameTora] Warning: No .gacha-card found, page may not have loaded correctly: {selector_err}")
-                    uma_handler_logger.warning(f"[GameTora] No .gacha-card selector found: {selector_err}")
+                    print(f"[GameTora] Warning: No banner containers found, page may not have loaded correctly: {selector_err}")
+                    uma_handler_logger.warning(f"[GameTora] No banner containers found: {selector_err}")
+                
+                # Scroll from bottom to top to load all banners (lazy loading)
+                print("[GameTora] Scrolling to load all banners...")
+                
+                # First, scroll to the very bottom
+                await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                await asyncio.sleep(3)
+                
+                # Then scroll up in steps to trigger lazy loading
+                previous_count = 0
+                scroll_attempts = 0
+                max_scroll_attempts = 20  # Prevent infinite loop
+                
+                while scroll_attempts < max_scroll_attempts:
+                    # Get current banner count
+                    current_containers = await page.query_selector_all('.sc-37bc0b3c-0')
+                    current_count = len(current_containers)
+                    
+                    print(f"[GameTora] Scroll attempt {scroll_attempts + 1}: {current_count} banners loaded")
+                    
+                    # If no new banners loaded in last 3 attempts, we're done
+                    if current_count == previous_count:
+                        if scroll_attempts >= 3:  # Give it 3 chances
+                            break
+                    else:
+                        scroll_attempts = 0  # Reset counter when new content loads
+                    
+                    previous_count = current_count
+                    
+                    # Scroll up by 1000 pixels
+                    await page.evaluate('window.scrollBy(0, -1000)')
+                    await asyncio.sleep(2)  # Wait for lazy load
+                    
+                    scroll_attempts += 1
+                
+                # Scroll back to top to ensure all content is loaded
+                await page.evaluate('window.scrollTo(0, 0)')
+                await asyncio.sleep(2)
                 
                 # Quick check: Get banner IDs from website
                 website_banner_ids = await get_website_banner_ids(page, "JP")
-                print(f"[GameTora] Found {len(website_banner_ids)} banners on website")
+                print(f"[GameTora] Found {len(website_banner_ids)} banners on website after scrolling")
                 
                 # Get existing banner IDs from database
                 existing_banner_ids = await get_existing_banner_ids("JP")
@@ -954,19 +992,57 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                 print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
                 await page.goto(url, timeout=90000, wait_until="domcontentloaded")
                 
-                # Wait for content to render (more reliable than networkidle on slow connections)
+                # Wait for initial content to render
                 await asyncio.sleep(5)
                 
-                # Wait for banner cards to appear
+                # Wait for banner containers to appear
                 try:
-                    await page.wait_for_selector('.gacha-card', timeout=30000)
+                    await page.wait_for_selector('.sc-37bc0b3c-0', timeout=30000)
                 except Exception as selector_err:
-                    print(f"[GameTora] Warning: No .gacha-card found, page may not have loaded correctly: {selector_err}")
-                    uma_handler_logger.warning(f"[GameTora] No .gacha-card selector found: {selector_err}")
+                    print(f"[GameTora] Warning: No banner containers found, page may not have loaded correctly: {selector_err}")
+                    uma_handler_logger.warning(f"[GameTora] No banner containers found: {selector_err}")
+                
+                # Scroll from bottom to top to load all banners (lazy loading)
+                print("[GameTora] Scrolling to load all Global banners...")
+                
+                # First, scroll to the very bottom
+                await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                await asyncio.sleep(3)
+                
+                # Then scroll up in steps to trigger lazy loading
+                previous_count = 0
+                scroll_attempts = 0
+                max_scroll_attempts = 20  # Prevent infinite loop
+                
+                while scroll_attempts < max_scroll_attempts:
+                    # Get current banner count
+                    current_containers = await page.query_selector_all('.sc-37bc0b3c-0')
+                    current_count = len(current_containers)
+                    
+                    print(f"[GameTora] Scroll attempt {scroll_attempts + 1}: {current_count} banners loaded")
+                    
+                    # If no new banners loaded in last 3 attempts, we're done
+                    if current_count == previous_count:
+                        if scroll_attempts >= 3:  # Give it 3 chances
+                            break
+                    else:
+                        scroll_attempts = 0  # Reset counter when new content loads
+                    
+                    previous_count = current_count
+                    
+                    # Scroll up by 1000 pixels
+                    await page.evaluate('window.scrollBy(0, -1000)')
+                    await asyncio.sleep(2)  # Wait for lazy load
+                    
+                    scroll_attempts += 1
+                
+                # Scroll back to top to ensure all content is loaded
+                await page.evaluate('window.scrollTo(0, 0)')
+                await asyncio.sleep(2)
                 
                 # Quick check: Get banner IDs from website
                 website_banner_ids = await get_website_banner_ids(page, "Global")
-                print(f"[GameTora] Found {len(website_banner_ids)} Global banners on website")
+                print(f"[GameTora] Found {len(website_banner_ids)} Global banners on website after scrolling")
                 
                 # Get existing banner IDs from database
                 existing_banner_ids = await get_existing_banner_ids("Global")
