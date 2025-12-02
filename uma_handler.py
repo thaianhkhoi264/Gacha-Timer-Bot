@@ -781,19 +781,19 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                 elif force_full_scan:
                     print(f"[GameTora] Force full scan requested.")
                 
-                # Find all banner cards
-                banner_cards = await page.query_selector_all('.gacha-card')
-                print(f"[GameTora] Processing {len(banner_cards)} banner cards...")
+                # Find all banner containers using the actual CSS class
+                banner_containers = await page.query_selector_all('.sc-37bc0b3c-0')
+                print(f"[GameTora] Processing {len(banner_containers)} banner containers...")
                 
                 banners_added = 0
                 characters_added = 0
                 supports_added = 0
                 
                 async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
-                    for card in banner_cards:
+                    for container in banner_containers:
                         try:
                             # Get banner image to extract ID
-                            img_tag = await card.query_selector('img.gacha-banner')
+                            img_tag = await container.query_selector('img[src*="img_bnr_gacha_"]')
                             if not img_tag:
                                 continue
                             
@@ -812,20 +812,37 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                             if banner_id in existing_banner_ids and not force_full_scan:
                                 continue
                             
-                            # Get banner type (Character Gacha or Support Card Gacha)
-                            type_tag = await card.query_selector('.gacha-type')
-                            banner_type_text = (await type_tag.inner_text()).strip() if type_tag else ""
+                            # Get the character/support list to determine banner type
+                            banner_type = "Unknown"
+                            description = ""
                             
-                            if "Character" in banner_type_text:
-                                banner_type = "Character"
-                            elif "Support" in banner_type_text:
-                                banner_type = "Support"
-                            else:
-                                banner_type = "Unknown"
+                            # Get all character/support names from the list (ul.sc-37bc0b3c-3)
+                            items_list = await container.query_selector('ul.sc-37bc0b3c-3')
+                            item_names = []
                             
-                            # Get description (rate-up info if present)
-                            desc_tag = await card.query_selector('.gacha-rate-up')
-                            description = (await desc_tag.inner_text()).strip() if desc_tag else ""
+                            if items_list:
+                                # Get all list items
+                                list_items = await items_list.query_selector_all('li')
+                                
+                                for li in list_items:
+                                    # Get the name span (gacha_link_alt__mZW_P)
+                                    name_span = await li.query_selector('.gacha_link_alt__mZW_P, span.sc-37bc0b3c-5')
+                                    if name_span:
+                                        name_text = (await name_span.inner_text()).strip()
+                                        if name_text:
+                                            item_names.append(name_text)
+                                
+                                # Try to determine if it's Character or Support based on context
+                                # Check the page URL or container for type info
+                                container_text = await container.inner_text()
+                                if "Character" in container_text or any("New," in name or "Rerun," in name for name in item_names):
+                                    # Most character banners have rate-up info
+                                    banner_type = "Character"
+                                else:
+                                    # Could be support or unknown
+                                    banner_type = "Support"
+                                
+                                description = ", ".join(item_names[:5])  # First 5 items
                             
                             # Insert banner into database
                             await conn.execute('''
@@ -833,62 +850,45 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                                 VALUES (?, ?, ?, 'JP')
                             ''', (banner_id, banner_type, description))
                             banners_added += 1
+                            print(f"[GameTora] Added banner {banner_id} ({banner_type}): {description[:50]}")
                             
-                            # Get all character/card links in this banner
-                            item_links = await card.query_selector_all('a[href*="/characters/"], a[href*="/support-cards/"]')
-                            
-                            for link in item_links:
-                                href = await link.get_attribute('href')
-                                if not href:
+                            # Store character/support names (without links since they're not easily accessible)
+                            for item_name in item_names:
+                                # Clean up name (remove rate info like "New, 0.75%")
+                                clean_name = re.sub(r'\s*(New|Rerun),?\s*[\d.]+%?', '', item_name).strip()
+                                
+                                if not clean_name:
                                     continue
                                 
-                                # Get item name
-                                item_name = (await link.inner_text()).strip()
-                                # Clean up name (remove rate info like "New, 0.75%")
-                                item_name = re.sub(r'\s*(New|Rerun),?\s*[\d.]+%?', '', item_name).strip()
+                                # Since we don't have links, we'll store with a placeholder ID based on name hash
+                                # This is not ideal but allows us to track the banner contents
+                                name_hash = str(abs(hash(clean_name)) % 1000000)
                                 
-                                if '/characters/' in href:
-                                    # Character link: /umamusume/characters/109001-verxina
-                                    char_match = re.search(r'/characters/(\d+)-', href)
-                                    if char_match:
-                                        char_id = char_match.group(1)
-                                        full_link = f"https://gametora.com{href}" if href.startswith('/') else href
-                                        
-                                        # Insert character
-                                        await conn.execute('''
-                                            INSERT OR IGNORE INTO characters (character_id, name, link)
-                                            VALUES (?, ?, ?)
-                                        ''', (char_id, item_name, full_link))
-                                        characters_added += 1
-                                        
-                                        # Link to banner
-                                        await conn.execute('''
-                                            INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
-                                            VALUES (?, ?, 'Character')
-                                        ''', (banner_id, char_id))
-                                
-                                elif '/support-cards/' in href:
-                                    # Support card link: /umamusume/support-cards/30001-special-week
-                                    card_match = re.search(r'/support-cards/(\d+)-', href)
-                                    if card_match:
-                                        card_id = card_match.group(1)
-                                        full_link = f"https://gametora.com{href}" if href.startswith('/') else href
-                                        
-                                        # Insert support card
-                                        await conn.execute('''
-                                            INSERT OR IGNORE INTO support_cards (card_id, name, link)
-                                            VALUES (?, ?, ?)
-                                        ''', (card_id, item_name, full_link))
-                                        supports_added += 1
-                                        
-                                        # Link to banner
-                                        await conn.execute('''
-                                            INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
-                                            VALUES (?, ?, 'Support')
-                                        ''', (banner_id, card_id))
+                                if banner_type == "Character":
+                                    await conn.execute('''
+                                        INSERT OR IGNORE INTO characters (character_id, name, link)
+                                        VALUES (?, ?, ?)
+                                    ''', (name_hash, clean_name, ""))
+                                    characters_added += 1
+                                    
+                                    await conn.execute('''
+                                        INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
+                                        VALUES (?, ?, 'Character')
+                                    ''', (banner_id, name_hash))
+                                else:
+                                    await conn.execute('''
+                                        INSERT OR IGNORE INTO support_cards (card_id, name, link)
+                                        VALUES (?, ?, ?)
+                                    ''', (name_hash, clean_name, ""))
+                                    supports_added += 1
+                                    
+                                    await conn.execute('''
+                                        INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
+                                        VALUES (?, ?, 'Support')
+                                    ''', (banner_id, name_hash))
                             
                         except Exception as e:
-                            uma_handler_logger.warning(f"[GameTora] Error processing banner card: {e}")
+                            uma_handler_logger.warning(f"[GameTora] Error processing banner container: {e}")
                             continue
                     
                     # Update last scan timestamp
@@ -986,17 +986,17 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                 elif force_full_scan:
                     print(f"[GameTora] Force full scan requested.")
                 
-                # Find all banner cards
-                banner_cards = await page.query_selector_all('.gacha-card')
-                print(f"[GameTora] Processing {len(banner_cards)} Global banner cards...")
+                # Find all banner containers using the actual CSS class
+                banner_containers = await page.query_selector_all('.sc-37bc0b3c-0')
+                print(f"[GameTora] Processing {len(banner_containers)} Global banner containers...")
                 
                 images_saved = 0
                 
                 async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
-                    for card in banner_cards:
+                    for container in banner_containers:
                         try:
                             # Get banner image
-                            img_tag = await card.query_selector('img.gacha-banner')
+                            img_tag = await container.query_selector('img[src*="img_bnr_gacha_"]')
                             if not img_tag:
                                 continue
                             
