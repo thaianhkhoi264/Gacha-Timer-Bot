@@ -317,43 +317,6 @@ async def send_daily_report():
         except Exception as e:
             print(f"[Daily Report] Failed to send DM: {e}")
 
-# Task to periodically clean up expired events
-async def expired_event_cleanup_task():
-    while True:
-        now = int(datetime.now().timestamp())
-        async with aiosqlite.connect('kanami_data.db') as conn:
-            async with conn.execute("SELECT server_id, id, title FROM user_data WHERE end_date != '' AND CAST(end_date AS INTEGER) < ?", (now,)) as cursor:
-                expired = await cursor.fetchall()
-            for server_id, event_id, title in expired:
-                await conn.execute("DELETE FROM user_data WHERE id=?", (event_id,))
-                await conn.execute("DELETE FROM pending_notifications WHERE server_id=? AND LOWER(title)=LOWER(?)", (server_id, title))
-                async with conn.execute("SELECT channel_id, message_id FROM event_messages WHERE event_id=?", (event_id,)) as msg_cursor:
-                    msg_rows = await msg_cursor.fetchall()
-                for channel_id, message_id in msg_rows:
-                    guild = bot.get_guild(int(server_id))
-                    if guild:
-                        channel = guild.get_channel(int(channel_id))
-                        if channel:
-                            try:
-                                msg = await channel.fetch_message(int(message_id))
-                                await msg.delete()
-                            except Exception:
-                                pass
-                await conn.execute("DELETE FROM event_messages WHERE event_id=?", (event_id,))
-            await conn.commit()
-            async with conn.execute("SELECT DISTINCT server_id FROM user_data") as cursor:
-                server_ids = [row[0] async for row in cursor]
-        for server_id in server_ids:
-            guild = bot.get_guild(int(server_id))
-            if not guild:
-                continue
-            async with aiosqlite.connect('kanami_data.db') as conn2:
-                async with conn2.execute("SELECT profile FROM config WHERE server_id=?", (server_id,)) as cursor:
-                    profiles = [row[0] async for row in cursor]
-            for profile in profiles:
-                await database_handler.update_timer_channel(guild, bot, profile=profile)
-        await asyncio.sleep(43200)
-
 # Notification loop function to load and schedule pending notifications
 async def notification_loop():
     while True:
@@ -448,12 +411,10 @@ async def on_ready():
     print("[DEBUG] Reminder task created.")
     asyncio.create_task(notification_loop())
     print("[DEBUG] Notification loop task created.")
-    asyncio.create_task(send_daily_report())
-    print("[DEBUG] Daily report task created.")
-    asyncio.create_task(expired_event_cleanup_task())
-    print("[DEBUG] Expired event cleanup task created.")
-    asyncio.create_task(hsr_scraper.periodic_hsr_scraping_task())
-    print("[DEBUG] HSR periodic scraping task created.")
+    # asyncio.create_task(send_daily_report())
+    # print("[DEBUG] Daily report task created.")
+    # asyncio.create_task(hsr_scraper.periodic_hsr_scraping_task())
+    # print("[DEBUG] HSR periodic scraping task created.")
 
     # Initialize Uma Musume database BEFORE control panels (control panel needs DB to exist)
     print("[DEBUG] Initializing Uma Musume database...")
@@ -498,6 +459,12 @@ async def on_ready():
         print(f"[ERROR] Uma Musume initialization failed: {e}")
         import traceback
         traceback.print_exc()
+    
+    # Initialize GameTora database (character/support card data) as background task
+    print("[DEBUG] Starting GameTora database update as background task...")
+    from uma_handler import update_gametora_database
+    asyncio.create_task(update_gametora_database())
+    print("[DEBUG] GameTora database task started.")
     
     await ml_handler.check_llm_table()  # Ensure LLM table exists
 
