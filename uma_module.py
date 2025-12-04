@@ -1203,7 +1203,7 @@ async def uma_gametora_debug(ctx):
             
             # ===== JP SERVER =====
             debug_messages.append("**--- JP SERVER (Banner Data) ---**")
-            jp_url = "https://gametora.com/umamusume/gacha/history?server=jp&type=all&year=all"
+            jp_url = "https://gametora.com/umamusume/gacha/history?server=ja&type=all&year=all"
             debug_messages.append(f"URL: `{jp_url}`")
             
             try:

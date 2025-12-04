@@ -694,7 +694,8 @@ async def get_existing_banner_ids(server: str = "JP"):
     await init_gametora_db()
     async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
         if server == "JP":
-            async with conn.execute("SELECT banner_id FROM banners WHERE server = 'JP'") as cursor:
+            # Check both 'JP' and 'JA' for backwards compatibility
+            async with conn.execute("SELECT banner_id FROM banners WHERE server IN ('JP', 'JA')") as cursor:
                 rows = await cursor.fetchall()
                 return {row[0] for row in rows}
         else:
@@ -733,7 +734,7 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
     
     await init_gametora_db()
     
-    url = "https://gametora.com/umamusume/gacha/history?server=jp&type=all&year=all"
+    url = "https://gametora.com/umamusume/gacha/history?server=ja&type=all&year=all"
     last_error = None
     
     for attempt in range(max_retries):
@@ -890,7 +891,7 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                             # Insert banner into database
                             await conn.execute('''
                                 INSERT OR REPLACE INTO banners (banner_id, banner_type, description, server)
-                                VALUES (?, ?, ?, 'JP')
+                                VALUES (?, ?, ?, 'JA')
                             ''', (banner_id, banner_type, description))
                             banners_added += 1
                             print(f"[GameTora] Added banner {banner_id} ({banner_type}): {description[:50]}")
