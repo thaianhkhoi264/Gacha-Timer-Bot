@@ -752,6 +752,10 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                 # Wait for initial content to render
                 await asyncio.sleep(5)
                 
+                # Check what's actually loaded
+                page_url = page.url
+                print(f"[GameTora] Current page URL: {page_url}")
+                
                 # Wait for banner containers to appear
                 try:
                     await page.wait_for_selector('.sc-37bc0b3c-0', timeout=30000)
@@ -759,10 +763,14 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                     print(f"[GameTora] Warning: No banner containers found, page may not have loaded correctly: {selector_err}")
                     uma_handler_logger.warning(f"[GameTora] No banner containers found: {selector_err}")
                 
+                # Get initial count before scrolling
+                initial_containers = await page.query_selector_all('.sc-37bc0b3c-0')
+                print(f"[GameTora] Initial banners loaded: {len(initial_containers)}")
+                
                 # Scroll DOWN progressively to load all banners (lazy loading)
                 print("[GameTora] Scrolling to load all banners...")
                 
-                previous_count = 0
+                previous_count = len(initial_containers)
                 no_change_count = 0
                 scroll_iteration = 0
                 max_iterations = 50  # Prevent infinite loop
