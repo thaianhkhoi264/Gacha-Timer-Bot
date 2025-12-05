@@ -886,7 +886,15 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                                     # Could be support or unknown
                                     banner_type = "Support"
                                 
-                                description = ", ".join(item_names[:5])  # First 5 items
+                                # Clean names for description (remove " New" or " Rerun" from end)
+                                clean_names = []
+                                for name in item_names[:5]:  # First 5 items
+                                    # Remove " New" or " Rerun" from end, along with any trailing rate info
+                                    clean = re.sub(r'\s+(New|Rerun)(?:,?\s*[\d.]+%)?\s*$', '', name).strip()
+                                    if clean:
+                                        clean_names.append(clean)
+                                
+                                description = ", ".join(clean_names)
                             
                             # Insert banner into database
                             await conn.execute('''
@@ -898,8 +906,12 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                             
                             # Store character/support names (without links since they're not easily accessible)
                             for item_name in item_names:
-                                # Clean up name (remove rate info like "New, 0.75%")
-                                clean_name = re.sub(r'\s*(New|Rerun),?\s*[\d.]+%?', '', item_name).strip()
+                                # Clean up name - remove " New" or " Rerun" from end with optional rate info
+                                # Pattern: \s+(New|Rerun)(?:,?\s*[\d.]+%)?\s*$
+                                # This matches " New", " New, 0.75%", " Rerun", " Rerun 0.75%" etc. at the end
+                                # If a character is legitimately named "X New", rate-up would show "X New New"
+                                # so this will only remove one instance from the end
+                                clean_name = re.sub(r'\s+(New|Rerun)(?:,?\s*[\d.]+%)?\s*$', '', item_name).strip()
                                 
                                 if not clean_name:
                                     continue
