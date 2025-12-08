@@ -275,6 +275,71 @@ def extract_banner_id_from_image_url(img_url):
     
     return None
 
+def extract_character_ids_from_legend_images(image_urls):
+    """
+    Extract character IDs from Legend Race image URLs.
+    
+    Args:
+        image_urls: List of image URLs like "https://uma.moe/assets/images/legend/boss/chara_stand_105601.png"
+    
+    Returns:
+        list: List of character IDs (e.g., ["105601", "102001", "102301"])
+    """
+    character_ids = []
+    
+    for img_url in image_urls:
+        # Pattern: chara_stand_XXXXXX.png where XXXXXX is the character ID
+        match = re.search(r'chara_stand_(\d+)\.png', img_url)
+        if match:
+            character_ids.append(match.group(1))
+    
+    return character_ids
+
+async def get_legend_race_characters(character_ids):
+    """
+    Get character names and links for Legend Race from GameTora database.
+    
+    Args:
+        character_ids: List of character IDs (e.g., ["105601", "102001"])
+    
+    Returns:
+        str: Formatted string with clickable character links, or empty string if no data
+    """
+    # Check if database exists
+    if not os.path.exists(GAMETORA_DB_PATH):
+        uma_handler_logger.debug(f"[GameTora] Database not found, skipping Legend Race enrichment")
+        return ""
+    
+    try:
+        async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
+            character_links = []
+            
+            for char_id in character_ids:
+                # Query for this character ID
+                async with conn.execute("""
+                    SELECT name, link
+                    FROM characters
+                    WHERE character_id = ?
+                """, (char_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    
+                    if row:
+                        name, link = row
+                        full_link = f"https://gametora.com{link}"
+                        character_links.append(f"[{name}]({full_link})")
+                        uma_handler_logger.debug(f"[GameTora] Legend Race char {char_id}: {name}")
+                    else:
+                        uma_handler_logger.debug(f"[GameTora] Legend Race char {char_id} not found in database")
+            
+            if character_links:
+                return ", ".join(character_links)
+            else:
+                return ""
+    
+    except Exception as e:
+        uma_handler_logger.error(f"[GameTora] Error querying Legend Race characters: {e}")
+        return ""
+
 async def enrich_with_gametora_data(char_names, support_names, img_url):
     """
     Enrich character and support names with GameTora data (clickable links).
@@ -470,24 +535,39 @@ async def process_events(raw_events):
                         skip_indices.add(j)
                         break
             
-            # Enrich with GameTora data FIRST (using original img_url to extract banner ID)
-            # This adds clickable links and finds GameTora image if available
-            enriched_chars, enriched_supports, gametora_img = await enrich_with_gametora_data(
-                char_names, support_names, img_url
+            # Enrich character names with GameTora data (using character banner image)
+            enriched_chars, _, gametora_char_img = await enrich_with_gametora_data(
+                char_names, "", img_url
             )
             
+            # Enrich support names with GameTora data (using support banner image if available)
+            enriched_supports = support_names  # Default to original
+            gametora_support_img = None
+            if support_names and support_img:
+                _, enriched_supports, gametora_support_img = await enrich_with_gametora_data(
+                    "", support_names, support_img
+                )
+                print(f"[UMA HANDLER] Enriched support cards: {enriched_supports[:80]}...")
+            
             # Now handle image selection:
-            # Priority 1: GameTora image (if found)
+            # Priority 1: GameTora images (if found for both char and support)
             # Priority 2: Combined uma.moe images (character + support vertically)
             # Priority 3: Original uma.moe image
             final_img = img_url
             
-            if gametora_img != img_url:
-                # GameTora found a better image, use it
-                final_img = gametora_img
-                print(f"[UMA HANDLER] Using GameTora image: {gametora_img}")
+            if gametora_char_img != img_url and gametora_support_img and gametora_support_img != support_img:
+                # Both GameTora images exist, combine them
+                from uma_module import combine_images_vertically
+                combined_path = combine_images_vertically(gametora_char_img, gametora_support_img)
+                if combined_path:
+                    final_img = combined_path
+                    print(f"[UMA HANDLER] Using combined GameTora images: {combined_path}")
+            elif gametora_char_img != img_url:
+                # Only character GameTora image exists
+                final_img = gametora_char_img
+                print(f"[UMA HANDLER] Using GameTora character image: {gametora_char_img}")
             elif img_url and support_img:
-                # No GameTora image, combine uma.moe images
+                # No GameTora images, combine uma.moe images
                 from uma_module import combine_images_vertically
                 combined_path = combine_images_vertically(img_url, support_img)
                 if combined_path:
@@ -582,6 +662,24 @@ async def process_events(raw_events):
             
             print(f"[UMA HANDLER] Legend Race '{race_name}' found with {len(legend_images)} images: {legend_images}")
             
+            # Extract character IDs from image URLs (e.g., chara_stand_105601.png -> 105601)
+            character_ids = extract_character_ids_from_legend_images(legend_images)
+            print(f"[UMA HANDLER] Extracted character IDs: {character_ids}")
+            
+            # Get character names with clickable links from GameTora
+            character_links_str = await get_legend_race_characters(character_ids)
+            
+            # Build description with character links and race details
+            event_desc = ""
+            if character_links_str:
+                event_desc = f"**Characters:** {character_links_str}"
+                print(f"[UMA HANDLER] Legend Race characters: {character_links_str[:80]}...")
+            if details:
+                if event_desc:
+                    event_desc += f"\n{details}"
+                else:
+                    event_desc = details
+            
             # Combine images horizontally if multiple
             combined_img = img_url
             if len(legend_images) > 1:
@@ -599,7 +697,7 @@ async def process_events(raw_events):
                 "end": int(end_date.timestamp()),
                 "image": combined_img,
                 "category": "Event",
-                "description": details if details else ""
+                "description": event_desc
             })
             continue
         
