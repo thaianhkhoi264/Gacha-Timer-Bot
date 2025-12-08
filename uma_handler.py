@@ -202,12 +202,23 @@ async def download_timeline():
                     description = (await desc_tag.inner_text()).strip()
                 
                 # Extract ALL event images (Legend Race can have 3-4 character images)
-                img_tags = await item.query_selector_all('.event-image img')
                 img_urls = []
-                for img_tag in img_tags:
+                
+                # Get ALL img tags within this event item
+                all_imgs = await item.query_selector_all('img')
+                print(f"[UMA HANDLER DEBUG] Event '{full_title[:40]}...' has {len(all_imgs)} total img tags")
+                
+                for img_tag in all_imgs:
                     img_src = await img_tag.get_attribute("src")
                     if img_src:
-                        img_urls.append(urljoin(BASE_URL, img_src))
+                        full_url = urljoin(BASE_URL, img_src)
+                        # Add all relevant game images (banner IDs, character images)
+                        if any(pattern in img_src for pattern in ['chara_stand_', '2021_', '2022_', '2023_', '2024_', '2025_', 'img_bnr_', '/story/', '/paid/', '/support/']):
+                            if full_url not in img_urls:  # Avoid duplicates
+                                img_urls.append(full_url)
+                                print(f"[UMA HANDLER DEBUG]   - Added image: {img_src.split('/')[-1]}")
+                
+                print(f"[UMA HANDLER DEBUG] Final: {len(img_urls)} images for '{full_title[:40]}...'")
                 
                 # Primary image URL (first one, for backwards compatibility)
                 img_url = img_urls[0] if img_urls else None
