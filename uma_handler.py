@@ -860,21 +860,39 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                             banner_type = "Unknown"
                             description = ""
                             
-                            # Get all character/support names from the list (ul.sc-37bc0b3c-3)
+                            # Get all character/support names and IDs from the list (ul.sc-37bc0b3c-3)
                             items_list = await container.query_selector('ul.sc-37bc0b3c-3')
                             item_names = []
+                            item_data = []  # List of (name, id, link) tuples
                             
                             if items_list:
                                 # Get all list items
                                 list_items = await items_list.query_selector_all('li')
                                 
                                 for li in list_items:
-                                    # Get the name span (gacha_link_alt__mZW_P)
-                                    name_span = await li.query_selector('.gacha_link_alt__mZW_P, span.sc-37bc0b3c-5')
-                                    if name_span:
-                                        name_text = (await name_span.inner_text()).strip()
-                                        if name_text:
-                                            item_names.append(name_text)
+                                    # Get the link element which contains both name and ID
+                                    link_elem = await li.query_selector('a')
+                                    if link_elem:
+                                        # Extract name from text
+                                        name_text = (await link_elem.inner_text()).strip()
+                                        if not name_text:
+                                            continue
+                                        
+                                        # Extract ID from href (e.g., /umamusume/character/103002)
+                                        href = await link_elem.get_attribute('href')
+                                        item_id = None
+                                        item_link = ""
+                                        
+                                        if href:
+                                            item_link = href
+                                            # Extract ID from URL patterns:
+                                            # /umamusume/character/103002 or /umamusume/support-card/30337
+                                            id_match = re.search(r'/(?:character|support-card)/(\d+)', href)
+                                            if id_match:
+                                                item_id = id_match.group(1)
+                                        
+                                        item_names.append(name_text)
+                                        item_data.append((name_text, item_id, item_link))
                                 
                                 # Determine if it's Character or Support based on container text
                                 container_text = await container.inner_text()
@@ -909,44 +927,41 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                             display_desc = description if len(description) <= 80 else description[:77] + "..."
                             print(f"[GameTora] Added banner {banner_id} ({banner_type}): {display_desc}")
                             
-                            # Store character/support names (without links since they're not easily accessible)
-                            for item_name in item_names:
+                            # Store character/support names with actual IDs from links
+                            for item_name, item_id, item_link in item_data:
                                 # Clean up name - remove " New" or " Rerun" from end with optional rate info
-                                # Pattern: \s+(New|Rerun)(?:,?\s*[\d.]+%)?\s*$
-                                # This matches " New", " New, 0.75%", " Rerun", " Rerun 0.75%" etc. at the end
-                                # If a character is legitimately named "X New", rate-up would show "X New New"
-                                # so this will only remove one instance from the end
                                 clean_name = re.sub(r'\s+(New|Rerun)(?:,?\s*[\d.]+%)?\s*$', '', item_name).strip()
                                 
                                 if not clean_name:
                                     continue
                                 
-                                # Since we don't have links, we'll store with a placeholder ID based on name hash
-                                # This is not ideal but allows us to track the banner contents
-                                name_hash = str(abs(hash(clean_name)) % 1000000)
+                                # Use extracted ID if available, otherwise fall back to hash
+                                if not item_id:
+                                    item_id = str(abs(hash(clean_name)) % 1000000)
+                                    uma_handler_logger.warning(f"[GameTora] No ID found for {clean_name}, using hash: {item_id}")
                                 
                                 if banner_type == "Character":
                                     await conn.execute('''
                                         INSERT OR IGNORE INTO characters (character_id, name, link)
                                         VALUES (?, ?, ?)
-                                    ''', (name_hash, clean_name, ""))
+                                    ''', (item_id, clean_name, item_link))
                                     characters_added += 1
                                     
                                     await conn.execute('''
                                         INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
                                         VALUES (?, ?, 'Character')
-                                    ''', (banner_id, name_hash))
+                                    ''', (banner_id, item_id))
                                 else:
                                     await conn.execute('''
                                         INSERT OR IGNORE INTO support_cards (card_id, name, link)
                                         VALUES (?, ?, ?)
-                                    ''', (name_hash, clean_name, ""))
+                                    ''', (item_id, clean_name, item_link))
                                     supports_added += 1
                                     
                                     await conn.execute('''
                                         INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
                                         VALUES (?, ?, 'Support')
-                                    ''', (banner_id, name_hash))
+                                    ''', (banner_id, item_id))
                             
                         except Exception as e:
                             uma_handler_logger.warning(f"[GameTora] Error processing banner container: {e}")
