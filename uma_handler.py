@@ -327,13 +327,31 @@ async def get_legend_race_characters(character_ids):
                         name, link = row
                         full_link = f"https://gametora.com{link}"
                         character_links.append(f"[{name}]({full_link})")
-                        uma_handler_logger.debug(f"[GameTora] Legend Race char {char_id}: {name}")
+                        uma_handler_logger.info(f"[GameTora] Legend Race char {char_id}: {name}")
                     else:
-                        uma_handler_logger.debug(f"[GameTora] Legend Race char {char_id} not found in database")
+                        uma_handler_logger.warning(f"[GameTora] Legend Race char {char_id} NOT FOUND in database")
+                        # Try without leading zeros if ID is 6 digits
+                        if len(char_id) == 6 and char_id.startswith('10'):
+                            # Try stripping potential leading zero or reformatting
+                            alt_id = str(int(char_id))  # Remove leading zeros
+                            async with conn.execute("""
+                                SELECT name, link
+                                FROM characters
+                                WHERE character_id = ?
+                            """, (alt_id,)) as cursor2:
+                                row2 = await cursor2.fetchone()
+                                if row2:
+                                    name, link = row2
+                                    full_link = f"https://gametora.com{link}"
+                                    character_links.append(f"[{name}]({full_link})")
+                                    uma_handler_logger.info(f"[GameTora] Found with alt ID {alt_id}: {name}")
             
             if character_links:
-                return ", ".join(character_links)
+                result = ", ".join(character_links)
+                uma_handler_logger.info(f"[GameTora] Legend Race result: {len(character_links)} chars found out of {len(character_ids)} requested")
+                return result
             else:
+                uma_handler_logger.warning(f"[GameTora] No Legend Race characters found for IDs: {character_ids}")
                 return ""
     
     except Exception as e:
