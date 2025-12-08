@@ -470,28 +470,42 @@ async def process_events(raw_events):
                         skip_indices.add(j)
                         break
             
-            # Combine images if both exist
-            combined_img = img_url
-            if img_url and support_img:
+            # Enrich with GameTora data FIRST (using original img_url to extract banner ID)
+            # This adds clickable links and finds GameTora image if available
+            enriched_chars, enriched_supports, gametora_img = await enrich_with_gametora_data(
+                char_names, support_names, img_url
+            )
+            
+            # Now handle image selection:
+            # Priority 1: GameTora image (if found)
+            # Priority 2: Combined uma.moe images (character + support vertically)
+            # Priority 3: Original uma.moe image
+            final_img = img_url
+            
+            if gametora_img != img_url:
+                # GameTora found a better image, use it
+                final_img = gametora_img
+                print(f"[UMA HANDLER] Using GameTora image: {gametora_img}")
+            elif img_url and support_img:
+                # No GameTora image, combine uma.moe images
                 from uma_module import combine_images_vertically
                 combined_path = combine_images_vertically(img_url, support_img)
                 if combined_path:
-                    combined_img = combined_path
-            
-            # Enrich with GameTora data (add clickable links, prefer GameTora image)
-            enriched_chars, enriched_supports, best_img = await enrich_with_gametora_data(
-                char_names, support_names, combined_img
-            )
+                    final_img = combined_path
+                    print(f"[UMA HANDLER] Using combined uma.moe images: {combined_path}")
             
             # Create combined event
             title = f"{char_names} Banner"  # Keep original names in title
             event_desc = f"**Characters:** {enriched_chars}\n**Support Cards:** {enriched_supports}" if enriched_supports else f"**Characters:** {enriched_chars}"
             
+            print(f"[UMA HANDLER] Created banner - Chars: {enriched_chars[:60]}...")
+            print(f"[UMA HANDLER] Supports: {enriched_supports[:60] if enriched_supports else 'None'}...")
+            
             processed.append({
                 "title": title,
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
-                "image": best_img,  # Use GameTora image if available
+                "image": final_img,  # Use best available image
                 "category": "Banner",
                 "description": event_desc
             })
