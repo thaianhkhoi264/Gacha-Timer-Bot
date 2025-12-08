@@ -621,11 +621,21 @@ async def add_uma_event(ctx, event_data):
             
             # Check if anything changed
             changed = False
-            if (str(event_data["start"]) != str(old_start) or 
-                str(event_data["end"]) != str(old_end) or
-                event_data.get("image") != old_image or
-                event_data.get("description", "") != old_desc):
-                changed = True
+            
+            # For Champions Meeting, ignore description changes (detail lines can vary between scrapes)
+            # Only check start/end times and image
+            if "Champions Meeting" in event_data["title"] or "champions meeting" in event_data["title"].lower():
+                if (str(event_data["start"]) != str(old_start) or 
+                    str(event_data["end"]) != str(old_end) or
+                    event_data.get("image") != old_image):
+                    changed = True
+            else:
+                # For other events, check description too
+                if (str(event_data["start"]) != str(old_start) or 
+                    str(event_data["end"]) != str(old_end) or
+                    event_data.get("image") != old_image or
+                    event_data.get("description", "") != old_desc):
+                    changed = True
             
             if changed:
                 # Update existing event
