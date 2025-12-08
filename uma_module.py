@@ -1667,14 +1667,14 @@ async def uma_dump_db(ctx):
                     # Dump support_cards table
                     f.write("\n\n=== SUPPORT_CARDS TABLE ===\n\n")
                     async with conn.execute(
-                        "SELECT support_id, name, link FROM support_cards ORDER BY name"
+                        "SELECT card_id, name, link FROM support_cards ORDER BY name"
                     ) as cursor:
                         support_rows = await cursor.fetchall()
                         f.write(f"Total support cards: {len(support_rows)}\n\n")
                         
                         for support_row in support_rows:
-                            support_id, name, link = support_row
-                            f.write(f"{support_id}: {name} (Link: {link if link else 'None'})\n")
+                            card_id, name, link = support_row
+                            f.write(f"{card_id}: {name} (Link: {link if link else 'None'})\n")
                     
                     # Dump banner_items table
                     f.write("\n\n=== BANNER_ITEMS TABLE ===\n\n")
@@ -1700,23 +1700,14 @@ async def uma_dump_db(ctx):
                     # Dump global_banner_images table
                     f.write("\n=== GLOBAL_BANNER_IMAGES TABLE ===\n\n")
                     async with conn.execute(
-                        "SELECT banner_id, image_url, image_path, downloaded FROM global_banner_images ORDER BY banner_id"
+                        "SELECT banner_id, image_filename FROM global_banner_images ORDER BY banner_id"
                     ) as cursor:
                         img_rows = await cursor.fetchall()
                         f.write(f"Total global banner images: {len(img_rows)}\n\n")
                         
-                        downloaded_count = 0
                         for img_row in img_rows:
-                            banner_id, image_url, image_path, downloaded = img_row
-                            if downloaded:
-                                downloaded_count += 1
-                            f.write(f"Banner {banner_id}:\n")
-                            f.write(f"  URL: {image_url[:80] if image_url else 'None'}{'...' if image_url and len(image_url) > 80 else ''}\n")
-                            f.write(f"  Path: {image_path if image_path else 'None'}\n")
-                            f.write(f"  Downloaded: {bool(downloaded)}\n")
-                            f.write("\n")
-                        
-                        f.write(f"\nSummary: {downloaded_count}/{len(img_rows)} images downloaded\n")
+                            banner_id, image_filename = img_row
+                            f.write(f"Banner {banner_id}: {image_filename}\n")
             else:
                 f.write("⚠️ GameTora database not found at expected path.\n")
                 f.write(f"Expected: {gametora_db}\n")
