@@ -345,18 +345,32 @@ async def upsert_event_message(guild, channel, event, event_id):
                 if msg.embeds:
                     old_embed = msg.embeds[0]
                     
+                    # Get old and new image URLs for comparison
+                    old_image_url = old_embed.image.url if old_embed.image else None
+                    # For new image, extract URL whether it's HTTP or attachment
+                    new_image_url = None
+                    if event.get("image"):
+                        if event["image"].startswith("http"):
+                            new_image_url = event["image"]
+                        else:
+                            # Local file path - will be uploaded as attachment://image.png
+                            # Check if old image is also an attachment
+                            if old_image_url and old_image_url.startswith("attachment://"):
+                                # Both are attachments, consider unchanged
+                                new_image_url = old_image_url
+                    
                     # For Champions Meeting, ignore description changes (detail lines vary)
                     if "Champions Meeting" in event['title'] or "champions meeting" in event['title'].lower():
                         if (old_embed.title != embed.title or
                             old_embed.color != embed.color or
-                            (old_embed.image.url if old_embed.image else None) != (event.get("image") if event.get("image", "").startswith("http") else None)):
+                            old_image_url != new_image_url):
                             needs_update = True
                     else:
                         # For other events, check description too
                         if (old_embed.title != embed.title or 
                             old_embed.description != embed.description or
                             old_embed.color != embed.color or
-                            (old_embed.image.url if old_embed.image else None) != (event.get("image") if event.get("image", "").startswith("http") else None)):
+                            old_image_url != new_image_url):
                             needs_update = True
                 else:
                     needs_update = True
@@ -1550,15 +1564,15 @@ async def uma_gametora_refresh(ctx):
 @bot.command(name="uma_dump_db")
 async def uma_dump_db(ctx):
     """
-    Dumps the Uma Musume database to a text file for debugging.
-    Shows all events with their details.
+    Dumps the Uma Musume databases to a text file for debugging.
+    Shows all events and GameTora scraper data.
     """
     # Only allow owner to run this
     if ctx.author.id != OWNER_USER_ID:
         await ctx.send("❌ This command is restricted to the bot owner.")
         return
     
-    await ctx.send("📄 Dumping Uma Musume database...")
+    await ctx.send("📄 Dumping Uma Musume databases (events + GameTora)...")
     
     try:
         import os
@@ -1570,6 +1584,11 @@ async def uma_dump_db(ctx):
         with open(dump_file, "w", encoding="utf-8") as f:
             f.write(f"=== UMA MUSUME DATABASE DUMP ===\n")
             f.write(f"Generated: {dt.now(timezone.utc).isoformat()}\n\n")
+            
+            # ===== EVENTS DATABASE =====
+            f.write("=" * 80 + "\n")
+            f.write("EVENTS DATABASE (uma_musume_data.db)\n")
+            f.write("=" * 80 + "\n\n")
             
             async with aiosqlite.connect(UMA_DB_PATH) as conn:
                 # Dump events table
@@ -1592,7 +1611,7 @@ async def uma_dump_db(ctx):
                         f.write(f"Start: {start} ({start_dt})\n")
                         f.write(f"End: {end} ({end_dt})\n")
                         f.write(f"Image: {image[:100] if image else 'None'}{'...' if image and len(image) > 100 else ''}\n")
-                        f.write(f"Description: {desc if desc else 'None'}\n")
+                        f.write(f"Description: {desc[:200] if desc else 'None'}{'...' if desc and len(desc) > 200 else ''}\n")
                         f.write(f"User ID: {user_id}\n")
                         f.write("\n")
                 
@@ -1607,6 +1626,100 @@ async def uma_dump_db(ctx):
                     for msg_row in msg_rows:
                         event_id, channel_id, message_id = msg_row
                         f.write(f"Event {event_id} -> Channel {channel_id}, Message {message_id}\n")
+            
+            # ===== GAMETORA DATABASE =====
+            f.write("\n\n" + "=" * 80 + "\n")
+            f.write("GAMETORA DATABASE (uma_jp_data.db)\n")
+            f.write("=" * 80 + "\n\n")
+            
+            gametora_db = os.path.join("data", "JP_Data", "uma_jp_data.db")
+            if os.path.exists(gametora_db):
+                async with aiosqlite.connect(gametora_db) as conn:
+                    # Dump banners table
+                    f.write("=== BANNERS TABLE ===\n\n")
+                    async with conn.execute(
+                        "SELECT id, banner_id, banner_type, description, server FROM banners ORDER BY id DESC"
+                    ) as cursor:
+                        banner_rows = await cursor.fetchall()
+                        f.write(f"Total banners: {len(banner_rows)}\n\n")
+                        
+                        for banner_row in banner_rows:
+                            b_id, banner_id, banner_type, desc, server = banner_row
+                            f.write(f"--- Banner {b_id} ---\n")
+                            f.write(f"Banner ID: {banner_id}\n")
+                            f.write(f"Type: {banner_type}\n")
+                            f.write(f"Server: {server}\n")
+                            f.write(f"Description: {desc[:150] if desc else 'None'}{'...' if desc and len(desc) > 150 else ''}\n")
+                            f.write("\n")
+                    
+                    # Dump characters table
+                    f.write("\n=== CHARACTERS TABLE ===\n\n")
+                    async with conn.execute(
+                        "SELECT character_id, name, link FROM characters ORDER BY name"
+                    ) as cursor:
+                        char_rows = await cursor.fetchall()
+                        f.write(f"Total characters: {len(char_rows)}\n\n")
+                        
+                        for char_row in char_rows:
+                            char_id, name, link = char_row
+                            f.write(f"{char_id}: {name} (Link: {link if link else 'None'})\n")
+                    
+                    # Dump support_cards table
+                    f.write("\n\n=== SUPPORT_CARDS TABLE ===\n\n")
+                    async with conn.execute(
+                        "SELECT support_id, name, link FROM support_cards ORDER BY name"
+                    ) as cursor:
+                        support_rows = await cursor.fetchall()
+                        f.write(f"Total support cards: {len(support_rows)}\n\n")
+                        
+                        for support_row in support_rows:
+                            support_id, name, link = support_row
+                            f.write(f"{support_id}: {name} (Link: {link if link else 'None'})\n")
+                    
+                    # Dump banner_items table
+                    f.write("\n\n=== BANNER_ITEMS TABLE ===\n\n")
+                    async with conn.execute(
+                        "SELECT banner_id, item_id, item_type FROM banner_items ORDER BY banner_id"
+                    ) as cursor:
+                        item_rows = await cursor.fetchall()
+                        f.write(f"Total banner-item mappings: {len(item_rows)}\n\n")
+                        
+                        # Group by banner_id for readability
+                        from collections import defaultdict
+                        banner_items_map = defaultdict(list)
+                        for item_row in item_rows:
+                            banner_id, item_id, item_type = item_row
+                            banner_items_map[banner_id].append((item_id, item_type))
+                        
+                        for banner_id, items in banner_items_map.items():
+                            f.write(f"Banner {banner_id}: {len(items)} items\n")
+                            for item_id, item_type in items:
+                                f.write(f"  - {item_type}: {item_id}\n")
+                            f.write("\n")
+                    
+                    # Dump global_banner_images table
+                    f.write("\n=== GLOBAL_BANNER_IMAGES TABLE ===\n\n")
+                    async with conn.execute(
+                        "SELECT banner_id, image_url, image_path, downloaded FROM global_banner_images ORDER BY banner_id"
+                    ) as cursor:
+                        img_rows = await cursor.fetchall()
+                        f.write(f"Total global banner images: {len(img_rows)}\n\n")
+                        
+                        downloaded_count = 0
+                        for img_row in img_rows:
+                            banner_id, image_url, image_path, downloaded = img_row
+                            if downloaded:
+                                downloaded_count += 1
+                            f.write(f"Banner {banner_id}:\n")
+                            f.write(f"  URL: {image_url[:80] if image_url else 'None'}{'...' if image_url and len(image_url) > 80 else ''}\n")
+                            f.write(f"  Path: {image_path if image_path else 'None'}\n")
+                            f.write(f"  Downloaded: {bool(downloaded)}\n")
+                            f.write("\n")
+                        
+                        f.write(f"\nSummary: {downloaded_count}/{len(img_rows)} images downloaded\n")
+            else:
+                f.write("⚠️ GameTora database not found at expected path.\n")
+                f.write(f"Expected: {gametora_db}\n")
         
         # Send file to user
         await ctx.send(f"✅ Database dumped to `{dump_file}`", file=discord.File(dump_file))
