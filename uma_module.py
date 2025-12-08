@@ -344,11 +344,20 @@ async def upsert_event_message(guild, channel, event, event_id):
                 needs_update = False
                 if msg.embeds:
                     old_embed = msg.embeds[0]
-                    if (old_embed.title != embed.title or 
-                        old_embed.description != embed.description or
-                        old_embed.color != embed.color or
-                        (old_embed.image.url if old_embed.image else None) != (event.get("image") if event.get("image", "").startswith("http") else None)):
-                        needs_update = True
+                    
+                    # For Champions Meeting, ignore description changes (detail lines vary)
+                    if "Champions Meeting" in event['title'] or "champions meeting" in event['title'].lower():
+                        if (old_embed.title != embed.title or
+                            old_embed.color != embed.color or
+                            (old_embed.image.url if old_embed.image else None) != (event.get("image") if event.get("image", "").startswith("http") else None)):
+                            needs_update = True
+                    else:
+                        # For other events, check description too
+                        if (old_embed.title != embed.title or 
+                            old_embed.description != embed.description or
+                            old_embed.color != embed.color or
+                            (old_embed.image.url if old_embed.image else None) != (event.get("image") if event.get("image", "").startswith("http") else None)):
+                            needs_update = True
                 else:
                     needs_update = True
                 
@@ -1535,6 +1544,76 @@ async def uma_gametora_refresh(ctx):
     except Exception as e:
         import traceback
         error_msg = f"❌ Refresh failed: {e}\n```{traceback.format_exc()[:1500]}```"
+        await ctx.send(error_msg)
+
+
+@bot.command(name="uma_dump_db")
+async def uma_dump_db(ctx):
+    """
+    Dumps the Uma Musume database to a text file for debugging.
+    Shows all events with their details.
+    """
+    # Only allow owner to run this
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("❌ This command is restricted to the bot owner.")
+        return
+    
+    await ctx.send("📄 Dumping Uma Musume database...")
+    
+    try:
+        import os
+        from datetime import datetime as dt
+        
+        dump_file = os.path.join("logs", f"uma_db_dump_{dt.now().strftime('%Y%m%d_%H%M%S')}.txt")
+        os.makedirs("logs", exist_ok=True)
+        
+        with open(dump_file, "w", encoding="utf-8") as f:
+            f.write(f"=== UMA MUSUME DATABASE DUMP ===\n")
+            f.write(f"Generated: {dt.now(timezone.utc).isoformat()}\n\n")
+            
+            async with aiosqlite.connect(UMA_DB_PATH) as conn:
+                # Dump events table
+                f.write("=== EVENTS TABLE ===\n\n")
+                async with conn.execute(
+                    "SELECT id, title, start_date, end_date, image, category, profile, description, user_id FROM events ORDER BY start_date DESC"
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                    f.write(f"Total events: {len(rows)}\n\n")
+                    
+                    for row in rows:
+                        event_id, title, start, end, image, category, profile, desc, user_id = row
+                        start_dt = dt.fromtimestamp(int(start), tz=timezone.utc) if start else "N/A"
+                        end_dt = dt.fromtimestamp(int(end), tz=timezone.utc) if end else "N/A"
+                        
+                        f.write(f"--- Event ID: {event_id} ---\n")
+                        f.write(f"Title: {title}\n")
+                        f.write(f"Category: {category}\n")
+                        f.write(f"Profile: {profile}\n")
+                        f.write(f"Start: {start} ({start_dt})\n")
+                        f.write(f"End: {end} ({end_dt})\n")
+                        f.write(f"Image: {image[:100] if image else 'None'}{'...' if image and len(image) > 100 else ''}\n")
+                        f.write(f"Description: {desc if desc else 'None'}\n")
+                        f.write(f"User ID: {user_id}\n")
+                        f.write("\n")
+                
+                # Dump event_messages table
+                f.write("\n=== EVENT_MESSAGES TABLE ===\n\n")
+                async with conn.execute(
+                    "SELECT event_id, channel_id, message_id FROM event_messages ORDER BY event_id"
+                ) as cursor:
+                    msg_rows = await cursor.fetchall()
+                    f.write(f"Total message mappings: {len(msg_rows)}\n\n")
+                    
+                    for msg_row in msg_rows:
+                        event_id, channel_id, message_id = msg_row
+                        f.write(f"Event {event_id} -> Channel {channel_id}, Message {message_id}\n")
+        
+        # Send file to user
+        await ctx.send(f"✅ Database dumped to `{dump_file}`", file=discord.File(dump_file))
+        
+    except Exception as e:
+        import traceback
+        error_msg = f"❌ Dump failed: {e}\n```{traceback.format_exc()[:1500]}```"
         await ctx.send(error_msg)
 
 
