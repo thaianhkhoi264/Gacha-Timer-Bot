@@ -876,19 +876,22 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                                         if name_text:
                                             item_names.append(name_text)
                                 
-                                # Try to determine if it's Character or Support based on context
-                                # Check the page URL or container for type info
+                                # Determine if it's Character or Support based on container text
                                 container_text = await container.inner_text()
-                                if "Character" in container_text or any("New," in name or "Rerun," in name for name in item_names):
-                                    # Most character banners have rate-up info
+                                if "Support Card" in container_text or "サポートカード" in container_text:
+                                    banner_type = "Support"
+                                elif "Character" in container_text or "キャラクター" in container_text:
                                     banner_type = "Character"
                                 else:
-                                    # Could be support or unknown
-                                    banner_type = "Support"
+                                    # Fallback: check for rate-up markers (usually only on character banners)
+                                    if any("New" in name or "Rerun" in name for name in item_names):
+                                        banner_type = "Character"
+                                    else:
+                                        banner_type = "Unknown"
                                 
                                 # Clean names for description (remove " New" or " Rerun" from end)
                                 clean_names = []
-                                for name in item_names[:5]:  # First 5 items
+                                for name in item_names:  # ALL items
                                     # Remove " New" or " Rerun" from end, along with any trailing rate info
                                     clean = re.sub(r'\s+(New|Rerun)(?:,?\s*[\d.]+%)?\s*$', '', name).strip()
                                     if clean:
@@ -902,7 +905,9 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                                 VALUES (?, ?, ?, 'JA')
                             ''', (banner_id, banner_type, description))
                             banners_added += 1
-                            print(f"[GameTora] Added banner {banner_id} ({banner_type}): {description[:50]}")
+                            # Truncate only for display, not for storage
+                            display_desc = description if len(description) <= 80 else description[:77] + "..."
+                            print(f"[GameTora] Added banner {banner_id} ({banner_type}): {display_desc}")
                             
                             # Store character/support names (without links since they're not easily accessible)
                             for item_name in item_names:
