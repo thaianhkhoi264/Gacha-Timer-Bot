@@ -870,29 +870,43 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                                 list_items = await items_list.query_selector_all('li')
                                 
                                 for li in list_items:
-                                    # Get the link element which contains both name and ID
-                                    link_elem = await li.query_selector('a')
-                                    if link_elem:
-                                        # Extract name from text
-                                        name_text = (await link_elem.inner_text()).strip()
-                                        if not name_text:
-                                            continue
-                                        
-                                        # Extract ID from href (e.g., /umamusume/character/103002)
-                                        href = await link_elem.get_attribute('href')
-                                        item_id = None
-                                        item_link = ""
-                                        
-                                        if href:
-                                            item_link = href
-                                            # Extract ID from URL patterns:
-                                            # /umamusume/character/103002 or /umamusume/support-card/30337
-                                            id_match = re.search(r'/(?:character|support-card)/(\d+)', href)
-                                            if id_match:
-                                                item_id = id_match.group(1)
-                                        
-                                        item_names.append(name_text)
-                                        item_data.append((name_text, item_id, item_link))
+                                    # Get the clickable span that triggers tooltip
+                                    clickable_span = await li.query_selector('.gacha_link_alt__mZW_P')
+                                    if not clickable_span:
+                                        continue
+                                    
+                                    # Get name from span
+                                    name_text = (await clickable_span.inner_text()).strip()
+                                    if not name_text:
+                                        continue
+                                    
+                                    # Hover to reveal tooltip with link
+                                    await clickable_span.hover()
+                                    await asyncio.sleep(0.5)  # Wait for tooltip to appear
+                                    
+                                    # Find tooltip and extract link
+                                    item_id = None
+                                    item_link = ""
+                                    
+                                    tooltip = await page.query_selector('[role="tooltip"]')
+                                    if tooltip:
+                                        # Find link in tooltip (characters or supports)
+                                        link_elem = await tooltip.query_selector('a[href*="character"], a[href*="support"]')
+                                        if link_elem:
+                                            href = await link_elem.get_attribute('href')
+                                            if href:
+                                                item_link = href
+                                                # Extract ID from /characters/XXXXX or /supports/XXXXX
+                                                id_match = re.search(r'/(?:characters|supports)/(\d+)', href)
+                                                if id_match:
+                                                    item_id = id_match.group(1)
+                                    
+                                    # Move mouse away to close tooltip
+                                    await page.mouse.move(0, 0)
+                                    await asyncio.sleep(0.2)
+                                    
+                                    item_names.append(name_text)
+                                    item_data.append((name_text, item_id, item_link))
                                 
                                 # Determine if it's Character or Support based on container text
                                 container_text = await container.inner_text()
