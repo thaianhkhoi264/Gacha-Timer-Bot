@@ -1,0 +1,3805 @@
+=== UMA MUSUME DATABASE DUMP ===
+Generated: 2025-12-08T12:41:35.949681+00:00
+
+================================================================================
+EVENTS DATABASE (uma_musume_data.db)
+================================================================================
+
+=== EVENTS TABLE ===
+
+Total events: 7
+
+--- Event ID: 10 ---
+Title: Tosen Jordan Banner
+Category: Banner
+Profile: UMA
+Start: 1766095200 (2025-12-18 22:00:00+00:00)
+End: 1767045540 (2025-12-29 21:59:00+00:00)
+Image: data/combined_images/combined_v_e8605dd958f1.png
+Description: **Characters:** Tosen Jordan
+**Support Cards:** El Condor Pasa & Kitasan Black
+User ID: 0
+
+--- Event ID: 8 ---
+Title: Symboli Rudolf & Gold City Banner
+Category: Banner
+Profile: UMA
+Start: 1765749600 (2025-12-14 22:00:00+00:00)
+End: 1766699940 (2025-12-25 21:59:00+00:00)
+Image: data/combined_images/combined_v_d29c18d23b3b.png
+Description: **Characters:** Symboli Rudolf & Gold City
+**Support Cards:** Curren Chan & Narita Brian
+User ID: 0
+
+--- Event ID: 9 ---
+Title: The Sounds of Autumn
+Category: Event
+Profile: UMA
+Start: 1765749600 (2025-12-14 22:00:00+00:00)
+End: 1766699940 (2025-12-25 21:59:00+00:00)
+Image: https://uma.moe/assets/images/story/10_the_sounds_of_autumn_banner.png
+Description: None
+User ID: 0
+
+--- Event ID: 6 ---
+Title: Manhattan Cafe Banner
+Category: Banner
+Profile: UMA
+Start: 1765231200 (2025-12-08 22:00:00+00:00)
+End: 1765922340 (2025-12-16 21:59:00+00:00)
+Image: data/combined_images/combined_v_50be5687a35d.png
+Description: **Characters:** Manhattan Cafe
+**Support Cards:** Sirius Symboli & Nakayama Festa
+User ID: 0
+
+--- Event ID: 7 ---
+Title: Champions Meeting: Libra Cup
+Category: Event
+Profile: UMA
+Start: 1765231200 (2025-12-08 22:00:00+00:00)
+End: 1766095140 (2025-12-18 21:59:00+00:00)
+Image: None
+Description: Kyoto - Turf
+3000m - Long - Clockwise
+Firm - Autumn - Sunny
+User ID: 0
+
+--- Event ID: 5 ---
+Title: Kikka Sho Legend Race
+Category: Event
+Profile: UMA
+Start: 1764885600 (2025-12-04 22:00:00+00:00)
+End: 1765663140 (2025-12-13 21:59:00+00:00)
+Image: data/combined_images/combined_h_6998206f8d1b.png
+Description: 3000m - Long - Turf
+User ID: 0
+
+--- Event ID: 4 ---
+Title: Kawakami Princess Banner
+Category: Banner
+Profile: UMA
+Start: 1764626400 (2025-12-01 22:00:00+00:00)
+End: 1765403940 (2025-12-10 21:59:00+00:00)
+Image: data/combined_images/combined_v_395b663853ec.png
+Description: **Characters:** Kawakami Princess
+**Support Cards:** Seiun Sky & Yaeno Muteki
+User ID: 0
+
+
+=== EVENT_MESSAGES TABLE ===
+
+Total message mappings: 7
+
+Event 4 -> Channel 1417203942353272882, Message 1446266653364060210
+Event 5 -> Channel 1417203942353272882, Message 1446266658518732943
+Event 6 -> Channel 1417203965308964966, Message 1446266664642674851
+Event 7 -> Channel 1417203965308964966, Message 1447545051550060679
+Event 8 -> Channel 1417203965308964966, Message 1446266672003551332
+Event 9 -> Channel 1417203965308964966, Message 1446266675979882669
+Event 10 -> Channel 1417203965308964966, Message 1446266679846764566
+
+
+================================================================================
+GAMETORA DATABASE (uma_jp_data.db)
+================================================================================
+
+=== BANNERS TABLE ===
+
+Total banners: 317
+
+--- Banner 317 ---
+Banner ID: 30002
+Type: Character
+Server: JA
+Description: Special Week, Silence Suzuka, Tokai Teio, Maruzensky, Oguri Cap, Taiki Shuttle, Mejiro McQueen, Symboli Rudolf, Rice Shower
+
+--- Banner 316 ---
+Banner ID: 30003
+Type: Support
+Server: JA
+Description: Special Week (SSR guts), Silence Suzuka (SSR speed), Tokai Teio (SSR speed), Gold Ship (SSR stamina), Vodka (SSR power), Grass Wonder (SSR guts), El C...
+
+--- Banner 315 ---
+Banner ID: 30004
+Type: Character
+Server: JA
+Description: TM Opera O
+
+--- Banner 314 ---
+Banner ID: 30005
+Type: Support
+Server: JA
+Description: Sweep Tosho (SR speed), Oguri Cap (SSR power)
+
+--- Banner 313 ---
+Banner ID: 30006
+Type: Character
+Server: JA
+Description: Mihono Bourbon
+
+--- Banner 312 ---
+Banner ID: 30007
+Type: Support
+Server: JA
+Description: Daitaku Helios (SR power), Twin Turbo (SSR speed)
+
+--- Banner 311 ---
+Banner ID: 30008
+Type: Character
+Server: JA
+Description: Biwa Hayahide
+
+--- Banner 310 ---
+Banner ID: 30009
+Type: Support
+Server: JA
+Description: Ikuno Dictus (SR intelligence), Mejiro Palmer (SSR guts)
+
+--- Banner 309 ---
+Banner ID: 30010
+Type: Character
+Server: JA
+Description: Tokai Teio (Anime Collab), Mejiro McQueen (Anime Collab)
+
+--- Banner 308 ---
+Banner ID: 30011
+Type: Support
+Server: JA
+Description: Kitasan Black (SSR speed), Satono Diamond (SSR stamina)
+
+--- Banner 307 ---
+Banner ID: 30012
+Type: Character
+Server: JA
+Description: Curren Chan
+
+--- Banner 306 ---
+Banner ID: 30013
+Type: Support
+Server: JA
+Description: Nishino Flower (SR power), Yukino Bijin (SSR intelligence)
+
+--- Banner 305 ---
+Banner ID: 30014
+Type: Character
+Server: JA
+Description: Narita Taishin
+
+--- Banner 304 ---
+Banner ID: 30015
+Type: Support
+Server: JA
+Description: Zenno Rob Roy (SR stamina), Yaeno Muteki (SSR power)
+
+--- Banner 303 ---
+Banner ID: 30016
+Type: Character
+Server: JA
+Description: Smart Falcon
+
+--- Banner 302 ---
+Banner ID: 30017
+Type: Support
+Server: JA
+Description: Super Creek (SSR stamina), Tazuna Hayakawa (SSR friend)
+
+--- Banner 301 ---
+Banner ID: 30018
+Type: Character
+Server: JA
+Description: Narita Brian
+
+--- Banner 300 ---
+Banner ID: 30019
+Type: Support
+Server: JA
+Description: Seeking the Pearl (SR guts), Sakura Chiyono O (SSR stamina)
+
+--- Banner 299 ---
+Banner ID: 30020
+Type: Character
+Server: JA
+Description: Mayano Top Gun (Wedding), Air Groove (Wedding)
+
+--- Banner 298 ---
+Banner ID: 30021
+Type: Support
+Server: JA
+Description: Kawakami Princess (SSR speed), Hishi Akebono (SSR guts)
+
+--- Banner 297 ---
+Banner ID: 30022
+Type: Character
+Server: JA
+Description: Seiun Sky
+
+--- Banner 296 ---
+Banner ID: 30023
+Type: Support
+Server: JA
+Description: Silence Suzuka (SSR speed), Tamamo Cross (SSR stamina)
+
+--- Banner 295 ---
+Banner ID: 30024
+Type: Character
+Server: JA
+Description: Hishi Amazon
+
+--- Banner 294 ---
+Banner ID: 30025
+Type: Support
+Server: JA
+Description: Shinko Windy (SR speed), Bamboo Memory (SSR power)
+
+--- Banner 293 ---
+Banner ID: 30026
+Type: Character
+Server: JA
+Description: El Condor Pasa (Fantasy), Grass Wonder (Fantasy)
+
+--- Banner 292 ---
+Banner ID: 30027
+Type: Support
+Server: JA
+Description: Seiun Sky (SSR intelligence), King Halo (SSR power)
+
+--- Banner 291 ---
+Banner ID: 30028
+Type: Character
+Server: JA
+Description: Fuji Kiseki
+
+--- Banner 290 ---
+Banner ID: 30029
+Type: Support
+Server: JA
+Description: Mejiro Ardan (SR intelligence), Mejiro Ryan (SSR guts)
+
+--- Banner 289 ---
+Banner ID: 30030
+Type: Character
+Server: JA
+Description: Gold City
+
+--- Banner 288 ---
+Banner ID: 30031
+Type: Support
+Server: JA
+Description: Vodka (SSR power), Nishino Flower (SSR speed)
+
+--- Banner 287 ---
+Banner ID: 30032
+Type: Character
+Server: JA
+Description: Special Week (Summer), Maruzensky (Summer)
+
+--- Banner 286 ---
+Banner ID: 30033
+Type: Support
+Server: JA
+Description: Sweep Tosho (SSR speed), Winning Ticket (SSR stamina)
+
+--- Banner 285 ---
+Banner ID: 30034
+Type: Character
+Server: JA
+Description: Meisho Doto
+
+--- Banner 284 ---
+Banner ID: 30035
+Type: Support
+Server: JA
+Description: Special Week (SSR guts), Tokai Teio (SSR speed)
+
+--- Banner 283 ---
+Banner ID: 30036
+Type: Character
+Server: JA
+Description: Eishin Flash
+
+--- Banner 282 ---
+Banner ID: 30037
+Type: Support
+Server: JA
+Description: Tosen Jordan (SR stamina), Nice Nature (SSR intelligence)
+
+--- Banner 281 ---
+Banner ID: 30038
+Type: Character
+Server: JA
+Description: Matikanefukukitaru (Full Armor)
+
+--- Banner 280 ---
+Banner ID: 30039
+Type: Support
+Server: JA
+Description: Rice Shower (SSR power), Riko Kashimoto (SSR friend)
+
+--- Banner 279 ---
+Banner ID: 30040
+Type: Character
+Server: JA
+Description: Hishi Akebono
+
+--- Banner 278 ---
+Banner ID: 30041
+Type: Support
+Server: JA
+Description: Sakura Bakushin O (SSR speed), Biko Pegasus (SSR speed)
+
+--- Banner 277 ---
+Banner ID: 30042
+Type: Character
+Server: JA
+Description: Agnes Digital
+
+--- Banner 276 ---
+Banner ID: 30043
+Type: Support
+Server: JA
+Description: Fine Motion (SR power), Ikuno Dictus (SSR guts)
+
+--- Banner 275 ---
+Banner ID: 30044
+Type: Character
+Server: JA
+Description: Rice Shower (Halloween), Super Creek (Halloween)
+
+--- Banner 274 ---
+Banner ID: 30045
+Type: Support
+Server: JA
+Description: Tamamo Cross (SSR power), Zenno Rob Roy (SSR speed)
+
+--- Banner 273 ---
+Banner ID: 30046
+Type: Character
+Server: JA
+Description: Kawakami Princess
+
+--- Banner 272 ---
+Banner ID: 30047
+Type: Support
+Server: JA
+Description: Seiun Sky (SSR stamina), Yaeno Muteki (SSR power)
+
+--- Banner 271 ---
+Banner ID: 30048
+Type: Character
+Server: JA
+Description: Manhattan Cafe
+
+--- Banner 270 ---
+Banner ID: 30049
+Type: Support
+Server: JA
+Description: Sirius Symboli (SR guts), Nakayama Festa (SSR stamina)
+
+--- Banner 269 ---
+Banner ID: 30050
+Type: Character
+Server: JA
+Description: Symboli Rudolf (Festival), Gold City (Festival)
+
+--- Banner 268 ---
+Banner ID: 30051
+Type: Support
+Server: JA
+Description: Curren Chan (SSR intelligence), Narita Brian (SSR stamina)
+
+--- Banner 267 ---
+Banner ID: 30052
+Type: Character
+Server: JA
+Description: Tosen Jordan
+
+--- Banner 266 ---
+Banner ID: 30053
+Type: Support
+Server: JA
+Description: El Condor Pasa (SSR power), Kitasan Black (SSR speed)
+
+--- Banner 265 ---
+Banner ID: 30054
+Type: Character
+Server: JA
+Description: Mejiro Dober
+
+--- Banner 264 ---
+Banner ID: 30055
+Type: Support
+Server: JA
+Description: Vodka (SR speed), Daitaku Helios (SSR power)
+
+--- Banner 263 ---
+Banner ID: 30056
+Type: Character
+Server: JA
+Description: Oguri Cap (Christmas), Biwa Hayahide (Christmas)
+
+--- Banner 262 ---
+Banner ID: 30057
+Type: Support
+Server: JA
+Description: Mayano Top Gun (SSR speed), Narita Taishin (SSR intelligence)
+
+--- Banner 261 ---
+Banner ID: 30058
+Type: Character
+Server: JA
+Description: Fine Motion
+
+--- Banner 260 ---
+Banner ID: 30059
+Type: Support
+Server: JA
+Description: Inari One (SR power), Manhattan Cafe (SSR stamina)
+
+--- Banner 259 ---
+Banner ID: 30060
+Type: Character
+Server: JA
+Description: Tamamo Cross
+
+--- Banner 258 ---
+Banner ID: 30061
+Type: Support
+Server: JA
+Description: Oguri Cap (SSR power), Nice Nature (SSR intelligence)
+
+--- Banner 257 ---
+Banner ID: 30062
+Type: Character
+Server: JA
+Description: Haru Urara (New Year), TM Opera O (New Year)
+
+--- Banner 256 ---
+Banner ID: 30063
+Type: Support
+Server: JA
+Description: Admire Vega (SSR power), Matikanefukukitaru (SSR speed)
+
+--- Banner 255 ---
+Banner ID: 30064
+Type: Character
+Server: JA
+Description: Special Week, Silence Suzuka, Tokai Teio, Maruzensky, Oguri Cap, Taiki Shuttle, Mejiro McQueen, TM Opera O, Symboli Rudolf, Rice Shower, Mihono Bourbo...
+
+--- Banner 254 ---
+Banner ID: 30065
+Type: Support
+Server: JA
+Description: Tamamo Cross (SR guts), Sasami Anshinzawa (SSR friend)
+
+--- Banner 253 ---
+Banner ID: 30066
+Type: Character
+Server: JA
+Description: Sakura Chiyono O
+
+--- Banner 252 ---
+Banner ID: 30067
+Type: Support
+Server: JA
+Description: Tazuna Hayakawa (SSR friend), Riko Kashimoto (SSR friend)
+
+--- Banner 251 ---
+Banner ID: 30068
+Type: Character
+Server: JA
+Description: Mihono Bourbon (Valentine), Eishin Flash (Valentine)
+
+--- Banner 250 ---
+Banner ID: 30069
+Type: Support
+Server: JA
+Description: Nishino Flower (SSR intelligence), Sakura Bakushin O (SSR guts)
+
+--- Banner 249 ---
+Banner ID: 30070
+Type: Character
+Server: JA
+Description: Mejiro Ardan
+
+--- Banner 248 ---
+Banner ID: 30071
+Type: Support
+Server: JA
+Description: Ines Fujin (SR intelligence), Agnes Digital (SSR power)
+
+--- Banner 247 ---
+Banner ID: 30072
+Type: Character
+Server: JA
+Description: Admire Vega
+
+--- Banner 246 ---
+Banner ID: 30073
+Type: Support
+Server: JA
+Description: Fine Motion (SSR intelligence), Kawakami Princess (SSR speed)
+
+--- Banner 245 ---
+Banner ID: 30074
+Type: Character
+Server: JA
+Description: Matikanetannhauser, Kitasan Black
+
+--- Banner 244 ---
+Banner ID: 30075
+Type: Support
+Server: JA
+Description: Mejiro Ryan (SR stamina), Admire Vega (SR guts), Sakura Bakushin O (SR power), Narita Top Road (SSR speed)
+
+--- Banner 243 ---
+Banner ID: 30076
+Type: Character
+Server: JA
+Description: Satono Diamond
+
+--- Banner 242 ---
+Banner ID: 30077
+Type: Support
+Server: JA
+Description: Curren Chan (SR speed), Marvelous Sunday (SSR guts)
+
+--- Banner 241 ---
+Banner ID: 30078
+Type: Character
+Server: JA
+Description: Mejiro Bright
+
+--- Banner 240 ---
+Banner ID: 30079
+Type: Support
+Server: JA
+Description: Zenno Rob Roy (SSR speed), Curren Chan (SSR intelligence)
+
+--- Banner 239 ---
+Banner ID: 30080
+Type: Character
+Server: JA
+Description: Seiun Sky (Ballroom), Fuji Kiseki (Ballroom)
+
+--- Banner 238 ---
+Banner ID: 30081
+Type: Support
+Server: JA
+Description: Symboli Rudolf (SSR stamina), Sirius Symboli (SSR intelligence)
+
+--- Banner 237 ---
+Banner ID: 30082
+Type: Character
+Server: JA
+Description: Nishino Flower
+
+--- Banner 236 ---
+Banner ID: 30083
+Type: Support
+Server: JA
+Description: Sweep Tosho (SR intelligence), Daiwa Scarlet (SSR power)
+
+--- Banner 235 ---
+Banner ID: 30084
+Type: Character
+Server: JA
+Description: Yaeno Muteki
+
+--- Banner 234 ---
+Banner ID: 30085
+Type: Support
+Server: JA
+Description: Ines Fujin (SSR guts), Twin Turbo (SSR speed)
+
+--- Banner 233 ---
+Banner ID: 30086
+Type: Character
+Server: JA
+Description: Nice Nature (Cheerleader), King Halo (Cheerleader)
+
+--- Banner 232 ---
+Banner ID: 30087
+Type: Support
+Server: JA
+Description: Bamboo Memory (SSR guts), Seeking the Pearl (SSR speed)
+
+--- Banner 231 ---
+Banner ID: 30088
+Type: Character
+Server: JA
+Description: Ines Fujin
+
+--- Banner 230 ---
+Banner ID: 30089
+Type: Support
+Server: JA
+Description: Tokai Teio (SR stamina), Mr. C.B. (SSR intelligence)
+
+--- Banner 229 ---
+Banner ID: 30090
+Type: Character
+Server: JA
+Description: Mejiro Palmer
+
+--- Banner 228 ---
+Banner ID: 30091
+Type: Support
+Server: JA
+Description: Rice Shower (SSR power), Matikanefukukitaru (SSR speed)
+
+--- Banner 227 ---
+Banner ID: 30092
+Type: Character
+Server: JA
+Description: Curren Chan (Wedding), Fine Motion (Wedding)
+
+--- Banner 226 ---
+Banner ID: 30093
+Type: Support
+Server: JA
+Description: Haru Urara (SSR power), Ikuno Dictus (SSR stamina)
+
+--- Banner 225 ---
+Banner ID: 30094
+Type: Character
+Server: JA
+Description: Inari One
+
+--- Banner 224 ---
+Banner ID: 30095
+Type: Support
+Server: JA
+Description: Sakura Chiyono O (SSR stamina), Admire Vega (SSR power)
+
+--- Banner 223 ---
+Banner ID: 30096
+Type: Character
+Server: JA
+Description: Sweep Tosho
+
+--- Banner 222 ---
+Banner ID: 30097
+Type: Support
+Server: JA
+Description: Oguri Cap (SR guts), Taiki Shuttle (SSR speed)
+
+--- Banner 221 ---
+Banner ID: 30098
+Type: Character
+Server: JA
+Description: Taiki Shuttle (Camping), Mejiro Dober (Camping)
+
+--- Banner 220 ---
+Banner ID: 30099
+Type: Support
+Server: JA
+Description: El Condor Pasa (SSR guts), Matikanetannhauser (SSR intelligence)
+
+--- Banner 219 ---
+Banner ID: 30100
+Type: Character
+Server: JA
+Description: Air Shakur
+
+--- Banner 218 ---
+Banner ID: 30101
+Type: Support
+Server: JA
+Description: Gold City (SR intelligence), Air Groove (SSR power)
+
+--- Banner 217 ---
+Banner ID: 30102
+Type: Character
+Server: JA
+Description: Narita Brian, Seiun Sky
+
+--- Banner 216 ---
+Banner ID: 30103
+Type: Support
+Server: JA
+Description: El Condor Pasa (SR speed), The Throne's Assemblage (SSR group)
+
+--- Banner 215 ---
+Banner ID: 30104
+Type: Character
+Server: JA
+Description: Mejiro McQueen (Summer), Gold Ship (Summer)
+
+--- Banner 214 ---
+Banner ID: 30105
+Type: Support
+Server: JA
+Description: Maruzensky (SSR speed), Nakayama Festa (SSR intelligence)
+
+--- Banner 213 ---
+Banner ID: 30106
+Type: Character
+Server: JA
+Description: Bamboo Memory
+
+--- Banner 212 ---
+Banner ID: 30107
+Type: Support
+Server: JA
+Description: Yukino Bijin (SSR intelligence), Ikuno Dictus (SSR guts)
+
+--- Banner 211 ---
+Banner ID: 30108
+Type: Character
+Server: JA
+Description: Copano Rickey
+
+--- Banner 210 ---
+Banner ID: 30109
+Type: Support
+Server: JA
+Description: Seiun Sky (SR intelligence), Manhattan Cafe (SSR stamina)
+
+--- Banner 209 ---
+Banner ID: 30110
+Type: Character
+Server: JA
+Description: Smart Falcon (Grand Live)
+
+--- Banner 208 ---
+Banner ID: 30111
+Type: Support
+Server: JA
+Description: Light Hello (SSR friend), Agnes Tachyon (SSR speed)
+
+--- Banner 207 ---
+Banner ID: 30112
+Type: Character
+Server: JA
+Description: Winning Ticket (Steampunk), Narita Taishin (Steampunk)
+
+--- Banner 206 ---
+Banner ID: 30113
+Type: Support
+Server: JA
+Description: Tokai Teio (SSR intelligence), Twin Turbo (SSR guts)
+
+--- Banner 205 ---
+Banner ID: 30114
+Type: Character
+Server: JA
+Description: Yukino Bijin
+
+--- Banner 204 ---
+Banner ID: 30115
+Type: Support
+Server: JA
+Description: Silence Suzuka (SSR speed), Smart Falcon (SSR power)
+
+--- Banner 203 ---
+Banner ID: 30116
+Type: Character
+Server: JA
+Description: Seeking the Pearl
+
+--- Banner 202 ---
+Banner ID: 30117
+Type: Support
+Server: JA
+Description: K.S.Miracle (SR guts), Daiichi Ruby (SSR power)
+
+--- Banner 201 ---
+Banner ID: 30118
+Type: Character
+Server: JA
+Description: Agnes Digital (Halloween), Meisho Doto (Halloween)
+
+--- Banner 200 ---
+Banner ID: 30119
+Type: Support
+Server: JA
+Description: Mejiro Palmer (SSR stamina), Daitaku Helios (SSR speed)
+
+--- Banner 199 ---
+Banner ID: 30120
+Type: Character
+Server: JA
+Description: Aston Machan
+
+--- Banner 198 ---
+Banner ID: 30121
+Type: Support
+Server: JA
+Description: Fine Motion (SSR intelligence), Maruzensky (SSR speed)
+
+--- Banner 197 ---
+Banner ID: 30130
+Type: Character
+Server: JA
+Description: Seeking the Pearl
+
+--- Banner 196 ---
+Banner ID: 30131
+Type: Support
+Server: JA
+Description: K.S.Miracle (SR guts), Daiichi Ruby (SSR power)
+
+--- Banner 195 ---
+Banner ID: 30122
+Type: Character
+Server: JA
+Description: Yamanin Zephyr
+
+--- Banner 194 ---
+Banner ID: 30123
+Type: Support
+Server: JA
+Description: Tsurumaru Tsuyoshi (SR guts), Symboli Kris S (SSR stamina)
+
+--- Banner 193 ---
+Banner ID: 30124
+Type: Character
+Server: JA
+Description: Tamamo Cross (Festival), Inari One (Festival)
+
+--- Banner 192 ---
+Banner ID: 30125
+Type: Support
+Server: JA
+Description: Oguri Cap (SSR intelligence), Yaeno Muteki (SSR guts)
+
+--- Banner 191 ---
+Banner ID: 30126
+Type: Character
+Server: JA
+Description: Nakayama Festa
+
+--- Banner 190 ---
+Banner ID: 30127
+Type: Support
+Server: JA
+Description: Super Creek (SSR stamina), Mr. C.B. (SSR intelligence)
+
+--- Banner 189 ---
+Banner ID: 30128
+Type: Character
+Server: JA
+Description: Wonder Acute
+
+--- Banner 188 ---
+Banner ID: 30129
+Type: Support
+Server: JA
+Description: Narita Top Road (SR power), Eishin Flash (SSR speed)
+
+--- Banner 187 ---
+Banner ID: 30132
+Type: Character
+Server: JA
+Description: Vodka (Christmas), Daiwa Scarlet (Christmas)
+
+--- Banner 186 ---
+Banner ID: 30133
+Type: Support
+Server: JA
+Description: Narita Brian (SSR power), Air Groove (SSR intelligence)
+
+--- Banner 185 ---
+Banner ID: 30134
+Type: Character
+Server: JA
+Description: Zenno Rob Roy
+
+--- Banner 184 ---
+Banner ID: 30135
+Type: Support
+Server: JA
+Description: Mayano Top Gun (SSR speed), Light Hello (SSR friend)
+
+--- Banner 183 ---
+Banner ID: 30136
+Type: Character
+Server: JA
+Description: Narita Brian (Blaze)
+
+--- Banner 182 ---
+Banner ID: 30137
+Type: Support
+Server: JA
+Description: TM Opera O (SR stamina), Yamanin Zephyr (SSR guts)
+
+--- Banner 181 ---
+Banner ID: 30138
+Type: Character
+Server: JA
+Description: Kitasan Black (New Year), Satono Diamond (New Year)
+
+--- Banner 180 ---
+Banner ID: 30139
+Type: Support
+Server: JA
+Description: Special Week (SSR stamina), Sweep Tosho (SSR intelligence)
+
+--- Banner 179 ---
+Banner ID: 30140
+Type: Character
+Server: JA
+Description: Hokko Tarumae
+
+--- Banner 178 ---
+Banner ID: 30141
+Type: Support
+Server: JA
+Description: Agnes Tachyon (SSR speed), Tokai Teio (SSR intelligence)
+
+--- Banner 177 ---
+Banner ID: 30142
+Type: Character
+Server: JA
+Description: Daitaku Helios
+
+--- Banner 176 ---
+Banner ID: 30143
+Type: Support
+Server: JA
+Description: Aston Machan (SR speed), K.S.Miracle (SSR guts)
+
+--- Banner 175 ---
+Banner ID: 30144
+Type: Character
+Server: JA
+Description: Rice Shower (Halloween), Haru Urara (New Year)
+
+--- Banner 174 ---
+Banner ID: 30145
+Type: Support
+Server: JA
+Description: Matikanefukukitaru (SSR speed), Taiki Shuttle (SSR speed)
+
+--- Banner 173 ---
+Banner ID: 30146
+Type: Character
+Server: JA
+Description: Ines Fujin (Valentine), Mejiro Ryan (Valentine)
+
+--- Banner 172 ---
+Banner ID: 30147
+Type: Support
+Server: JA
+Description: Marvelous Sunday (SSR speed), Biko Pegasus (SSR power)
+
+--- Banner 171 ---
+Banner ID: 30148
+Type: Character
+Server: JA
+Description: Shinko Windy
+
+--- Banner 170 ---
+Banner ID: 30149
+Type: Support
+Server: JA
+Description: Nishino Flower (SSR intelligence), Maruzensky (SSR speed)
+
+--- Banner 169 ---
+Banner ID: 30150
+Type: Character
+Server: JA
+Description: Twin Turbo, Mr. C.B.
+
+--- Banner 168 ---
+Banner ID: 30151
+Type: Support
+Server: JA
+Description: Jungle Pocket (SR speed), Mejiro Dober (SR guts), Symboli Rudolf (SR stamina), Agnes Tachyon (SR power), Mejiro Ramonu (SSR intelligence)
+
+--- Banner 167 ---
+Banner ID: 30152
+Type: Character
+Server: JA
+Description: Daiichi Ruby
+
+--- Banner 166 ---
+Banner ID: 30153
+Type: Support
+Server: JA
+Description: Sirius Symboli (SSR intelligence), Oguri Cap (SSR intelligence)
+
+--- Banner 165 ---
+Banner ID: 30154
+Type: Character
+Server: JA
+Description: Symboli Kris S
+
+--- Banner 164 ---
+Banner ID: 30155
+Type: Support
+Server: JA
+Description: Hishi Akebono (SR power), Ancestors & Guides (SSR group)
+
+--- Banner 163 ---
+Banner ID: 30156
+Type: Character
+Server: JA
+Description: Mejiro Ardan (Ballroom), Sakura Chiyono O (Ballroom)
+
+--- Banner 162 ---
+Banner ID: 30157
+Type: Support
+Server: JA
+Description: Nice Nature (SSR power), Mejiro McQueen (SSR stamina)
+
+--- Banner 161 ---
+Banner ID: 30158
+Type: Character
+Server: JA
+Description: Sakura Laurel
+
+--- Banner 160 ---
+Banner ID: 30159
+Type: Support
+Server: JA
+Description: Eishin Flash (SSR speed), Air Groove (SSR intelligence)
+
+--- Banner 159 ---
+Banner ID: 30160
+Type: Character
+Server: JA
+Description: Neo Universe
+
+--- Banner 158 ---
+Banner ID: 30161
+Type: Support
+Server: JA
+Description: Gold Ship (SR stamina), Symboli Rudolf (SSR guts)
+
+--- Banner 157 ---
+Banner ID: 30162
+Type: Character
+Server: JA
+Description: Matikanetannhauser (Sports Festival), Sakura Bakushin O (Sports Festival)
+
+--- Banner 156 ---
+Banner ID: 30163
+Type: Support
+Server: JA
+Description: Mihono Bourbon (SSR intelligence), Sakura Laurel (SSR stamina)
+
+--- Banner 155 ---
+Banner ID: 30164
+Type: Character
+Server: JA
+Description: Gold City, Tosen Jordan, Mejiro Palmer, Daitaku Helios
+
+--- Banner 154 ---
+Banner ID: 30166
+Type: Character
+Server: JA
+Description: Hishi Miracle
+
+--- Banner 153 ---
+Banner ID: 30167
+Type: Support
+Server: JA
+Description: Yamanin Zephyr (SSR guts), K.S.Miracle (SSR guts)
+
+--- Banner 152 ---
+Banner ID: 30168
+Type: Character
+Server: JA
+Description: Tanino Gimlet
+
+--- Banner 151 ---
+Banner ID: 30169
+Type: Support
+Server: JA
+Description: Maruzensky (SR intelligence), Jungle Pocket (SSR speed)
+
+--- Banner 150 ---
+Banner ID: 30170
+Type: Character
+Server: JA
+Description: Nishino Flower (Wedding), Hishi Amazon (Wedding)
+
+--- Banner 149 ---
+Banner ID: 30171
+Type: Support
+Server: JA
+Description: Daiwa Scarlet (SSR guts), Aston Machan (SSR intelligence)
+
+--- Banner 148 ---
+Banner ID: 30172
+Type: Character
+Server: JA
+Description: Taiki Shuttle (Camping), Yamanin Zephyr
+
+--- Banner 147 ---
+Banner ID: 30173
+Type: Support
+Server: JA
+Description: Silence Suzuka (SR speed), TM Opera O (SSR intelligence)
+
+--- Banner 146 ---
+Banner ID: 30174
+Type: Character
+Server: JA
+Description: Marvelous Sunday
+
+--- Banner 145 ---
+Banner ID: 30175
+Type: Support
+Server: JA
+Description: Copano Rickey (SR guts), Mayano Top Gun (SSR power)
+
+--- Banner 144 ---
+Banner ID: 30176
+Type: Character
+Server: JA
+Description: Bamboo Memory (Summer Trip), Tosen Jordan (Summer Trip)
+
+--- Banner 143 ---
+Banner ID: 30177
+Type: Support
+Server: JA
+Description: Gold City (SSR guts), Mejiro Palmer (SSR speed)
+
+--- Banner 142 ---
+Banner ID: 30178
+Type: Character
+Server: JA
+Description: Katsuragi Ace
+
+--- Banner 141 ---
+Banner ID: 30179
+Type: Support
+Server: JA
+Description: Twin Turbo (SSR guts), Daiichi Ruby (SSR power)
+
+--- Banner 140 ---
+Banner ID: 30180
+Type: Character
+Server: JA
+Description: Sirius Symboli
+
+--- Banner 139 ---
+Banner ID: 30181
+Type: Support
+Server: JA
+Description: Grass Wonder (SR power), Wonder Acute (SSR power)
+
+--- Banner 138 ---
+Banner ID: 30182
+Type: Character
+Server: JA
+Description: Agnes Tachyon (Summer), Silence Suzuka (Summer)
+
+--- Banner 137 ---
+Banner ID: 30183
+Type: Support
+Server: JA
+Description: Manhattan Cafe (SSR intelligence), Jungle Pocket (SSR guts)
+
+--- Banner 136 ---
+Banner ID: 30184
+Type: Character
+Server: JA
+Description: Copano Rickey, Hokko Tarumae
+
+--- Banner 135 ---
+Banner ID: 30185
+Type: Support
+Server: JA
+Description: Maruzensky (SSR speed), Mejiro Ramonu (SSR intelligence)
+
+--- Banner 134 ---
+Banner ID: 30186
+Type: Character
+Server: JA
+Description: Narita Top Road
+
+--- Banner 133 ---
+Banner ID: 30187
+Type: Support
+Server: JA
+Description: Mei Satake (SSR friend), El Condor Pasa (SSR speed)
+
+--- Banner 132 ---
+Banner ID: 30188
+Type: Character
+Server: JA
+Description: Gold Ship (Project L'Arc)
+
+--- Banner 131 ---
+Banner ID: 30189
+Type: Support
+Server: JA
+Description: Kitasan Black (SR stamina), Nakayama Festa (SSR intelligence)
+
+--- Banner 130 ---
+Banner ID: 30190
+Type: Character
+Server: JA
+Description: Satono Diamond (Project L'Arc)
+
+--- Banner 129 ---
+Banner ID: 30191
+Type: Support
+Server: JA
+Description: Special Week (SSR stamina), Mejiro McQueen (SSR stamina)
+
+--- Banner 128 ---
+Banner ID: 30192
+Type: Character
+Server: JA
+Description: K.S.Miracle
+
+--- Banner 127 ---
+Banner ID: 30193
+Type: Support
+Server: JA
+Description: Taiki Shuttle (SR intelligence), Hishi Amazon (SSR power)
+
+--- Banner 126 ---
+Banner ID: 30194
+Type: Character
+Server: JA
+Description: Air Shakur (Halloween), Symboli Kris S (Halloween)
+
+--- Banner 125 ---
+Banner ID: 30195
+Type: Support
+Server: JA
+Description: Tanino Gimlet (SSR stamina), Tap Dance City (SSR guts)
+
+--- Banner 124 ---
+Banner ID: 30198
+Type: Character
+Server: JA
+Description: Mejiro Ramonu
+
+--- Banner 123 ---
+Banner ID: 30199
+Type: Support
+Server: JA
+Description: Nice Nature (SR stamina), Gold Ship (SSR speed)
+
+--- Banner 122 ---
+Banner ID: 30200
+Type: Character
+Server: JA
+Description: Kawakami Princess (Festival), Tokai Teio (Festival)
+
+--- Banner 121 ---
+Banner ID: 30201
+Type: Support
+Server: JA
+Description: Tsurumaru Tsuyoshi (SSR power), King Halo (SSR guts)
+
+--- Banner 120 ---
+Banner ID: 30203
+Type: Support
+Server: JA
+Description: Matikanetannhauser (SR speed), Mejiro McQueen (SSR intelligence)
+
+--- Banner 119 ---
+Banner ID: 30204
+Type: Character
+Server: JA
+Description: Tap Dance City
+
+--- Banner 118 ---
+Banner ID: 30205
+Type: Support
+Server: JA
+Description: Verxina (SR guts), Sounds of Earth (SSR stamina)
+
+--- Banner 117 ---
+Banner ID: 30206
+Type: Character
+Server: JA
+Description: Mejiro Palmer (Christmas), Mejiro Bright (Christmas)
+
+--- Banner 116 ---
+Banner ID: 30207
+Type: Support
+Server: JA
+Description: Mejiro Dober (SSR speed), Mejiro Ramonu (SSR power)
+
+--- Banner 115 ---
+Banner ID: 30208
+Type: Character
+Server: JA
+Description: Satono Crown
+
+--- Banner 114 ---
+Banner ID: 30210
+Type: Character
+Server: JA
+Description: Cheval Grand
+
+--- Banner 113 ---
+Banner ID: 30211
+Type: Support
+Server: JA
+Description: Royce and Royce (SR power), Vivlos (SSR guts)
+
+--- Banner 112 ---
+Banner ID: 30212
+Type: Character
+Server: JA
+Description: Kitasan Black (Anime Collab)
+
+--- Banner 111 ---
+Banner ID: 30213
+Type: Support
+Server: JA
+Description: Duramente (SSR speed), Satono Diamond (SSR intelligence)
+
+--- Banner 110 ---
+Banner ID: 30214
+Type: Character
+Server: JA
+Description: Nice Nature (New Year)
+
+--- Banner 109 ---
+Banner ID: 30216
+Type: Character
+Server: JA
+Description: Vivlos
+
+--- Banner 108 ---
+Banner ID: 30217
+Type: Support
+Server: JA
+Description: Tanino Gimlet (SR intelligence), Hokko Tarumae (SSR stamina)
+
+--- Banner 107 ---
+Banner ID: 30218
+Type: Character
+Server: JA
+Description: Yukino Bijin (Valentine), Manhattan Cafe (Valentine)
+
+--- Banner 106 ---
+Banner ID: 30219
+Type: Support
+Server: JA
+Description: Winning Ticket (SSR power), Sakura Bakushin O (SSR speed)
+
+--- Banner 105 ---
+Banner ID: 30220
+Type: Character
+Server: JA
+Description: Biko Pegasus
+
+--- Banner 104 ---
+Banner ID: 30222
+Type: Character
+Server: JA
+Description: Ikuno Dictus, Duramente
+
+--- Banner 103 ---
+Banner ID: 30223
+Type: Support
+Server: JA
+Description: Tosen Jordan (SR speed), Yaeno Muteki (SR stamina), Orfevre (SSR guts), Ryoka Tsurugi (SSR friend)
+
+--- Banner 102 ---
+Banner ID: 30224
+Type: Character
+Server: JA
+Description: Transcend
+
+--- Banner 101 ---
+Banner ID: 30226
+Type: Character
+Server: JA
+Description: Rhein Kraft
+
+--- Banner 100 ---
+Banner ID: 30227
+Type: Support
+Server: JA
+Description: Tap Dance City (SR guts), Cheval Grand (SSR stamina)
+
+--- Banner 99 ---
+Banner ID: 30228
+Type: Character
+Server: JA
+Description: Daiichi Ruby (Ballroom), Daitaku Helios (Ballroom)
+
+--- Banner 98 ---
+Banner ID: 30229
+Type: Support
+Server: JA
+Description: K.S.Miracle (SSR power), Yamanin Zephyr (SSR speed)
+
+--- Banner 97 ---
+Banner ID: 30232
+Type: Character
+Server: JA
+Description: Winning Ticket (U.A.F.)
+
+--- Banner 96 ---
+Banner ID: 30233
+Type: Support
+Server: JA
+Description: Air Shakur (SR power), Neo Universe (SSR intelligence)
+
+--- Banner 95 ---
+Banner ID: 30234
+Type: Character
+Server: JA
+Description: Sounds of Earth
+
+--- Banner 94 ---
+Banner ID: 30236
+Type: Character
+Server: JA
+Description: Super Creek (Warfare), Yaeno Muteki (Warfare)
+
+--- Banner 93 ---
+Banner ID: 30237
+Type: Support
+Server: JA
+Description: Hishi Miracle (SSR stamina), Narita Taishin (SSR intelligence)
+
+--- Banner 92 ---
+Banner ID: 30238
+Type: Character
+Server: JA
+Description: Hishi Amazon, Sakura Chiyono O, Sakura Chiyono O (Ballroom), Hishi Amazon (Wedding), Katsuragi Ace
+
+--- Banner 91 ---
+Banner ID: 30242
+Type: Character
+Server: JA
+Description: Agnes Tachyon (Alt Version)
+
+--- Banner 90 ---
+Banner ID: 30243
+Type: Support
+Server: JA
+Description: Dantsu Flame (SR intelligence), Vodka (SSR guts)
+
+--- Banner 89 ---
+Banner ID: 30244
+Type: Character
+Server: JA
+Description: North Flight
+
+--- Banner 88 ---
+Banner ID: 30246
+Type: Character
+Server: JA
+Description: King Halo (Wedding), Sweep Tosho (Wedding)
+
+--- Banner 87 ---
+Banner ID: 30247
+Type: Support
+Server: JA
+Description: Vivlos (SSR speed), Seiun Sky (SSR power)
+
+--- Banner 86 ---
+Banner ID: 30250
+Type: Character
+Server: JA
+Description: Jungle Pocket
+
+--- Banner 85 ---
+Banner ID: 30252
+Type: Character
+Server: JA
+Description: Dream Journey
+
+--- Banner 84 ---
+Banner ID: 30253
+Type: Support
+Server: JA
+Description: Yayoi Akikawa (SSR friend), Nishino Flower (SSR power)
+
+--- Banner 83 ---
+Banner ID: 30256
+Type: Character
+Server: JA
+Description: Rice Shower (Great Food Festival)
+
+--- Banner 82 ---
+Banner ID: 30257
+Type: Support
+Server: JA
+Description: Matikanefukukitaru (SR speed), Dantsu Flame (SSR stamina)
+
+--- Banner 81 ---
+Banner ID: 30258
+Type: Character
+Server: JA
+Description: Calstone Light O
+
+--- Banner 80 ---
+Banner ID: 30260
+Type: Character
+Server: JA
+Description: Eishin Flash (Summer Trip), Hokko Tarumae (Summer Trip)
+
+--- Banner 79 ---
+Banner ID: 30261
+Type: Support
+Server: JA
+Description: Smart Falcon (SSR speed), Copano Rickey (SSR intelligence)
+
+--- Banner 78 ---
+Banner ID: 30264
+Type: Character
+Server: JA
+Description: None
+
+--- Banner 77 ---
+Banner ID: 30265
+Type: Support
+Server: JA
+Description: Mejiro Palmer (SR stamina), Fine Motion (SSR guts)
+
+--- Banner 76 ---
+Banner ID: 30268
+Type: Character
+Server: JA
+Description: Gentildonna
+
+--- Banner 75 ---
+Banner ID: 30269
+Type: Support
+Server: JA
+Description: Marvelous Sunday (SR guts), Still in Love (SSR speed)
+
+--- Banner 74 ---
+Banner ID: 30270
+Type: Character
+Server: JA
+Description: Neo Universe (Autumn), Zenno Rob Roy (Autumn)
+
+--- Banner 73 ---
+Banner ID: 30271
+Type: Support
+Server: JA
+Description: Taiki Shuttle (SSR intelligence), Fuji Kiseki (SSR guts)
+
+--- Banner 72 ---
+Banner ID: 30274
+Type: Character
+Server: JA
+Description: Cesario
+
+--- Banner 71 ---
+Banner ID: 30275
+Type: Support
+Server: JA
+Description: Sakura Laurel (SR intelligence), Espoir City (SSR power)
+
+--- Banner 70 ---
+Banner ID: 30276
+Type: Character
+Server: JA
+Description: Durandal
+
+--- Banner 69 ---
+Banner ID: 30278
+Type: Character
+Server: JA
+Description: Seeking the Pearl (Halloween), Mayano Top Gun (Halloween)
+
+--- Banner 68 ---
+Banner ID: 30279
+Type: Support
+Server: JA
+Description: Hishi Amazon (SSR guts), Narita Brian (SSR speed)
+
+--- Banner 67 ---
+Banner ID: 30282
+Type: Character
+Server: JA
+Description: Bubble Gum Fellow
+
+--- Banner 66 ---
+Banner ID: 30284
+Type: Character
+Server: JA
+Description: Biwa Hayahide (Mecha)
+
+--- Banner 65 ---
+Banner ID: 30285
+Type: Support
+Server: JA
+Description: Air Shakur (SSR stamina), Daiwa Scarlet (SSR intelligence)
+
+--- Banner 64 ---
+Banner ID: 30288
+Type: Character
+Server: JA
+Description: Narita Taishin (Mecha)
+
+--- Banner 63 ---
+Banner ID: 30289
+Type: Support
+Server: JA
+Description: North Flight (SR power), Symboli Kris S (SSR power)
+
+--- Banner 62 ---
+Banner ID: 30290
+Type: Character
+Server: JA
+Description: Air Messiah
+
+--- Banner 61 ---
+Banner ID: 30292
+Type: Character
+Server: JA
+Description: Narita Top Road (Christmas), Admire Vega (Christmas)
+
+--- Banner 60 ---
+Banner ID: 30293
+Type: Support
+Server: JA
+Description: Agnes Digital (SSR intelligence), Meisho Doto (SSR speed)
+
+--- Banner 59 ---
+Banner ID: 30296
+Type: Character
+Server: JA
+Description: Win Variation
+
+--- Banner 58 ---
+Banner ID: 30297
+Type: Support
+Server: JA
+Description: Bubble Gum Fellow (SR speed), Blast Onepiece (SSR guts)
+
+--- Banner 57 ---
+Banner ID: 30298
+Type: Character
+Server: JA
+Description: Grass Wonder (New Year)
+
+--- Banner 56 ---
+Banner ID: 30300
+Type: Character
+Server: JA
+Description: Katsuragi Ace (New Year), Mr. C.B. (New Year)
+
+--- Banner 55 ---
+Banner ID: 30301
+Type: Support
+Server: JA
+Description: Symboli Rudolf (SSR intelligence), Mejiro Ardan (SSR power)
+
+--- Banner 54 ---
+Banner ID: 30304
+Type: Character
+Server: JA
+Description: Maruzensky (New Year)
+
+--- Banner 53 ---
+Banner ID: 30305
+Type: Support
+Server: JA
+Description: Mejiro Ramonu (SR stamina), Seeking the Pearl (SSR speed)
+
+--- Banner 52 ---
+Banner ID: 30306
+Type: Character
+Server: JA
+Description: Furioso
+
+--- Banner 51 ---
+Banner ID: 30308
+Type: Character
+Server: JA
+Description: Aston Machan (Valentine), Yamanin Zephyr (Valentine)
+
+--- Banner 50 ---
+Banner ID: 30309
+Type: Support
+Server: JA
+Description: Curren Chan (SSR guts), Ikuno Dictus (SSR intelligence)
+
+--- Banner 49 ---
+Banner ID: 30312
+Type: Character
+Server: JA
+Description: Tsurumaru Tsuyoshi
+
+--- Banner 48 ---
+Banner ID: 30314
+Type: Character
+Server: JA
+Description: Orfevre
+
+--- Banner 47 ---
+Banner ID: 30315
+Type: Support
+Server: JA
+Description: Lucky Lilac (SR intelligence), Mejiro McQueen (SR guts), Embodiment of Legends (SSR group), Almond Eye (SSR speed)
+
+--- Banner 46 ---
+Banner ID: 30318
+Type: Character
+Server: JA
+Description: Gran Alegria
+
+--- Banner 45 ---
+Banner ID: 30319
+Type: Support
+Server: JA
+Description: Rice Shower (SR speed), Mejiro Bright (SSR stamina)
+
+--- Banner 44 ---
+Banner ID: 30320
+Type: Character
+Server: JA
+Description: No Reason
+
+--- Banner 43 ---
+Banner ID: 30322
+Type: Character
+Server: JA
+Description: Tap Dance City (Ballroom), Tanino Gimlet (Ballroom)
+
+--- Banner 42 ---
+Banner ID: 30323
+Type: Support
+Server: JA
+Description: Vodka (SSR power), Dream Journey (SSR speed)
+
+--- Banner 41 ---
+Banner ID: 30326
+Type: Character
+Server: JA
+Description: Sirius Symboli (The Twinkle Legends)
+
+--- Banner 40 ---
+Banner ID: 30327
+Type: Support
+Server: JA
+Description: Daring Heart (SR power), Daring Tact (SSR intelligence)
+
+--- Banner 39 ---
+Banner ID: 30338
+Type: Character
+Server: JA
+Description: No Reason
+
+--- Banner 38 ---
+Banner ID: 30328
+Type: Character
+Server: JA
+Description: Fenomeno
+
+--- Banner 37 ---
+Banner ID: 30330
+Type: Character
+Server: JA
+Description: Copano Rickey (Parade), Smart Falcon (Parade)
+
+--- Banner 36 ---
+Banner ID: 30331
+Type: Support
+Server: JA
+Description: Transcend (SSR guts), Buena Vista (SSR power)
+
+--- Banner 35 ---
+Banner ID: 30332
+Type: Character
+Server: JA
+Description: Oguri Cap, Mejiro McQueen, Biwa Hayahide, Mejiro McQueen (Anime Collab), Curren Chan, Seiun Sky, Oguri Cap (Christmas), Biwa Hayahide (Christmas), Tam...
+
+--- Banner 34 ---
+Banner ID: 30336
+Type: Character
+Server: JA
+Description: Verxina
+
+--- Banner 33 ---
+Banner ID: 30337
+Type: Support
+Server: JA
+Description: Curren Bouquetd'or (SR stamina), Silence Suzuka (SSR guts)
+
+--- Banner 32 ---
+Banner ID: 30340
+Type: Character
+Server: JA
+Description: Loves Only You
+
+--- Banner 31 ---
+Banner ID: 30342
+Type: Character
+Server: JA
+Description: Mejiro Ramonu (Wedding), Cesario (Wedding)
+
+--- Banner 30 ---
+Banner ID: 30343
+Type: Support
+Server: JA
+Description: Rhein Kraft (SSR speed), Daring Heart (SSR intelligence)
+
+--- Banner 29 ---
+Banner ID: 30346
+Type: Character
+Server: JA
+Description: Chrono Genesis
+
+--- Banner 28 ---
+Banner ID: 30348
+Type: Character
+Server: JA
+Description: Gold City (Deserted Island)
+
+--- Banner 27 ---
+Banner ID: 30349
+Type: Support
+Server: JA
+Description: Tamamo Cross (SSR power), Tucker Bryne (SSR friend)
+
+--- Banner 26 ---
+Banner ID: 30352
+Type: Character
+Server: JA
+Description: Ines Fujin (Deserted Island)
+
+--- Banner 25 ---
+Banner ID: 30353
+Type: Support
+Server: JA
+Description: Kawakami Princess (SR guts), Mejiro Ryan (SSR stamina)
+
+--- Banner 24 ---
+Banner ID: 30354
+Type: Character
+Server: JA
+Description: Fusaichi Pandora
+
+--- Banner 23 ---
+Banner ID: 30356
+Type: Character
+Server: JA
+Description: Satono Crown (Summer), Cheval Grand (Summer)
+
+--- Banner 22 ---
+Banner ID: 30357
+Type: Support
+Server: JA
+Description: Win Variation (SSR intelligence), Duramente (SSR stamina)
+
+--- Banner 21 ---
+Banner ID: 30360
+Type: Character
+Server: JA
+Description: Vivlos (Summer)
+
+--- Banner 20 ---
+Banner ID: 30362
+Type: Character
+Server: JA
+Description: Still in Love
+
+--- Banner 19 ---
+Banner ID: 30363
+Type: Support
+Server: JA
+Description: Stay Gold (SSR guts), Admire Groove (SSR speed)
+
+--- Banner 18 ---
+Banner ID: 30364
+Type: Character
+Server: JA
+Description: K.S.Miracle (Alt Version), Hishi Miracle (Alt Version)
+
+--- Banner 17 ---
+Banner ID: 30365
+Type: Support
+Server: JA
+Description: Calstone Light O (SSR speed), Durandal (SSR intelligence)
+
+--- Banner 16 ---
+Banner ID: 30368
+Type: Character
+Server: JA
+Description: Espoir City
+
+--- Banner 15 ---
+Banner ID: 30369
+Type: Support
+Server: JA
+Description: Biko Pegasus (SR intelligence), Daiichi Ruby (SSR guts)
+
+--- Banner 14 ---
+Banner ID: 30370
+Type: Character
+Server: JA
+Description: Believe
+
+--- Banner 13 ---
+Banner ID: 30372
+Type: Character
+Server: JA
+Description: Hishi Akebono (Halloween), Marvelous Sunday (Halloween)
+
+--- Banner 12 ---
+Banner ID: 30373
+Type: Support
+Server: JA
+Description: Fuji Kiseki (SSR guts), Eishin Flash (SSR speed)
+
+--- Banner 11 ---
+Banner ID: 30380
+Type: Character
+Server: JA
+Description: Tosen Jordan (Halloween)
+
+--- Banner 10 ---
+Banner ID: 30381
+Type: Support
+Server: JA
+Description: Sakura Chitose O (SR speed), Curren Bouquetd'or (SSR stamina)
+
+--- Banner 9 ---
+Banner ID: 30376
+Type: Character
+Server: JA
+Description: Dantsu Flame
+
+--- Banner 8 ---
+Banner ID: 30378
+Type: Character
+Server: JA
+Description: Jungle Pocket
+
+--- Banner 7 ---
+Banner ID: 30382
+Type: Character
+Server: JA
+Description: Transcend (Onsen)
+
+--- Banner 6 ---
+Banner ID: 30383
+Type: Support
+Server: JA
+Description: Tokai Teio (SSR speed), Kiyoko Hoshina (SSR friend)
+
+--- Banner 5 ---
+Banner ID: 30386
+Type: Character
+Server: JA
+Description: Wonder Acute (Onsen)
+
+--- Banner 4 ---
+Banner ID: 30387
+Type: Support
+Server: JA
+Description: Hokko Tarumae (SR power), Mihono Bourbon (SSR power)
+
+--- Banner 3 ---
+Banner ID: 30388
+Type: Character
+Server: JA
+Description: Buena Vista
+
+--- Banner 2 ---
+Banner ID: 30390
+Type: Character
+Server: JA
+Description: Nakayama Festa (Christmas), Dream Journey (Christmas)
+
+--- Banner 1 ---
+Banner ID: 30391
+Type: Support
+Server: JA
+Description: Gold Ship (SSR stamina), Fenomeno (SSR stamina)
+
+
+=== CHARACTERS TABLE ===
+
+Total characters: 216
+
+103301: Admire Vega (Link: /umamusume/characters/103301-admire-vega)
+103302: Admire Vega (Christmas) (Link: /umamusume/characters/103302-admire-vega)
+101901: Agnes Digital (Link: /umamusume/characters/101901-agnes-digital)
+101902: Agnes Digital (Halloween) (Link: /umamusume/characters/101902-agnes-digital)
+103203: Agnes Tachyon (Alt Version) (Link: /umamusume/characters/103203-agnes-tachyon)
+103202: Agnes Tachyon (Summer) (Link: /umamusume/characters/103202-agnes-tachyon)
+101802: Air Groove (Wedding) (Link: /umamusume/characters/101802-air-groove)
+111101: Air Messiah (Link: /umamusume/characters/111101-air-messiah)
+103601: Air Shakur (Link: /umamusume/characters/103601-air-shakur)
+103602: Air Shakur (Halloween) (Link: /umamusume/characters/103602-air-shakur)
+108701: Aston Machan (Link: /umamusume/characters/108701-aston-machan)
+108702: Aston Machan (Valentine) (Link: /umamusume/characters/108702-aston-machan)
+105301: Bamboo Memory (Link: /umamusume/characters/105301-bamboo-memory)
+105302: Bamboo Memory (Summer Trip) (Link: /umamusume/characters/105302-bamboo-memory)
+109501: Believe (Link: /umamusume/characters/109501-believe)
+105401: Biko Pegasus (Link: /umamusume/characters/105401-biko-pegasus)
+102301: Biwa Hayahide (Link: /umamusume/characters/102301-biwa-hayahide)
+102302: Biwa Hayahide (Christmas) (Link: /umamusume/characters/102302-biwa-hayahide)
+102303: Biwa Hayahide (Mecha) (Link: /umamusume/characters/102303-biwa-hayahide)
+112401: Bubble Gum Fellow (Link: /umamusume/characters/112401-bubble-gum-fellow)
+111401: Buena Vista (Link: /umamusume/characters/111401-buena-vista)
+112001: Calstone Light O (Link: /umamusume/characters/112001-calstone-light-o)
+111001: Cesario (Link: /umamusume/characters/111001-cesario)
+111002: Cesario (Wedding) (Link: /umamusume/characters/111002-cesario)
+108901: Cheval Grand (Link: /umamusume/characters/108901-cheval-grand)
+108902: Cheval Grand (Summer) (Link: /umamusume/characters/108902-cheval-grand)
+113301: Chrono Genesis (Link: /umamusume/characters/113301-chrono-genesis)
+109801: Copano Rickey (Link: /umamusume/characters/109801-copano-rickey)
+109802: Copano Rickey (Parade) (Link: /umamusume/characters/109802-copano-rickey)
+103801: Curren Chan (Link: /umamusume/characters/103801-curren-chan)
+103802: Curren Chan (Wedding) (Link: /umamusume/characters/103802-curren-chan)
+108501: Daiichi Ruby (Link: /umamusume/characters/108501-daiichi-ruby)
+108502: Daiichi Ruby (Ballroom) (Link: /umamusume/characters/108502-daiichi-ruby)
+106501: Daitaku Helios (Link: /umamusume/characters/106501-daitaku-helios)
+106502: Daitaku Helios (Ballroom) (Link: /umamusume/characters/106502-daitaku-helios)
+100902: Daiwa Scarlet (Christmas) (Link: /umamusume/characters/100902-daiwa-scarlet)
+109201: Dantsu Flame (Link: /umamusume/characters/109201-dantsu-flame)
+111901: Dream Journey (Link: /umamusume/characters/111901-dream-journey)
+111902: Dream Journey (Christmas) (Link: /umamusume/characters/111902-dream-journey)
+110801: Duramente (Link: /umamusume/characters/110801-duramente)
+112101: Durandal (Link: /umamusume/characters/112101-durandal)
+103701: Eishin Flash (Link: /umamusume/characters/103701-eishin-flash)
+103703: Eishin Flash (Summer Trip) (Link: /umamusume/characters/103703-eishin-flash)
+103702: Eishin Flash (Valentine) (Link: /umamusume/characters/103702-eishin-flash)
+101402: El Condor Pasa (Fantasy) (Link: /umamusume/characters/101402-el-condor-pasa)
+108101: Espoir City (Link: /umamusume/characters/108101-espoir-city)
+112701: Fenomeno (Link: /umamusume/characters/112701-fenomeno)
+102201: Fine Motion (Link: /umamusume/characters/102201-fine-motion)
+102202: Fine Motion (Wedding) (Link: /umamusume/characters/102202-fine-motion)
+100501: Fuji Kiseki (Link: /umamusume/characters/100501-fuji-kiseki)
+100502: Fuji Kiseki (Ballroom) (Link: /umamusume/characters/100502-fuji-kiseki)
+107901: Furioso (Link: /umamusume/characters/107901-furioso)
+111301: Fusaichi Pandora (Link: /umamusume/characters/111301-fusaichi-pandora)
+111601: Gentildonna (Link: /umamusume/characters/111601-gentildonna)
+104001: Gold City (Link: /umamusume/characters/104001-gold-city)
+104003: Gold City (Deserted Island) (Link: /umamusume/characters/104003-gold-city)
+104002: Gold City (Festival) (Link: /umamusume/characters/104002-gold-city)
+100703: Gold Ship (Project L'Arc) (Link: /umamusume/characters/100703-gold-ship)
+100702: Gold Ship (Summer) (Link: /umamusume/characters/100702-gold-ship)
+113101: Gran Alegria (Link: /umamusume/characters/113101-gran-alegria)
+101102: Grass Wonder (Fantasy) (Link: /umamusume/characters/101102-grass-wonder)
+101103: Grass Wonder (New Year) (Link: /umamusume/characters/101103-grass-wonder)
+105202: Haru Urara (New Year) (Link: /umamusume/characters/105202-haru-urara)
+102801: Hishi Akebono (Link: /umamusume/characters/102801-hishi-akebono)
+102802: Hishi Akebono (Halloween) (Link: /umamusume/characters/102802-hishi-akebono)
+101201: Hishi Amazon (Link: /umamusume/characters/101201-hishi-amazon)
+101202: Hishi Amazon (Wedding) (Link: /umamusume/characters/101202-hishi-amazon)
+110601: Hishi Miracle (Link: /umamusume/characters/110601-hishi-miracle)
+110602: Hishi Miracle (Alt Version) (Link: /umamusume/characters/110602-hishi-miracle)
+109901: Hokko Tarumae (Link: /umamusume/characters/109901-hokko-tarumae)
+109902: Hokko Tarumae (Summer Trip) (Link: /umamusume/characters/109902-hokko-tarumae)
+106301: Ikuno Dictus (Link: /umamusume/characters/106301-ikuno-dictus)
+103401: Inari One (Link: /umamusume/characters/103401-inari-one)
+103402: Inari One (Festival) (Link: /umamusume/characters/103402-inari-one)
+103101: Ines Fujin (Link: /umamusume/characters/103101-ines-fujin)
+103103: Ines Fujin (Deserted Island) (Link: /umamusume/characters/103103-ines-fujin)
+103102: Ines Fujin (Valentine) (Link: /umamusume/characters/103102-ines-fujin)
+109401: Jungle Pocket (Link: /umamusume/characters/109401-jungle-pocket)
+109301: K.S.Miracle (Link: /umamusume/characters/109301-ksmiracle)
+109302: K.S.Miracle (Alt Version) (Link: /umamusume/characters/109302-ksmiracle)
+110401: Katsuragi Ace (Link: /umamusume/characters/110401-katsuragi-ace)
+110402: Katsuragi Ace (New Year) (Link: /umamusume/characters/110402-katsuragi-ace)
+103901: Kawakami Princess (Link: /umamusume/characters/103901-kawakami-princess)
+103902: Kawakami Princess (Festival) (Link: /umamusume/characters/103902-kawakami-princess)
+106102: King Halo (Cheerleader) (Link: /umamusume/characters/106102-king-halo)
+106103: King Halo (Wedding) (Link: /umamusume/characters/106103-king-halo)
+106801: Kitasan Black (Link: /umamusume/characters/106801-kitasan-black)
+106803: Kitasan Black (Anime Collab) (Link: /umamusume/characters/106803-kitasan-black)
+106802: Kitasan Black (New Year) (Link: /umamusume/characters/106802-kitasan-black)
+113201: Loves Only You (Link: /umamusume/characters/113201-loves-only-you)
+102501: Manhattan Cafe (Link: /umamusume/characters/102501-manhattan-cafe)
+102502: Manhattan Cafe (Valentine) (Link: /umamusume/characters/102502-manhattan-cafe)
+100401: Maruzensky (Link: /umamusume/characters/100401-maruzensky)
+100403: Maruzensky (New Year) (Link: /umamusume/characters/100403-maruzensky)
+100402: Maruzensky (Summer) (Link: /umamusume/characters/100402-maruzensky)
+105501: Marvelous Sunday (Link: /umamusume/characters/105501-marvelous-sunday)
+105502: Marvelous Sunday (Halloween) (Link: /umamusume/characters/105502-marvelous-sunday)
+105602: Matikanefukukitaru (Full Armor) (Link: /umamusume/characters/105602-matikanefukukitaru)
+106201: Matikanetannhauser (Link: /umamusume/characters/106201-matikanetannhauser)
+106202: Matikanetannhauser (Sports Festival) (Link: /umamusume/characters/106202-matikanetannhauser)
+102403: Mayano Top Gun (Halloween) (Link: /umamusume/characters/102403-mayano-top-gun)
+102402: Mayano Top Gun (Wedding) (Link: /umamusume/characters/102402-mayano-top-gun)
+105801: Meisho Doto (Link: /umamusume/characters/105801-meisho-doto)
+105802: Meisho Doto (Halloween) (Link: /umamusume/characters/105802-meisho-doto)
+107101: Mejiro Ardan (Link: /umamusume/characters/107101-mejiro-ardan)
+107102: Mejiro Ardan (Ballroom) (Link: /umamusume/characters/107102-mejiro-ardan)
+107401: Mejiro Bright (Link: /umamusume/characters/107401-mejiro-bright)
+107402: Mejiro Bright (Christmas) (Link: /umamusume/characters/107402-mejiro-bright)
+105901: Mejiro Dober (Link: /umamusume/characters/105901-mejiro-dober)
+105902: Mejiro Dober (Camping) (Link: /umamusume/characters/105902-mejiro-dober)
+101301: Mejiro McQueen (Link: /umamusume/characters/101301-mejiro-mcqueen)
+101302: Mejiro McQueen (Anime Collab) (Link: /umamusume/characters/101302-mejiro-mcqueen)
+101303: Mejiro McQueen (Summer) (Link: /umamusume/characters/101303-mejiro-mcqueen)
+106401: Mejiro Palmer (Link: /umamusume/characters/106401-mejiro-palmer)
+106402: Mejiro Palmer (Christmas) (Link: /umamusume/characters/106402-mejiro-palmer)
+108601: Mejiro Ramonu (Link: /umamusume/characters/108601-mejiro-ramonu)
+108602: Mejiro Ramonu (Wedding) (Link: /umamusume/characters/108602-mejiro-ramonu)
+102702: Mejiro Ryan (Valentine) (Link: /umamusume/characters/102702-mejiro-ryan)
+102601: Mihono Bourbon (Link: /umamusume/characters/102601-mihono-bourbon)
+102602: Mihono Bourbon (Valentine) (Link: /umamusume/characters/102602-mihono-bourbon)
+105701: Mr. C.B. (Link: /umamusume/characters/105701-mr-cb)
+105702: Mr. C.B. (New Year) (Link: /umamusume/characters/105702-mr-cb)
+104901: Nakayama Festa (Link: /umamusume/characters/104901-nakayama-festa)
+104902: Nakayama Festa (Christmas) (Link: /umamusume/characters/104902-nakayama-festa)
+101601: Narita Brian (Link: /umamusume/characters/101601-narita-brian)
+101602: Narita Brian (Blaze) (Link: /umamusume/characters/101602-narita-brian)
+105001: Narita Taishin (Link: /umamusume/characters/105001-narita-taishin)
+105003: Narita Taishin (Mecha) (Link: /umamusume/characters/105003-narita-taishin)
+105002: Narita Taishin (Steampunk) (Link: /umamusume/characters/105002-narita-taishin)
+107701: Narita Top Road (Link: /umamusume/characters/107701-narita-top-road)
+107702: Narita Top Road (Christmas) (Link: /umamusume/characters/107702-narita-top-road)
+110501: Neo Universe (Link: /umamusume/characters/110501-neo-universe)
+110502: Neo Universe (Autumn) (Link: /umamusume/characters/110502-neo-universe)
+106002: Nice Nature (Cheerleader) (Link: /umamusume/characters/106002-nice-nature)
+106003: Nice Nature (New Year) (Link: /umamusume/characters/106003-nice-nature)
+105101: Nishino Flower (Link: /umamusume/characters/105101-nishino-flower)
+105102: Nishino Flower (Wedding) (Link: /umamusume/characters/105102-nishino-flower)
+109601: No Reason (Link: /umamusume/characters/109601-no-reason)
+108201: North Flight (Link: /umamusume/characters/108201-north-flight)
+100601: Oguri Cap (Link: /umamusume/characters/100601-oguri-cap)
+100602: Oguri Cap (Christmas) (Link: /umamusume/characters/100602-oguri-cap)
+111501: Orfevre (Link: /umamusume/characters/111501-orfevre)
+110901: Rhein Kraft (Link: /umamusume/characters/110901-rhein-kraft)
+103001: Rice Shower (Link: /umamusume/characters/103001-rice-shower)
+103003: Rice Shower (Great Food Festival) (Link: /umamusume/characters/103003-rice-shower)
+103002: Rice Shower (Halloween) (Link: /umamusume/characters/103002-rice-shower)
+104102: Sakura Bakushin O (Sports Festival) (Link: /umamusume/characters/104102-sakura-bakushin-o)
+106901: Sakura Chiyono O (Link: /umamusume/characters/106901-sakura-chiyono-o)
+106902: Sakura Chiyono O (Ballroom) (Link: /umamusume/characters/106902-sakura-chiyono-o)
+107601: Sakura Laurel (Link: /umamusume/characters/107601-sakura-laurel)
+108801: Satono Crown (Link: /umamusume/characters/108801-satono-crown)
+108802: Satono Crown (Summer) (Link: /umamusume/characters/108802-satono-crown)
+106701: Satono Diamond (Link: /umamusume/characters/106701-satono-diamond)
+106702: Satono Diamond (New Year) (Link: /umamusume/characters/106702-satono-diamond)
+106703: Satono Diamond (Project L'Arc) (Link: /umamusume/characters/106703-satono-diamond)
+104201: Seeking the Pearl (Link: /umamusume/characters/104201-seeking-the-pearl)
+104202: Seeking the Pearl (Halloween) (Link: /umamusume/characters/104202-seeking-the-pearl)
+102001: Seiun Sky (Link: /umamusume/characters/102001-seiun-sky)
+102002: Seiun Sky (Ballroom) (Link: /umamusume/characters/102002-seiun-sky)
+104301: Shinko Windy (Link: /umamusume/characters/104301-shinko-windy)
+100201: Silence Suzuka (Link: /umamusume/characters/100201-silence-suzuka)
+100202: Silence Suzuka (Summer) (Link: /umamusume/characters/100202-silence-suzuka)
+107001: Sirius Symboli (Link: /umamusume/characters/107001-sirius-symboli)
+107002: Sirius Symboli (The Twinkle Legends) (Link: /umamusume/characters/107002-sirius-symboli)
+104601: Smart Falcon (Link: /umamusume/characters/104601-smart-falcon)
+104602: Smart Falcon (Grand Live) (Link: /umamusume/characters/104602-smart-falcon)
+104603: Smart Falcon (Parade) (Link: /umamusume/characters/104603-smart-falcon)
+110201: Sounds of Earth (Link: /umamusume/characters/110201-sounds-of-earth)
+100101: Special Week (Link: /umamusume/characters/100101-special-week)
+100102: Special Week (Summer) (Link: /umamusume/characters/100102-special-week)
+109701: Still in Love (Link: /umamusume/characters/109701-still-in-love)
+104502: Super Creek (Halloween) (Link: /umamusume/characters/104502-super-creek)
+104503: Super Creek (Warfare) (Link: /umamusume/characters/104503-super-creek)
+104401: Sweep Tosho (Link: /umamusume/characters/104401-sweep-tosho)
+104402: Sweep Tosho (Wedding) (Link: /umamusume/characters/104402-sweep-tosho)
+108301: Symboli Kris S (Link: /umamusume/characters/108301-symboli-kris-s)
+108302: Symboli Kris S (Halloween) (Link: /umamusume/characters/108302-symboli-kris-s)
+101701: Symboli Rudolf (Link: /umamusume/characters/101701-symboli-rudolf)
+101702: Symboli Rudolf (Festival) (Link: /umamusume/characters/101702-symboli-rudolf)
+101501: TM Opera O (Link: /umamusume/characters/101501-tm-opera-o)
+101502: TM Opera O (New Year) (Link: /umamusume/characters/101502-tm-opera-o)
+101001: Taiki Shuttle (Link: /umamusume/characters/101001-taiki-shuttle)
+101002: Taiki Shuttle (Camping) (Link: /umamusume/characters/101002-taiki-shuttle)
+102101: Tamamo Cross (Link: /umamusume/characters/102101-tamamo-cross)
+102102: Tamamo Cross (Festival) (Link: /umamusume/characters/102102-tamamo-cross)
+108401: Tanino Gimlet (Link: /umamusume/characters/108401-tanino-gimlet)
+108402: Tanino Gimlet (Ballroom) (Link: /umamusume/characters/108402-tanino-gimlet)
+110701: Tap Dance City (Link: /umamusume/characters/110701-tap-dance-city)
+110702: Tap Dance City (Ballroom) (Link: /umamusume/characters/110702-tap-dance-city)
+100301: Tokai Teio (Link: /umamusume/characters/100301-tokai-teio)
+100302: Tokai Teio (Anime Collab) (Link: /umamusume/characters/100302-tokai-teio)
+100303: Tokai Teio (Festival) (Link: /umamusume/characters/100303-tokai-teio)
+104801: Tosen Jordan (Link: /umamusume/characters/104801-tosen-jordan)
+104803: Tosen Jordan (Halloween) (Link: /umamusume/characters/104803-tosen-jordan)
+104802: Tosen Jordan (Summer Trip) (Link: /umamusume/characters/104802-tosen-jordan)
+108001: Transcend (Link: /umamusume/characters/108001-transcend)
+108002: Transcend (Onsen) (Link: /umamusume/characters/108002-transcend)
+107301: Tsurumaru Tsuyoshi (Link: /umamusume/characters/107301-tsurumaru-tsuyoshi)
+106601: Twin Turbo (Link: /umamusume/characters/106601-twin-turbo)
+109001: Verxina (Link: /umamusume/characters/109001-verxina)
+109101: Vivlos (Link: /umamusume/characters/109101-vivlos)
+109102: Vivlos (Summer) (Link: /umamusume/characters/109102-vivlos)
+100802: Vodka (Christmas) (Link: /umamusume/characters/100802-vodka)
+111701: Win Variation (Link: /umamusume/characters/111701-win-variation)
+103502: Winning Ticket (Steampunk) (Link: /umamusume/characters/103502-winning-ticket)
+103503: Winning Ticket (U.A.F.) (Link: /umamusume/characters/103503-winning-ticket)
+110001: Wonder Acute (Link: /umamusume/characters/110001-wonder-acute)
+110002: Wonder Acute (Onsen) (Link: /umamusume/characters/110002-wonder-acute)
+107201: Yaeno Muteki (Link: /umamusume/characters/107201-yaeno-muteki)
+107202: Yaeno Muteki (Warfare) (Link: /umamusume/characters/107202-yaeno-muteki)
+107801: Yamanin Zephyr (Link: /umamusume/characters/107801-yamanin-zephyr)
+107802: Yamanin Zephyr (Valentine) (Link: /umamusume/characters/107802-yamanin-zephyr)
+102901: Yukino Bijin (Link: /umamusume/characters/102901-yukino-bijin)
+102902: Yukino Bijin (Valentine) (Link: /umamusume/characters/102902-yukino-bijin)
+104701: Zenno Rob Roy (Link: /umamusume/characters/104701-zenno-rob-roy)
+104702: Zenno Rob Roy (Autumn) (Link: /umamusume/characters/104702-zenno-rob-roy)
+
+
+=== SUPPORT_CARDS TABLE ===
+
+Total support cards: 259
+
+30265: Admire Groove (SSR speed) (Link: /umamusume/supports/30265-admire-groove)
+20041: Admire Vega (SR guts) (Link: /umamusume/supports/20041-admire-vega)
+30077: Admire Vega (SSR power) (Link: /umamusume/supports/30077-admire-vega)
+30229: Agnes Digital (SSR intelligence) (Link: /umamusume/supports/30229-agnes-digital)
+30085: Agnes Digital (SSR power) (Link: /umamusume/supports/30085-agnes-digital)
+20059: Agnes Tachyon (SR power) (Link: /umamusume/supports/20059-agnes-tachyon)
+30101: Agnes Tachyon (SSR speed) (Link: /umamusume/supports/30101-agnes-tachyon)
+30124: Air Groove (SSR intelligence) (Link: /umamusume/supports/30124-air-groove)
+30106: Air Groove (SSR power) (Link: /umamusume/supports/30106-air-groove)
+20076: Air Shakur (SR power) (Link: /umamusume/supports/20076-air-shakur)
+30013: Air Shakur (SSR intelligence) (Link: /umamusume/supports/30013-air-shakur)
+30226: Air Shakur (SSR stamina) (Link: /umamusume/supports/30226-air-shakur)
+30242: Almond Eye (SSR speed) (Link: /umamusume/supports/30242-almond-eye)
+30137: Ancestors & Guides (SSR group) (Link: /umamusume/supports/30137-ancestors-guides)
+20055: Aston Machan (SR speed) (Link: /umamusume/supports/20055-aston-machan)
+30149: Aston Machan (SSR intelligence) (Link: /umamusume/supports/30149-aston-machan)
+30094: Bamboo Memory (SSR guts) (Link: /umamusume/supports/30094-bamboo-memory)
+30042: Bamboo Memory (SSR power) (Link: /umamusume/supports/30042-bamboo-memory)
+20090: Biko Pegasus (SR intelligence) (Link: /umamusume/supports/20090-biko-pegasus)
+30132: Biko Pegasus (SSR power) (Link: /umamusume/supports/30132-biko-pegasus)
+30020: Biko Pegasus (SSR speed) (Link: /umamusume/supports/30020-biko-pegasus)
+30232: Blast Onepiece (SSR guts) (Link: /umamusume/supports/30232-blast-onepiece)
+20082: Bubble Gum Fellow (SR speed) (Link: /umamusume/supports/20082-bubble-gum-fellow)
+30250: Buena Vista (SSR power) (Link: /umamusume/supports/30250-buena-vista)
+30267: Calstone Light O (SSR speed) (Link: /umamusume/supports/30267-calstone-light-o)
+30193: Cheval Grand (SSR stamina) (Link: /umamusume/supports/30193-cheval-grand)
+20064: Copano Rickey (SR guts) (Link: /umamusume/supports/20064-copano-rickey)
+30211: Copano Rickey (SSR intelligence) (Link: /umamusume/supports/30211-copano-rickey)
+20088: Curren Bouquetd'or (SR stamina) (Link: /umamusume/supports/20088-curren-bouquetdor)
+30274: Curren Bouquetd'or (SSR stamina) (Link: /umamusume/supports/30274-curren-bouquetdor)
+20044: Curren Chan (SR speed) (Link: /umamusume/supports/20044-curren-chan)
+30237: Curren Chan (SSR guts) (Link: /umamusume/supports/30237-curren-chan)
+30068: Curren Chan (SSR intelligence) (Link: /umamusume/supports/30068-curren-chan)
+30270: Daiichi Ruby (SSR guts) (Link: /umamusume/supports/30270-daiichi-ruby)
+30114: Daiichi Ruby (SSR power) (Link: /umamusume/supports/30114-daiichi-ruby)
+20024: Daitaku Helios (SR power) (Link: /umamusume/supports/20024-daitaku-helios)
+30071: Daitaku Helios (SSR power) (Link: /umamusume/supports/30071-daitaku-helios)
+30116: Daitaku Helios (SSR speed) (Link: /umamusume/supports/30116-daitaku-helios)
+30148: Daiwa Scarlet (SSR guts) (Link: /umamusume/supports/30148-daiwa-scarlet)
+30227: Daiwa Scarlet (SSR intelligence) (Link: /umamusume/supports/30227-daiwa-scarlet)
+30093: Daiwa Scarlet (SSR power) (Link: /umamusume/supports/30093-daiwa-scarlet)
+20077: Dantsu Flame (SR intelligence) (Link: /umamusume/supports/20077-dantsu-flame)
+30209: Dantsu Flame (SSR stamina) (Link: /umamusume/supports/30209-dantsu-flame)
+20087: Daring Heart (SR power) (Link: /umamusume/supports/20087-daring-heart)
+30254: Daring Heart (SSR intelligence) (Link: /umamusume/supports/30254-daring-heart)
+30248: Daring Tact (SSR intelligence) (Link: /umamusume/supports/30248-daring-tact)
+30246: Dream Journey (SSR speed) (Link: /umamusume/supports/30246-dream-journey)
+30178: Duramente (SSR speed) (Link: /umamusume/supports/30178-duramente)
+30262: Duramente (SSR stamina) (Link: /umamusume/supports/30262-duramente)
+30268: Durandal (SSR intelligence) (Link: /umamusume/supports/30268-durandal)
+30272: Eishin Flash (SSR speed) (Link: /umamusume/supports/30272-eishin-flash)
+30122: Eishin Flash (SSR speed) (Link: /umamusume/supports/30122-eishin-flash)
+20033: El Condor Pasa (SR speed) (Link: /umamusume/supports/20033-el-condor-pasa)
+30102: El Condor Pasa (SSR guts) (Link: /umamusume/supports/30102-el-condor-pasa)
+30007: El Condor Pasa (SSR power) (Link: /umamusume/supports/30007-el-condor-pasa)
+30161: El Condor Pasa (SSR speed) (Link: /umamusume/supports/30161-el-condor-pasa)
+30241: Embodiment of Legends (SSR group) (Link: /umamusume/supports/30241-group)
+30222: Espoir City (SSR power) (Link: /umamusume/supports/30222-espoir-city)
+30279: Fenomeno (SSR stamina) (Link: /umamusume/supports/30279-fenomeno)
+20037: Fine Motion (SR power) (Link: /umamusume/supports/20037-fine-motion)
+30214: Fine Motion (SSR guts) (Link: /umamusume/supports/30214-fine-motion)
+30010: Fine Motion (SSR intelligence) (Link: /umamusume/supports/30010-fine-motion)
+30271: Fuji Kiseki (SSR guts) (Link: /umamusume/supports/30271-fuji-kiseki)
+30219: Fuji Kiseki (SSR guts) (Link: /umamusume/supports/30219-fuji-kiseki)
+20049: Gold City (SR intelligence) (Link: /umamusume/supports/20049-gold-city)
+30153: Gold City (SSR guts) (Link: /umamusume/supports/30153-gold-city)
+30014: Gold City (SSR speed) (Link: /umamusume/supports/30014-gold-city)
+20061: Gold Ship (SR stamina) (Link: /umamusume/supports/20061-gold-ship)
+30168: Gold Ship (SSR speed) (Link: /umamusume/supports/30168-gold-ship)
+30278: Gold Ship (SSR stamina) (Link: /umamusume/supports/30278-gold-ship)
+30004: Gold Ship (SSR stamina) (Link: /umamusume/supports/30004-gold-ship)
+20065: Grass Wonder (SR power) (Link: /umamusume/supports/20065-grass-wonder)
+30006: Grass Wonder (SSR guts) (Link: /umamusume/supports/30006-grass-wonder)
+30098: Haru Urara (SSR power) (Link: /umamusume/supports/30098-haru-urara)
+20060: Hishi Akebono (SR power) (Link: /umamusume/supports/20060-hishi-akebono)
+30040: Hishi Akebono (SSR guts) (Link: /umamusume/supports/30040-hishi-akebono)
+30223: Hishi Amazon (SSR guts) (Link: /umamusume/supports/30223-hishi-amazon)
+30164: Hishi Amazon (SSR power) (Link: /umamusume/supports/30164-hishi-amazon)
+30199: Hishi Miracle (SSR stamina) (Link: /umamusume/supports/30199-hishi-miracle)
+20092: Hokko Tarumae (SR power) (Link: /umamusume/supports/20092-hokko-tarumae)
+30182: Hokko Tarumae (SSR stamina) (Link: /umamusume/supports/30182-hokko-tarumae)
+20025: Ikuno Dictus (SR intelligence) (Link: /umamusume/supports/20025-ikuno-dictus)
+30063: Ikuno Dictus (SSR guts) (Link: /umamusume/supports/30063-ikuno-dictus)
+30238: Ikuno Dictus (SSR intelligence) (Link: /umamusume/supports/30238-ikuno-dictus)
+30099: Ikuno Dictus (SSR stamina) (Link: /umamusume/supports/30099-ikuno-dictus)
+20032: Inari One (SR power) (Link: /umamusume/supports/20032-inari-one)
+20030: Ines Fujin (SR intelligence) (Link: /umamusume/supports/20030-ines-fujin)
+30011: Ines Fujin (SSR guts) (Link: /umamusume/supports/30011-ines-fujin)
+20056: Jungle Pocket (SR speed) (Link: /umamusume/supports/20056-jungle-pocket)
+30158: Jungle Pocket (SSR guts) (Link: /umamusume/supports/30158-jungle-pocket)
+30147: Jungle Pocket (SSR speed) (Link: /umamusume/supports/30147-jungle-pocket)
+20051: K.S.Miracle (SR guts) (Link: /umamusume/supports/20051-ksmiracle)
+30130: K.S.Miracle (SSR guts) (Link: /umamusume/supports/30130-ksmiracle)
+30195: K.S.Miracle (SSR power) (Link: /umamusume/supports/30195-ksmiracle)
+20089: Kawakami Princess (SR guts) (Link: /umamusume/supports/20089-kawakami-princess)
+30039: Kawakami Princess (SSR speed) (Link: /umamusume/supports/30039-kawakami-princess)
+30170: King Halo (SSR guts) (Link: /umamusume/supports/30170-king-halo)
+30056: King Halo (SSR power) (Link: /umamusume/supports/30056-king-halo)
+20066: Kitasan Black (SR stamina) (Link: /umamusume/supports/20066-kitasan-black)
+30028: Kitasan Black (SSR speed) (Link: /umamusume/supports/30028-kitasan-black)
+30276: Kiyoko Hoshina (SSR friend) (Link: /umamusume/supports/30276-kiyoko-hoshina)
+30052: Light Hello (SSR friend) (Link: /umamusume/supports/30052-light-hello)
+20084: Lucky Lilac (SR intelligence) (Link: /umamusume/supports/20084-lucky-lilac)
+30157: Manhattan Cafe (SSR intelligence) (Link: /umamusume/supports/30157-manhattan-cafe)
+30110: Manhattan Cafe (SSR stamina) (Link: /umamusume/supports/30110-manhattan-cafe)
+30075: Manhattan Cafe (SSR stamina) (Link: /umamusume/supports/30075-manhattan-cafe)
+20062: Maruzensky (SR intelligence) (Link: /umamusume/supports/20062-maruzensky)
+30107: Maruzensky (SSR speed) (Link: /umamusume/supports/30107-maruzensky)
+20079: Marvelous Sunday (SR guts) (Link: /umamusume/supports/20079-marvelous-sunday)
+30089: Marvelous Sunday (SSR guts) (Link: /umamusume/supports/30089-marvelous-sunday)
+30131: Marvelous Sunday (SSR speed) (Link: /umamusume/supports/30131-marvelous-sunday)
+20078: Matikanefukukitaru (SR speed) (Link: /umamusume/supports/20078-matikanefukukitaru)
+30078: Matikanefukukitaru (SSR speed) (Link: /umamusume/supports/30078-matikanefukukitaru)
+20069: Matikanetannhauser (SR speed) (Link: /umamusume/supports/20069-matikanetannhauser)
+30103: Matikanetannhauser (SSR intelligence) (Link: /umamusume/supports/30103-matikanetannhauser)
+30151: Mayano Top Gun (SSR power) (Link: /umamusume/supports/30151-mayano-top-gun)
+30072: Mayano Top Gun (SSR speed) (Link: /umamusume/supports/30072-mayano-top-gun)
+30160: Mei Satake (SSR friend) (Link: /umamusume/supports/30160-mei-satake)
+30230: Meisho Doto (SSR speed) (Link: /umamusume/supports/30230-meisho-doto)
+20034: Mejiro Ardan (SR intelligence) (Link: /umamusume/supports/20034-mejiro-ardan)
+30234: Mejiro Ardan (SSR power) (Link: /umamusume/supports/30234-mejiro-ardan)
+30244: Mejiro Bright (SSR stamina) (Link: /umamusume/supports/30244-mejiro-bright)
+20057: Mejiro Dober (SR guts) (Link: /umamusume/supports/20057-mejiro-dober)
+30174: Mejiro Dober (SSR speed) (Link: /umamusume/supports/30174-mejiro-dober)
+20085: Mejiro McQueen (SR guts) (Link: /umamusume/supports/20085-mejiro-mcqueen)
+30172: Mejiro McQueen (SSR intelligence) (Link: /umamusume/supports/30172-mejiro-mcqueen)
+30139: Mejiro McQueen (SSR stamina) (Link: /umamusume/supports/30139-mejiro-mcqueen)
+20036: Mejiro Palmer (SR stamina) (Link: /umamusume/supports/20036-mejiro-palmer)
+30027: Mejiro Palmer (SSR guts) (Link: /umamusume/supports/30027-mejiro-palmer)
+30154: Mejiro Palmer (SSR speed) (Link: /umamusume/supports/30154-mejiro-palmer)
+30115: Mejiro Palmer (SSR stamina) (Link: /umamusume/supports/30115-mejiro-palmer)
+20083: Mejiro Ramonu (SR stamina) (Link: /umamusume/supports/20083-mejiro-ramonu)
+30134: Mejiro Ramonu (SSR intelligence) (Link: /umamusume/supports/30134-mejiro-ramonu)
+30175: Mejiro Ramonu (SSR power) (Link: /umamusume/supports/30175-mejiro-ramonu)
+20040: Mejiro Ryan (SR stamina) (Link: /umamusume/supports/20040-mejiro-ryan)
+30048: Mejiro Ryan (SSR guts) (Link: /umamusume/supports/30048-mejiro-ryan)
+30258: Mejiro Ryan (SSR stamina) (Link: /umamusume/supports/30258-mejiro-ryan)
+30141: Mihono Bourbon (SSR intelligence) (Link: /umamusume/supports/30141-mihono-bourbon)
+30277: Mihono Bourbon (SSR power) (Link: /umamusume/supports/30277-mihono-bourbon)
+30097: Mr. C.B. (SSR intelligence) (Link: /umamusume/supports/30097-mr-cb)
+30163: Nakayama Festa (SSR intelligence) (Link: /umamusume/supports/30163-nakayama-festa)
+30108: Nakayama Festa (SSR intelligence) (Link: /umamusume/supports/30108-nakayama-festa)
+30043: Nakayama Festa (SSR stamina) (Link: /umamusume/supports/30043-nakayama-festa)
+30123: Narita Brian (SSR power) (Link: /umamusume/supports/30123-narita-brian)
+30224: Narita Brian (SSR speed) (Link: /umamusume/supports/30224-narita-brian)
+30069: Narita Brian (SSR stamina) (Link: /umamusume/supports/30069-narita-brian)
+30201: Narita Taishin (SSR intelligence) (Link: /umamusume/supports/30201-narita-taishin)
+30073: Narita Taishin (SSR intelligence) (Link: /umamusume/supports/30073-narita-taishin)
+20053: Narita Top Road (SR power) (Link: /umamusume/supports/20053-narita-top-road)
+30086: Narita Top Road (SSR speed) (Link: /umamusume/supports/30086-narita-top-road)
+30198: Neo Universe (SSR intelligence) (Link: /umamusume/supports/30198-neo-universe)
+20068: Nice Nature (SR stamina) (Link: /umamusume/supports/20068-nice-nature)
+30054: Nice Nature (SSR intelligence) (Link: /umamusume/supports/30054-nice-nature)
+30138: Nice Nature (SSR power) (Link: /umamusume/supports/30138-nice-nature)
+20027: Nishino Flower (SR power) (Link: /umamusume/supports/20027-nishino-flower)
+30082: Nishino Flower (SSR intelligence) (Link: /umamusume/supports/30082-nishino-flower)
+30208: Nishino Flower (SSR power) (Link: /umamusume/supports/30208-nishino-flower)
+30018: Nishino Flower (SSR speed) (Link: /umamusume/supports/30018-nishino-flower)
+20081: North Flight (SR power) (Link: /umamusume/supports/20081-north-flight)
+20048: Oguri Cap (SR guts) (Link: /umamusume/supports/20048-oguri-cap)
+30146: Oguri Cap (SSR intelligence) (Link: /umamusume/supports/30146-oguri-cap)
+30024: Oguri Cap (SSR power) (Link: /umamusume/supports/30024-oguri-cap)
+30187: Orfevre (SSR guts) (Link: /umamusume/supports/30187-orfevre)
+30253: Rhein Kraft (SSR speed) (Link: /umamusume/supports/30253-rhein-kraft)
+20086: Rice Shower (SR speed) (Link: /umamusume/supports/20086-rice-shower)
+30034: Rice Shower (SSR power) (Link: /umamusume/supports/30034-rice-shower)
+30036: Riko Kashimoto (SSR friend) (Link: /umamusume/supports/30036-riko-kashimoto)
+20071: Royce and Royce (SR power) (Link: /umamusume/supports/20071-royce-and-royce)
+30188: Ryoka Tsurugi (SSR friend) (Link: /umamusume/supports/30188-ryoka-tsurugi)
+20042: Sakura Bakushin O (SR power) (Link: /umamusume/supports/20042-sakura-bakushin-o)
+30083: Sakura Bakushin O (SSR guts) (Link: /umamusume/supports/30083-sakura-bakushin-o)
+30184: Sakura Bakushin O (SSR speed) (Link: /umamusume/supports/30184-sakura-bakushin-o)
+30015: Sakura Bakushin O (SSR speed) (Link: /umamusume/supports/30015-sakura-bakushin-o)
+20091: Sakura Chitose O (SR speed) (Link: /umamusume/supports/20091-sakura-chitose-o)
+30038: Sakura Chiyono O (SSR stamina) (Link: /umamusume/supports/30038-sakura-chiyono-o)
+20080: Sakura Laurel (SR intelligence) (Link: /umamusume/supports/20080-sakura-laurel)
+30142: Sakura Laurel (SSR stamina) (Link: /umamusume/supports/30142-sakura-laurel)
+30080: Sasami Anshinzawa (SSR friend) (Link: /umamusume/supports/30080-sasami-anshinzawa)
+30179: Satono Diamond (SSR intelligence) (Link: /umamusume/supports/30179-satono-diamond)
+30029: Satono Diamond (SSR stamina) (Link: /umamusume/supports/30029-satono-diamond)
+20029: Seeking the Pearl (SR guts) (Link: /umamusume/supports/20029-seeking-the-pearl)
+30236: Seeking the Pearl (SSR speed) (Link: /umamusume/supports/30236-seeking-the-pearl)
+30095: Seeking the Pearl (SSR speed) (Link: /umamusume/supports/30095-seeking-the-pearl)
+20050: Seiun Sky (SR intelligence) (Link: /umamusume/supports/20050-seiun-sky)
+30055: Seiun Sky (SSR intelligence) (Link: /umamusume/supports/30055-seiun-sky)
+30204: Seiun Sky (SSR power) (Link: /umamusume/supports/30204-seiun-sky)
+30008: Seiun Sky (SSR stamina) (Link: /umamusume/supports/30008-seiun-sky)
+20031: Shinko Windy (SR speed) (Link: /umamusume/supports/20031-shinko-windy)
+20063: Silence Suzuka (SR speed) (Link: /umamusume/supports/20063-silence-suzuka)
+30252: Silence Suzuka (SSR guts) (Link: /umamusume/supports/30252-silence-suzuka)
+30002: Silence Suzuka (SSR speed) (Link: /umamusume/supports/30002-silence-suzuka)
+20038: Sirius Symboli (SR guts) (Link: /umamusume/supports/20038-sirius-symboli)
+30091: Sirius Symboli (SSR intelligence) (Link: /umamusume/supports/30091-sirius-symboli)
+30017: Smart Falcon (SSR power) (Link: /umamusume/supports/30017-smart-falcon)
+30210: Smart Falcon (SSR speed) (Link: /umamusume/supports/30210-smart-falcon)
+30173: Sounds of Earth (SSR stamina) (Link: /umamusume/supports/30173-sounds-of-earth)
+30001: Special Week (SSR guts) (Link: /umamusume/supports/30001-special-week)
+30127: Special Week (SSR stamina) (Link: /umamusume/supports/30127-special-week)
+30264: Stay Gold (SSR guts) (Link: /umamusume/supports/30264-stay-gold)
+30215: Still in Love (SSR speed) (Link: /umamusume/supports/30215-still-in-love)
+30016: Super Creek (SSR stamina) (Link: /umamusume/supports/30016-super-creek)
+20046: Sweep Tosho (SR intelligence) (Link: /umamusume/supports/20046-sweep-tosho)
+20023: Sweep Tosho (SR speed) (Link: /umamusume/supports/20023-sweep-tosho)
+30128: Sweep Tosho (SSR intelligence) (Link: /umamusume/supports/30128-sweep-tosho)
+30045: Sweep Tosho (SSR speed) (Link: /umamusume/supports/30045-sweep-tosho)
+30228: Symboli Kris S (SSR power) (Link: /umamusume/supports/30228-symboli-kris-s)
+30118: Symboli Kris S (SSR stamina) (Link: /umamusume/supports/30118-symboli-kris-s)
+20058: Symboli Rudolf (SR stamina) (Link: /umamusume/supports/20058-symboli-rudolf)
+30037: Symboli Rudolf (SSR guts) (Link: /umamusume/supports/30037-symboli-rudolf)
+30233: Symboli Rudolf (SSR intelligence) (Link: /umamusume/supports/30233-symboli-rudolf)
+30090: Symboli Rudolf (SSR stamina) (Link: /umamusume/supports/30090-symboli-rudolf)
+20054: TM Opera O (SR stamina) (Link: /umamusume/supports/20054-tm-opera-o)
+30152: TM Opera O (SSR intelligence) (Link: /umamusume/supports/30152-tm-opera-o)
+20067: Taiki Shuttle (SR intelligence) (Link: /umamusume/supports/20067-taiki-shuttle)
+30218: Taiki Shuttle (SSR intelligence) (Link: /umamusume/supports/30218-taiki-shuttle)
+30053: Taiki Shuttle (SSR speed) (Link: /umamusume/supports/30053-taiki-shuttle)
+20022: Tamamo Cross (SR guts) (Link: /umamusume/supports/20022-tamamo-cross)
+30256: Tamamo Cross (SSR power) (Link: /umamusume/supports/30256-tamamo-cross)
+30064: Tamamo Cross (SSR power) (Link: /umamusume/supports/30064-tamamo-cross)
+30009: Tamamo Cross (SSR stamina) (Link: /umamusume/supports/30009-tamamo-cross)
+20072: Tanino Gimlet (SR intelligence) (Link: /umamusume/supports/20072-tanino-gimlet)
+30165: Tanino Gimlet (SSR stamina) (Link: /umamusume/supports/30165-tanino-gimlet)
+20075: Tap Dance City (SR guts) (Link: /umamusume/supports/20075-tap-dance-city)
+30166: Tap Dance City (SSR guts) (Link: /umamusume/supports/30166-tap-dance-city)
+30021: Tazuna Hayakawa (SSR friend) (Link: /umamusume/supports/30021-tazuna-hayakawa)
+30067: The Throne's Assemblage (SSR group) (Link: /umamusume/supports/30067-the-thrones-assemblage)
+20047: Tokai Teio (SR stamina) (Link: /umamusume/supports/20047-tokai-teio)
+30111: Tokai Teio (SSR intelligence) (Link: /umamusume/supports/30111-tokai-teio)
+30275: Tokai Teio (SSR speed) (Link: /umamusume/supports/30275-tokai-teio)
+30003: Tokai Teio (SSR speed) (Link: /umamusume/supports/30003-tokai-teio)
+20073: Tosen Jordan (SR speed) (Link: /umamusume/supports/20073-tosen-jordan)
+20035: Tosen Jordan (SR stamina) (Link: /umamusume/supports/20035-tosen-jordan)
+30249: Transcend (SSR guts) (Link: /umamusume/supports/30249-transcend)
+20052: Tsurumaru Tsuyoshi (SR guts) (Link: /umamusume/supports/20052-tsurumaru-tsuyoshi)
+30169: Tsurumaru Tsuyoshi (SSR power) (Link: /umamusume/supports/30169-tsurumaru-tsuyoshi)
+30257: Tucker Bryne (SSR friend) (Link: /umamusume/supports/30257-tucker-bryne)
+30112: Twin Turbo (SSR guts) (Link: /umamusume/supports/30112-twin-turbo)
+30026: Twin Turbo (SSR speed) (Link: /umamusume/supports/30026-twin-turbo)
+20070: Verxina (SR guts) (Link: /umamusume/supports/20070-verxina)
+30177: Vivlos (SSR guts) (Link: /umamusume/supports/30177-vivlos)
+30206: Vivlos (SSR speed) (Link: /umamusume/supports/30206-vivlos)
+20039: Vodka (SR speed) (Link: /umamusume/supports/20039-vodka)
+30202: Vodka (SSR guts) (Link: /umamusume/supports/30202-vodka)
+30245: Vodka (SSR power) (Link: /umamusume/supports/30245-vodka)
+30005: Vodka (SSR power) (Link: /umamusume/supports/30005-vodka)
+30261: Win Variation (SSR intelligence) (Link: /umamusume/supports/30261-win-variation)
+30012: Winning Ticket (SSR guts) (Link: /umamusume/supports/30012-winning-ticket)
+30183: Winning Ticket (SSR power) (Link: /umamusume/supports/30183-winning-ticket)
+30046: Winning Ticket (SSR stamina) (Link: /umamusume/supports/30046-winning-ticket)
+30156: Wonder Acute (SSR power) (Link: /umamusume/supports/30156-wonder-acute)
+20074: Yaeno Muteki (SR stamina) (Link: /umamusume/supports/20074-yaeno-muteki)
+30120: Yaeno Muteki (SSR guts) (Link: /umamusume/supports/30120-yaeno-muteki)
+30032: Yaeno Muteki (SSR power) (Link: /umamusume/supports/30032-yaeno-muteki)
+30126: Yamanin Zephyr (SSR guts) (Link: /umamusume/supports/30126-yamanin-zephyr)
+30196: Yamanin Zephyr (SSR speed) (Link: /umamusume/supports/30196-yamanin-zephyr)
+30207: Yayoi Akikawa (SSR friend) (Link: /umamusume/supports/30207-yayoi-akikawa)
+30031: Yukino Bijin (SSR intelligence) (Link: /umamusume/supports/30031-yukino-bijin)
+20028: Zenno Rob Roy (SR stamina) (Link: /umamusume/supports/20028-zenno-rob-roy)
+30065: Zenno Rob Roy (SSR speed) (Link: /umamusume/supports/30065-zenno-rob-roy)
+
+
+=== BANNER_ITEMS TABLE ===
+
+Total banner-item mappings: 617
+
+Banner 30002: 9 items
+  - Character: 100101
+  - Character: 100201
+  - Character: 100301
+  - Character: 100401
+  - Character: 100601
+  - Character: 101001
+  - Character: 101301
+  - Character: 101701
+  - Character: 103001
+
+Banner 30003: 20 items
+  - Support: 30001
+  - Support: 30002
+  - Support: 30003
+  - Support: 30004
+  - Support: 30005
+  - Support: 30006
+  - Support: 30007
+  - Support: 30008
+  - Support: 30009
+  - Support: 30010
+  - Support: 30011
+  - Support: 30012
+  - Support: 30013
+  - Support: 30014
+  - Support: 30015
+  - Support: 30016
+  - Support: 30017
+  - Support: 30018
+  - Support: 30020
+  - Support: 30021
+
+Banner 30004: 1 items
+  - Character: 101501
+
+Banner 30005: 2 items
+  - Support: 20023
+  - Support: 30024
+
+Banner 30006: 1 items
+  - Character: 102601
+
+Banner 30007: 2 items
+  - Support: 20024
+  - Support: 30026
+
+Banner 30008: 1 items
+  - Character: 102301
+
+Banner 30009: 2 items
+  - Support: 20025
+  - Support: 30027
+
+Banner 30010: 2 items
+  - Character: 100302
+  - Character: 101302
+
+Banner 30011: 2 items
+  - Support: 30028
+  - Support: 30029
+
+Banner 30012: 1 items
+  - Character: 103801
+
+Banner 30013: 2 items
+  - Support: 20027
+  - Support: 30031
+
+Banner 30014: 1 items
+  - Character: 105001
+
+Banner 30015: 2 items
+  - Support: 20028
+  - Support: 30032
+
+Banner 30016: 1 items
+  - Character: 104601
+
+Banner 30017: 2 items
+  - Support: 30016
+  - Support: 30021
+
+Banner 30018: 1 items
+  - Character: 101601
+
+Banner 30019: 2 items
+  - Support: 20029
+  - Support: 30038
+
+Banner 30020: 2 items
+  - Character: 101802
+  - Character: 102402
+
+Banner 30021: 2 items
+  - Support: 30039
+  - Support: 30040
+
+Banner 30022: 1 items
+  - Character: 102001
+
+Banner 30023: 2 items
+  - Support: 30002
+  - Support: 30009
+
+Banner 30024: 1 items
+  - Character: 101201
+
+Banner 30025: 2 items
+  - Support: 20031
+  - Support: 30042
+
+Banner 30026: 2 items
+  - Character: 101102
+  - Character: 101402
+
+Banner 30027: 2 items
+  - Support: 30055
+  - Support: 30056
+
+Banner 30028: 1 items
+  - Character: 100501
+
+Banner 30029: 2 items
+  - Support: 20034
+  - Support: 30048
+
+Banner 30030: 1 items
+  - Character: 104001
+
+Banner 30031: 2 items
+  - Support: 30005
+  - Support: 30018
+
+Banner 30032: 2 items
+  - Character: 100102
+  - Character: 100402
+
+Banner 30033: 2 items
+  - Support: 30045
+  - Support: 30046
+
+Banner 30034: 1 items
+  - Character: 105801
+
+Banner 30035: 2 items
+  - Support: 30001
+  - Support: 30003
+
+Banner 30036: 1 items
+  - Character: 103701
+
+Banner 30037: 2 items
+  - Support: 20035
+  - Support: 30054
+
+Banner 30038: 1 items
+  - Character: 105602
+
+Banner 30039: 2 items
+  - Support: 30034
+  - Support: 30036
+
+Banner 30040: 1 items
+  - Character: 102801
+
+Banner 30041: 2 items
+  - Support: 30015
+  - Support: 30020
+
+Banner 30042: 1 items
+  - Character: 101901
+
+Banner 30043: 2 items
+  - Support: 20037
+  - Support: 30063
+
+Banner 30044: 2 items
+  - Character: 103002
+  - Character: 104502
+
+Banner 30045: 2 items
+  - Support: 30064
+  - Support: 30065
+
+Banner 30046: 1 items
+  - Character: 103901
+
+Banner 30047: 2 items
+  - Support: 30008
+  - Support: 30032
+
+Banner 30048: 1 items
+  - Character: 102501
+
+Banner 30049: 2 items
+  - Support: 20038
+  - Support: 30043
+
+Banner 30050: 2 items
+  - Character: 101702
+  - Character: 104002
+
+Banner 30051: 2 items
+  - Support: 30068
+  - Support: 30069
+
+Banner 30052: 1 items
+  - Character: 104801
+
+Banner 30053: 2 items
+  - Support: 30007
+  - Support: 30028
+
+Banner 30054: 1 items
+  - Character: 105901
+
+Banner 30055: 2 items
+  - Support: 20039
+  - Support: 30071
+
+Banner 30056: 2 items
+  - Character: 100602
+  - Character: 102302
+
+Banner 30057: 2 items
+  - Support: 30072
+  - Support: 30073
+
+Banner 30058: 1 items
+  - Character: 102201
+
+Banner 30059: 2 items
+  - Support: 20032
+  - Support: 30075
+
+Banner 30060: 1 items
+  - Character: 102101
+
+Banner 30061: 2 items
+  - Support: 30024
+  - Support: 30054
+
+Banner 30062: 2 items
+  - Character: 101502
+  - Character: 105202
+
+Banner 30063: 2 items
+  - Support: 30077
+  - Support: 30078
+
+Banner 30064: 47 items
+  - Character: 100101
+  - Character: 100102
+  - Character: 100201
+  - Character: 100301
+  - Character: 100302
+  - Character: 100401
+  - Character: 100402
+  - Character: 100501
+  - Character: 100601
+  - Character: 100602
+  - Character: 101001
+  - Character: 101102
+  - Character: 101201
+  - Character: 101301
+  - Character: 101302
+  - Character: 101402
+  - Character: 101501
+  - Character: 101502
+  - Character: 101601
+  - Character: 101701
+  - Character: 101702
+  - Character: 101802
+  - Character: 101901
+  - Character: 102001
+  - Character: 102101
+  - Character: 102201
+  - Character: 102301
+  - Character: 102302
+  - Character: 102402
+  - Character: 102501
+  - Character: 102601
+  - Character: 102801
+  - Character: 103001
+  - Character: 103002
+  - Character: 103701
+  - Character: 103801
+  - Character: 103901
+  - Character: 104001
+  - Character: 104002
+  - Character: 104502
+  - Character: 104601
+  - Character: 104801
+  - Character: 105001
+  - Character: 105202
+  - Character: 105602
+  - Character: 105801
+  - Character: 105901
+
+Banner 30065: 2 items
+  - Support: 20022
+  - Support: 30080
+
+Banner 30066: 1 items
+  - Character: 106901
+
+Banner 30067: 2 items
+  - Support: 30021
+  - Support: 30036
+
+Banner 30068: 2 items
+  - Character: 102602
+  - Character: 103702
+
+Banner 30069: 2 items
+  - Support: 30082
+  - Support: 30083
+
+Banner 30070: 1 items
+  - Character: 107101
+
+Banner 30071: 2 items
+  - Support: 20030
+  - Support: 30085
+
+Banner 30072: 1 items
+  - Character: 103301
+
+Banner 30073: 2 items
+  - Support: 30010
+  - Support: 30039
+
+Banner 30074: 2 items
+  - Character: 106201
+  - Character: 106801
+
+Banner 30075: 4 items
+  - Support: 20040
+  - Support: 20041
+  - Support: 20042
+  - Support: 30086
+
+Banner 30076: 1 items
+  - Character: 106701
+
+Banner 30077: 2 items
+  - Support: 20044
+  - Support: 30089
+
+Banner 30078: 1 items
+  - Character: 107401
+
+Banner 30079: 2 items
+  - Support: 30065
+  - Support: 30068
+
+Banner 30080: 2 items
+  - Character: 100502
+  - Character: 102002
+
+Banner 30081: 2 items
+  - Support: 30090
+  - Support: 30091
+
+Banner 30082: 1 items
+  - Character: 105101
+
+Banner 30083: 2 items
+  - Support: 20046
+  - Support: 30093
+
+Banner 30084: 1 items
+  - Character: 107201
+
+Banner 30085: 2 items
+  - Support: 30011
+  - Support: 30026
+
+Banner 30086: 2 items
+  - Character: 106002
+  - Character: 106102
+
+Banner 30087: 2 items
+  - Support: 30094
+  - Support: 30095
+
+Banner 30088: 1 items
+  - Character: 103101
+
+Banner 30089: 2 items
+  - Support: 20047
+  - Support: 30097
+
+Banner 30090: 1 items
+  - Character: 106401
+
+Banner 30091: 2 items
+  - Support: 30034
+  - Support: 30078
+
+Banner 30092: 2 items
+  - Character: 102202
+  - Character: 103802
+
+Banner 30093: 2 items
+  - Support: 30098
+  - Support: 30099
+
+Banner 30094: 1 items
+  - Character: 103401
+
+Banner 30095: 2 items
+  - Support: 30038
+  - Support: 30077
+
+Banner 30096: 1 items
+  - Character: 104401
+
+Banner 30097: 2 items
+  - Support: 20048
+  - Support: 30053
+
+Banner 30098: 2 items
+  - Character: 101002
+  - Character: 105902
+
+Banner 30099: 2 items
+  - Support: 30102
+  - Support: 30103
+
+Banner 30100: 1 items
+  - Character: 103601
+
+Banner 30101: 2 items
+  - Support: 20049
+  - Support: 30106
+
+Banner 30102: 2 items
+  - Character: 101601
+  - Character: 102001
+
+Banner 30103: 2 items
+  - Support: 20033
+  - Support: 30067
+
+Banner 30104: 2 items
+  - Character: 100702
+  - Character: 101303
+
+Banner 30105: 2 items
+  - Support: 30107
+  - Support: 30108
+
+Banner 30106: 1 items
+  - Character: 105301
+
+Banner 30107: 2 items
+  - Support: 30031
+  - Support: 30063
+
+Banner 30108: 1 items
+  - Character: 109801
+
+Banner 30109: 2 items
+  - Support: 20050
+  - Support: 30110
+
+Banner 30110: 1 items
+  - Character: 104602
+
+Banner 30111: 2 items
+  - Support: 30052
+  - Support: 30101
+
+Banner 30112: 2 items
+  - Character: 103502
+  - Character: 105002
+
+Banner 30113: 2 items
+  - Support: 30111
+  - Support: 30112
+
+Banner 30114: 1 items
+  - Character: 102901
+
+Banner 30115: 2 items
+  - Support: 30002
+  - Support: 30017
+
+Banner 30116: 1 items
+  - Character: 104201
+
+Banner 30117: 2 items
+  - Support: 20051
+  - Support: 30114
+
+Banner 30118: 2 items
+  - Character: 101902
+  - Character: 105802
+
+Banner 30119: 2 items
+  - Support: 30115
+  - Support: 30116
+
+Banner 30120: 1 items
+  - Character: 108701
+
+Banner 30121: 2 items
+  - Support: 30010
+  - Support: 30107
+
+Banner 30122: 1 items
+  - Character: 107801
+
+Banner 30123: 2 items
+  - Support: 20052
+  - Support: 30118
+
+Banner 30124: 2 items
+  - Character: 102102
+  - Character: 103402
+
+Banner 30125: 2 items
+  - Support: 30120
+  - Support: 30146
+
+Banner 30126: 1 items
+  - Character: 104901
+
+Banner 30127: 2 items
+  - Support: 30016
+  - Support: 30097
+
+Banner 30128: 1 items
+  - Character: 110001
+
+Banner 30129: 2 items
+  - Support: 20053
+  - Support: 30122
+
+Banner 30130: 1 items
+  - Character: 104201
+
+Banner 30131: 2 items
+  - Support: 20051
+  - Support: 30114
+
+Banner 30132: 2 items
+  - Character: 100802
+  - Character: 100902
+
+Banner 30133: 2 items
+  - Support: 30123
+  - Support: 30124
+
+Banner 30134: 1 items
+  - Character: 104701
+
+Banner 30135: 2 items
+  - Support: 30052
+  - Support: 30072
+
+Banner 30136: 1 items
+  - Character: 101602
+
+Banner 30137: 2 items
+  - Support: 20054
+  - Support: 30126
+
+Banner 30138: 2 items
+  - Character: 106702
+  - Character: 106802
+
+Banner 30139: 2 items
+  - Support: 30127
+  - Support: 30128
+
+Banner 30140: 1 items
+  - Character: 109901
+
+Banner 30141: 2 items
+  - Support: 30101
+  - Support: 30111
+
+Banner 30142: 1 items
+  - Character: 106501
+
+Banner 30143: 2 items
+  - Support: 20055
+  - Support: 30130
+
+Banner 30144: 2 items
+  - Character: 103002
+  - Character: 105202
+
+Banner 30145: 2 items
+  - Support: 30053
+  - Support: 30078
+
+Banner 30146: 2 items
+  - Character: 102702
+  - Character: 103102
+
+Banner 30147: 2 items
+  - Support: 30131
+  - Support: 30132
+
+Banner 30148: 1 items
+  - Character: 104301
+
+Banner 30149: 2 items
+  - Support: 30082
+  - Support: 30107
+
+Banner 30150: 2 items
+  - Character: 105701
+  - Character: 106601
+
+Banner 30151: 5 items
+  - Support: 20056
+  - Support: 20057
+  - Support: 20058
+  - Support: 20059
+  - Support: 30134
+
+Banner 30152: 1 items
+  - Character: 108501
+
+Banner 30153: 2 items
+  - Support: 30091
+  - Support: 30146
+
+Banner 30154: 1 items
+  - Character: 108301
+
+Banner 30155: 2 items
+  - Support: 20060
+  - Support: 30137
+
+Banner 30156: 2 items
+  - Character: 106902
+  - Character: 107102
+
+Banner 30157: 2 items
+  - Support: 30138
+  - Support: 30139
+
+Banner 30158: 1 items
+  - Character: 107601
+
+Banner 30159: 2 items
+  - Support: 30122
+  - Support: 30124
+
+Banner 30160: 1 items
+  - Character: 110501
+
+Banner 30161: 2 items
+  - Support: 20061
+  - Support: 30037
+
+Banner 30162: 2 items
+  - Character: 104102
+  - Character: 106202
+
+Banner 30163: 2 items
+  - Support: 30141
+  - Support: 30142
+
+Banner 30164: 4 items
+  - Character: 104001
+  - Character: 104801
+  - Character: 106401
+  - Character: 106501
+
+Banner 30166: 1 items
+  - Character: 110601
+
+Banner 30167: 2 items
+  - Support: 30126
+  - Support: 30130
+
+Banner 30168: 1 items
+  - Character: 108401
+
+Banner 30169: 2 items
+  - Support: 20062
+  - Support: 30147
+
+Banner 30170: 2 items
+  - Character: 101202
+  - Character: 105102
+
+Banner 30171: 2 items
+  - Support: 30148
+  - Support: 30149
+
+Banner 30172: 2 items
+  - Character: 101002
+  - Character: 107801
+
+Banner 30173: 2 items
+  - Support: 20063
+  - Support: 30152
+
+Banner 30174: 1 items
+  - Character: 105501
+
+Banner 30175: 2 items
+  - Support: 20064
+  - Support: 30151
+
+Banner 30176: 2 items
+  - Character: 104802
+  - Character: 105302
+
+Banner 30177: 2 items
+  - Support: 30153
+  - Support: 30154
+
+Banner 30178: 1 items
+  - Character: 110401
+
+Banner 30179: 2 items
+  - Support: 30112
+  - Support: 30114
+
+Banner 30180: 1 items
+  - Character: 107001
+
+Banner 30181: 2 items
+  - Support: 20065
+  - Support: 30156
+
+Banner 30182: 2 items
+  - Character: 100202
+  - Character: 103202
+
+Banner 30183: 2 items
+  - Support: 30157
+  - Support: 30158
+
+Banner 30184: 2 items
+  - Character: 109801
+  - Character: 109901
+
+Banner 30185: 2 items
+  - Support: 30107
+  - Support: 30134
+
+Banner 30186: 1 items
+  - Character: 107701
+
+Banner 30187: 2 items
+  - Support: 30160
+  - Support: 30161
+
+Banner 30188: 1 items
+  - Character: 100703
+
+Banner 30189: 2 items
+  - Support: 20066
+  - Support: 30163
+
+Banner 30190: 1 items
+  - Character: 106703
+
+Banner 30191: 2 items
+  - Support: 30127
+  - Support: 30139
+
+Banner 30192: 1 items
+  - Character: 109301
+
+Banner 30193: 2 items
+  - Support: 20067
+  - Support: 30164
+
+Banner 30194: 2 items
+  - Character: 103602
+  - Character: 108302
+
+Banner 30195: 2 items
+  - Support: 30165
+  - Support: 30166
+
+Banner 30198: 1 items
+  - Character: 108601
+
+Banner 30199: 2 items
+  - Support: 20068
+  - Support: 30168
+
+Banner 30200: 2 items
+  - Character: 100303
+  - Character: 103902
+
+Banner 30201: 2 items
+  - Support: 30169
+  - Support: 30170
+
+Banner 30203: 2 items
+  - Support: 20069
+  - Support: 30172
+
+Banner 30204: 1 items
+  - Character: 110701
+
+Banner 30205: 2 items
+  - Support: 20070
+  - Support: 30173
+
+Banner 30206: 2 items
+  - Character: 106402
+  - Character: 107402
+
+Banner 30207: 2 items
+  - Support: 30174
+  - Support: 30175
+
+Banner 30208: 1 items
+  - Character: 108801
+
+Banner 30210: 1 items
+  - Character: 108901
+
+Banner 30211: 2 items
+  - Support: 20071
+  - Support: 30177
+
+Banner 30212: 1 items
+  - Character: 106803
+
+Banner 30213: 2 items
+  - Support: 30178
+  - Support: 30179
+
+Banner 30214: 1 items
+  - Character: 106003
+
+Banner 30216: 1 items
+  - Character: 109101
+
+Banner 30217: 2 items
+  - Support: 20072
+  - Support: 30182
+
+Banner 30218: 2 items
+  - Character: 102502
+  - Character: 102902
+
+Banner 30219: 2 items
+  - Support: 30183
+  - Support: 30184
+
+Banner 30220: 1 items
+  - Character: 105401
+
+Banner 30222: 2 items
+  - Character: 106301
+  - Character: 110801
+
+Banner 30223: 4 items
+  - Support: 20073
+  - Support: 20074
+  - Support: 30187
+  - Support: 30188
+
+Banner 30224: 1 items
+  - Character: 108001
+
+Banner 30226: 1 items
+  - Character: 110901
+
+Banner 30227: 2 items
+  - Support: 20075
+  - Support: 30193
+
+Banner 30228: 2 items
+  - Character: 106502
+  - Character: 108502
+
+Banner 30229: 2 items
+  - Support: 30195
+  - Support: 30196
+
+Banner 30232: 1 items
+  - Character: 103503
+
+Banner 30233: 2 items
+  - Support: 20076
+  - Support: 30198
+
+Banner 30234: 1 items
+  - Character: 110201
+
+Banner 30236: 2 items
+  - Character: 104503
+  - Character: 107202
+
+Banner 30237: 2 items
+  - Support: 30199
+  - Support: 30201
+
+Banner 30238: 5 items
+  - Character: 101201
+  - Character: 101202
+  - Character: 106901
+  - Character: 106902
+  - Character: 110401
+
+Banner 30242: 1 items
+  - Character: 103203
+
+Banner 30243: 2 items
+  - Support: 20077
+  - Support: 30202
+
+Banner 30244: 1 items
+  - Character: 108201
+
+Banner 30246: 2 items
+  - Character: 104402
+  - Character: 106103
+
+Banner 30247: 2 items
+  - Support: 30204
+  - Support: 30206
+
+Banner 30250: 1 items
+  - Character: 109401
+
+Banner 30252: 1 items
+  - Character: 111901
+
+Banner 30253: 2 items
+  - Support: 30207
+  - Support: 30208
+
+Banner 30256: 1 items
+  - Character: 103003
+
+Banner 30257: 2 items
+  - Support: 20078
+  - Support: 30209
+
+Banner 30258: 1 items
+  - Character: 112001
+
+Banner 30260: 2 items
+  - Character: 103703
+  - Character: 109902
+
+Banner 30261: 2 items
+  - Support: 30210
+  - Support: 30211
+
+Banner 30265: 2 items
+  - Support: 20036
+  - Support: 30214
+
+Banner 30268: 1 items
+  - Character: 111601
+
+Banner 30269: 2 items
+  - Support: 20079
+  - Support: 30215
+
+Banner 30270: 2 items
+  - Character: 104702
+  - Character: 110502
+
+Banner 30271: 2 items
+  - Support: 30218
+  - Support: 30219
+
+Banner 30274: 1 items
+  - Character: 111001
+
+Banner 30275: 2 items
+  - Support: 20080
+  - Support: 30222
+
+Banner 30276: 1 items
+  - Character: 112101
+
+Banner 30278: 2 items
+  - Character: 102403
+  - Character: 104202
+
+Banner 30279: 2 items
+  - Support: 30223
+  - Support: 30224
+
+Banner 30282: 1 items
+  - Character: 112401
+
+Banner 30284: 1 items
+  - Character: 102303
+
+Banner 30285: 2 items
+  - Support: 30226
+  - Support: 30227
+
+Banner 30288: 1 items
+  - Character: 105003
+
+Banner 30289: 2 items
+  - Support: 20081
+  - Support: 30228
+
+Banner 30290: 1 items
+  - Character: 111101
+
+Banner 30292: 2 items
+  - Character: 103302
+  - Character: 107702
+
+Banner 30293: 2 items
+  - Support: 30229
+  - Support: 30230
+
+Banner 30296: 1 items
+  - Character: 111701
+
+Banner 30297: 2 items
+  - Support: 20082
+  - Support: 30232
+
+Banner 30298: 1 items
+  - Character: 101103
+
+Banner 30300: 2 items
+  - Character: 105702
+  - Character: 110402
+
+Banner 30301: 2 items
+  - Support: 30233
+  - Support: 30234
+
+Banner 30304: 1 items
+  - Character: 100403
+
+Banner 30305: 2 items
+  - Support: 20083
+  - Support: 30236
+
+Banner 30306: 1 items
+  - Character: 107901
+
+Banner 30308: 2 items
+  - Character: 107802
+  - Character: 108702
+
+Banner 30309: 2 items
+  - Support: 30237
+  - Support: 30238
+
+Banner 30312: 1 items
+  - Character: 107301
+
+Banner 30314: 1 items
+  - Character: 111501
+
+Banner 30315: 4 items
+  - Support: 20084
+  - Support: 20085
+  - Support: 30241
+  - Support: 30242
+
+Banner 30318: 1 items
+  - Character: 113101
+
+Banner 30319: 2 items
+  - Support: 20086
+  - Support: 30244
+
+Banner 30320: 1 items
+  - Character: 109601
+
+Banner 30322: 2 items
+  - Character: 108402
+  - Character: 110702
+
+Banner 30323: 2 items
+  - Support: 30245
+  - Support: 30246
+
+Banner 30326: 1 items
+  - Character: 107002
+
+Banner 30327: 2 items
+  - Support: 20087
+  - Support: 30248
+
+Banner 30328: 1 items
+  - Character: 112701
+
+Banner 30330: 2 items
+  - Character: 104603
+  - Character: 109802
+
+Banner 30331: 2 items
+  - Support: 30249
+  - Support: 30250
+
+Banner 30332: 17 items
+  - Character: 100601
+  - Character: 100602
+  - Character: 100702
+  - Character: 100703
+  - Character: 101301
+  - Character: 101302
+  - Character: 101303
+  - Character: 102001
+  - Character: 102002
+  - Character: 102101
+  - Character: 102102
+  - Character: 102301
+  - Character: 102302
+  - Character: 102303
+  - Character: 103801
+  - Character: 103802
+  - Character: 110601
+
+Banner 30336: 1 items
+  - Character: 109001
+
+Banner 30337: 2 items
+  - Support: 20088
+  - Support: 30252
+
+Banner 30338: 1 items
+  - Character: 109601
+
+Banner 30340: 1 items
+  - Character: 113201
+
+Banner 30342: 2 items
+  - Character: 108602
+  - Character: 111002
+
+Banner 30343: 2 items
+  - Support: 30253
+  - Support: 30254
+
+Banner 30346: 1 items
+  - Character: 113301
+
+Banner 30348: 1 items
+  - Character: 104003
+
+Banner 30349: 2 items
+  - Support: 30256
+  - Support: 30257
+
+Banner 30352: 1 items
+  - Character: 103103
+
+Banner 30353: 2 items
+  - Support: 20089
+  - Support: 30258
+
+Banner 30354: 1 items
+  - Character: 111301
+
+Banner 30356: 2 items
+  - Character: 108802
+  - Character: 108902
+
+Banner 30357: 2 items
+  - Support: 30261
+  - Support: 30262
+
+Banner 30360: 1 items
+  - Character: 109102
+
+Banner 30362: 1 items
+  - Character: 109701
+
+Banner 30363: 2 items
+  - Support: 30264
+  - Support: 30265
+
+Banner 30364: 2 items
+  - Character: 109302
+  - Character: 110602
+
+Banner 30365: 2 items
+  - Support: 30267
+  - Support: 30268
+
+Banner 30368: 1 items
+  - Character: 108101
+
+Banner 30369: 2 items
+  - Support: 20090
+  - Support: 30270
+
+Banner 30370: 1 items
+  - Character: 109501
+
+Banner 30372: 2 items
+  - Character: 102802
+  - Character: 105502
+
+Banner 30373: 2 items
+  - Support: 30271
+  - Support: 30272
+
+Banner 30376: 1 items
+  - Character: 109201
+
+Banner 30378: 1 items
+  - Character: 109401
+
+Banner 30380: 1 items
+  - Character: 104803
+
+Banner 30381: 2 items
+  - Support: 20091
+  - Support: 30274
+
+Banner 30382: 1 items
+  - Character: 108002
+
+Banner 30383: 2 items
+  - Support: 30275
+  - Support: 30276
+
+Banner 30386: 1 items
+  - Character: 110002
+
+Banner 30387: 2 items
+  - Support: 20092
+  - Support: 30277
+
+Banner 30388: 1 items
+  - Character: 111401
+
+Banner 30390: 2 items
+  - Character: 104902
+  - Character: 111902
+
+Banner 30391: 2 items
+  - Support: 30278
+  - Support: 30279
+
+
+=== GLOBAL_BANNER_IMAGES TABLE ===
+
+Total global banner images: 48
+
+Banner 30002: banner_30002.png
+Banner 30003: banner_30003.png
+Banner 30004: banner_30004.png
+Banner 30005: banner_30005.png
+Banner 30006: banner_30006.png
+Banner 30007: banner_30007.png
+Banner 30008: banner_30008.png
+Banner 30009: banner_30009.png
+Banner 30010: banner_30010.png
+Banner 30011: banner_30011.png
+Banner 30012: banner_30012.png
+Banner 30013: banner_30013.png
+Banner 30014: banner_30014.png
+Banner 30015: banner_30015.png
+Banner 30016: banner_30016.png
+Banner 30017: banner_30017.png
+Banner 30018: banner_30018.png
+Banner 30019: banner_30019.png
+Banner 30020: banner_30020.png
+Banner 30021: banner_30021.png
+Banner 30022: banner_30022.png
+Banner 30023: banner_30023.png
+Banner 30024: banner_30024.png
+Banner 30025: banner_30025.png
+Banner 30026: banner_30026.png
+Banner 30027: banner_30027.png
+Banner 30028: banner_30028.png
+Banner 30029: banner_30029.png
+Banner 30030: banner_30030.png
+Banner 30031: banner_30031.png
+Banner 30032: banner_30032.png
+Banner 30033: banner_30033.png
+Banner 30034: banner_30034.png
+Banner 30035: banner_30035.png
+Banner 30036: banner_30036.png
+Banner 30037: banner_30037.png
+Banner 30038: banner_30038.png
+Banner 30039: banner_30039.png
+Banner 30040: banner_30040.png
+Banner 30041: banner_30041.png
+Banner 30042: banner_30042.png
+Banner 30043: banner_30043.png
+Banner 30044: banner_30044.png
+Banner 30045: banner_30045.png
+Banner 30046: banner_30046.png
+Banner 30047: banner_30047.png
+Banner 30130: banner_30130.png
+Banner 30131: banner_30131.png
