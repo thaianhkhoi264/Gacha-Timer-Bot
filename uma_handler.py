@@ -1318,6 +1318,160 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
     traceback.print_exc()
     return None
 
+async def scrape_gametora_all_characters(max_retries: int = 3):
+    """
+    Scrape ALL characters from GameTora's character list page.
+    This includes low-rarity characters that never appeared in banners.
+    """
+    print("[GameTora] Starting ALL characters scrape...")
+    uma_handler_logger.info("[GameTora] Starting ALL characters scrape...")
+    
+    await init_gametora_db()
+    
+    url = "https://gametora.com/umamusume/characters"
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                
+                page.set_default_timeout(90000)
+                
+                print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
+                await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+                
+                # Wait for page to load
+                await asyncio.sleep(5)
+                
+                # Check for "Show Upcoming Characters" checkbox and enable it
+                try:
+                    # Look for checkbox input (might need to click label or input)
+                    upcoming_checkbox = await page.query_selector('input[type="checkbox"]')
+                    if upcoming_checkbox:
+                        is_checked = await upcoming_checkbox.is_checked()
+                        if not is_checked:
+                            print("[GameTora] Enabling 'Show Upcoming Characters' checkbox")
+                            await upcoming_checkbox.click()
+                            await asyncio.sleep(2)
+                except Exception as e:
+                    print(f"[GameTora] Could not find/toggle upcoming characters checkbox: {e}")
+                
+                # Scroll to load all characters (lazy loading)
+                print("[GameTora] Scrolling to load all characters...")
+                previous_count = 0
+                no_change_count = 0
+                scroll_iteration = 0
+                max_iterations = 30
+                
+                while scroll_iteration < max_iterations:
+                    # Try both possible class patterns for character links
+                    char_links = await page.query_selector_all('a.sc-73e3e686-1, a[href*="/umamusume/characters/"]')
+                    current_count = len(char_links)
+                    
+                    print(f"[GameTora] Scroll iteration {scroll_iteration + 1}: {current_count} characters found")
+                    
+                    if current_count == previous_count:
+                        no_change_count += 1
+                        if no_change_count >= 3:
+                            print(f"[GameTora] No new characters after 3 attempts, stopping scroll")
+                            break
+                    else:
+                        no_change_count = 0
+                    
+                    previous_count = current_count
+                    
+                    # Scroll to bottom
+                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    await asyncio.sleep(2)
+                    scroll_iteration += 1
+                
+                print(f"[GameTora] Found {current_count} total character links, extracting data...")
+                
+                # Extract character data
+                char_links = await page.query_selector_all('a[href*="/umamusume/characters/"]')
+                
+                characters_data = []
+                for link_elem in char_links:
+                    try:
+                        # Get link href
+                        href = await link_elem.get_attribute('href')
+                        if not href or '/profiles' in href:
+                            continue
+                        
+                        # Extract character ID from URL (e.g., /umamusume/characters/101801-special-week)
+                        match = re.search(r'/characters/(\d+)-', href)
+                        if not match:
+                            continue
+                        
+                        character_id = match.group(1)
+                        
+                        # Get character name - try multiple selectors
+                        name_elem = await link_elem.query_selector('.sc-73e3e686-4.gefniT, .sc-73e3e686-4')
+                        if not name_elem:
+                            # Name might be in link text directly
+                            name = (await link_elem.inner_text()).strip()
+                            # Remove star emojis
+                            name = re.sub(r'⭐+\s*', '', name)
+                        else:
+                            name = (await name_elem.inner_text()).strip()
+                        
+                        if not name:
+                            continue
+                        
+                        # Build full link
+                        if href.startswith('/'):
+                            full_link = href
+                        else:
+                            full_link = f"/umamusume/characters/{character_id}-{name.lower().replace(' ', '-')}"
+                        
+                        characters_data.append({
+                            'character_id': character_id,
+                            'name': name,
+                            'link': full_link
+                        })
+                        
+                    except Exception as e:
+                        print(f"[GameTora] Error extracting character data: {e}")
+                        continue
+                
+                await browser.close()
+                
+                print(f"[GameTora] Extracted {len(characters_data)} characters")
+                
+                # Save to database
+                if characters_data:
+                    async with aiosqlite.connect(GAMETORA_DB_PATH) as db:
+                        # Insert or replace characters (upsert)
+                        for char in characters_data:
+                            await db.execute('''
+                                INSERT OR REPLACE INTO characters (character_id, name, link)
+                                VALUES (?, ?, ?)
+                            ''', (char['character_id'], char['name'], char['link']))
+                        
+                        await db.commit()
+                        print(f"[GameTora] Saved {len(characters_data)} characters to database")
+                        uma_handler_logger.info(f"[GameTora] Saved {len(characters_data)} characters to database")
+                
+                return len(characters_data)
+                
+        except Exception as e:
+            last_error = e
+            print(f"[GameTora] Error during character scrape (attempt {attempt + 1}/{max_retries}): {e}")
+            uma_handler_logger.error(f"[GameTora] Error during character scrape: {e}")
+            
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 10
+                print(f"[GameTora] Retrying in {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+    
+    # All retries failed
+    uma_handler_logger.error(f"[GameTora] Failed to scrape characters after {max_retries} attempts: {last_error}")
+    import traceback
+    traceback.print_exc()
+    return None
+
 async def scrape_gametora_global_images(force_full_scan: bool = False, max_retries: int = 3):
     """
     Step 2: Scrape Global server banner images from GameTora.
@@ -1517,10 +1671,13 @@ async def update_gametora_database(force_full_scan: bool = False):
     print("[GameTora] Starting database update...")
     uma_handler_logger.info("[GameTora] Starting database update...")
     
-    # Step 1: Scrape JP banners (IDs, types, characters, support cards)
+    # Step 1: Scrape ALL characters from character list (includes low-rarity chars)
+    chars_result = await scrape_gametora_all_characters()
+    
+    # Step 2: Scrape JP banners (IDs, types, characters, support cards)
     jp_result = await scrape_gametora_jp_banners(force_full_scan)
     
-    # Step 2: Scrape Global banner images
+    # Step 3: Scrape Global banner images
     global_result = await scrape_gametora_global_images(force_full_scan)
     
     # Summary
@@ -1535,6 +1692,7 @@ async def update_gametora_database(force_full_scan: bool = False):
         uma_handler_logger.info("[GameTora] Database update complete!")
     
     return {
+        "characters": chars_result,
         "jp": jp_result,
         "global": global_result
     }
