@@ -1345,16 +1345,23 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                 # Wait for page to load
                 await asyncio.sleep(5)
                 
-                # Check for "Show Upcoming Characters" checkbox and enable it
+                # Enable "Show Upcoming Characters" checkbox to get JP-exclusive characters
                 try:
-                    # Look for checkbox input (might need to click label or input)
-                    upcoming_checkbox = await page.query_selector('input[type="checkbox"]')
-                    if upcoming_checkbox:
-                        is_checked = await upcoming_checkbox.is_checked()
-                        if not is_checked:
-                            print("[GameTora] Enabling 'Show Upcoming Characters' checkbox")
-                            await upcoming_checkbox.click()
-                            await asyncio.sleep(2)
+                    checkboxes = await page.query_selector_all('input[type="checkbox"]')
+                    print(f"[GameTora] Found {len(checkboxes)} checkboxes")
+                    
+                    for cb in checkboxes:
+                        # Get parent element to check label text
+                        parent = await cb.evaluate_handle('el => el.parentElement')
+                        parent_text = await parent.inner_text() if parent else ""
+                        
+                        if "upcoming" in parent_text.lower() or "show" in parent_text.lower():
+                            is_checked = await cb.is_checked()
+                            if not is_checked:
+                                print("[GameTora] Enabling 'Show Upcoming Characters' checkbox")
+                                await cb.click()
+                                await asyncio.sleep(3)
+                                break
                 except Exception as e:
                     print(f"[GameTora] Could not find/toggle upcoming characters checkbox: {e}")
                 
@@ -1366,11 +1373,12 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                 max_iterations = 30
                 
                 while scroll_iteration < max_iterations:
-                    # Try both possible class patterns for character links
-                    char_links = await page.query_selector_all('a.sc-73e3e686-1, a[href*="/umamusume/characters/"]')
+                    # Find all character links
+                    char_links = await page.query_selector_all('a[href*="/umamusume/characters/"]')
                     current_count = len(char_links)
                     
-                    print(f"[GameTora] Scroll iteration {scroll_iteration + 1}: {current_count} characters found")
+                    if scroll_iteration % 5 == 0:  # Log every 5 iterations
+                        print(f"[GameTora] Scroll iteration {scroll_iteration + 1}: {current_count} characters found")
                     
                     if current_count == previous_count:
                         no_change_count += 1
@@ -1400,31 +1408,45 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                         if not href or '/profiles' in href:
                             continue
                         
-                        # Extract character ID from URL (e.g., /umamusume/characters/101801-special-week)
+                        # Extract character ID from URL (e.g., /umamusume/characters/101801-air-groove)
                         match = re.search(r'/characters/(\d+)-', href)
                         if not match:
                             continue
                         
                         character_id = match.group(1)
                         
-                        # Get character name - try multiple selectors
-                        name_elem = await link_elem.query_selector('.sc-73e3e686-4.gefniT, .sc-73e3e686-4')
-                        if not name_elem:
-                            # Name might be in link text directly
-                            name = (await link_elem.inner_text()).strip()
-                            # Remove star emojis
-                            name = re.sub(r'⭐+\s*', '', name)
-                        else:
-                            name = (await name_elem.inner_text()).strip()
+                        # Get full link text (includes stars and name)
+                        full_text = (await link_elem.inner_text()).strip()
+                        
+                        # Text format can be:
+                        # 1. "⭐⭐⭐\nCharacter Name" (base characters with stars)
+                        # 2. "Event Type\nCharacter Name" (alternate versions like "Festival\nSymboli Rudolf")
+                        # 3. "Character Name" (some characters without prefix)
+                        
+                        # Remove star emojis first
+                        text_without_stars = re.sub(r'⭐+', '', full_text).strip()
+                        
+                        # Split by newlines and get the last non-empty line (that's the actual character name)
+                        lines = [line.strip() for line in text_without_stars.split('\n') if line.strip()]
+                        
+                        if not lines:
+                            continue
+                        
+                        # The character name is always the last line
+                        # For "Festival\nSymboli Rudolf" -> "Symboli Rudolf"
+                        # For "Eishin Flash" -> "Eishin Flash"
+                        name = lines[-1]
+                        
+                        # If there's a prefix (like "Festival"), include it: "Symboli Rudolf (Festival)"
+                        if len(lines) > 1:
+                            prefix = lines[0]  # "Festival", "Halloween", "Christmas", etc.
+                            name = f"{name} ({prefix})"
                         
                         if not name:
                             continue
                         
-                        # Build full link
-                        if href.startswith('/'):
-                            full_link = href
-                        else:
-                            full_link = f"/umamusume/characters/{character_id}-{name.lower().replace(' ', '-')}"
+                        # Use href as-is (already has full path)
+                        full_link = href if href.startswith('/') else f"/{href}"
                         
                         characters_data.append({
                             'character_id': character_id,
@@ -1433,12 +1455,13 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                         })
                         
                     except Exception as e:
-                        print(f"[GameTora] Error extracting character data: {e}")
+                        print(f"[GameTora] Error extracting character: {e}")
                         continue
                 
                 await browser.close()
                 
                 print(f"[GameTora] Extracted {len(characters_data)} characters")
+                uma_handler_logger.info(f"[GameTora] Extracted {len(characters_data)} characters")
                 
                 # Save to database
                 if characters_data:
