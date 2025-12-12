@@ -1623,10 +1623,6 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                             
                             banner_id = banner_id_match.group(1)
                             
-                            # Skip if already in database and not force scanning
-                            if banner_id in existing_banner_ids and not force_full_scan:
-                                continue
-                            
                             # Build full image URL
                             if img_src.startswith('/'):
                                 full_img_url = f"https://gametora.com{img_src}"
@@ -1639,16 +1635,86 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                             filename = f"banner_{banner_id}.png"
                             filepath = os.path.join(GAMETORA_IMAGES_PATH, filename)
                             
+                            # Determine if we should download
+                            should_download = False
+                            reason = ""
+                            
                             if not os.path.exists(filepath):
+                                should_download = True
+                                reason = "new"
+                            elif force_full_scan:
+                                should_download = True
+                                reason = "force_scan"
+                            elif os.path.exists(filepath):
+                                # Check file size - if suspiciously small (<10KB), might be placeholder
+                                file_size = os.path.getsize(filepath)
+                                if file_size < 10240:  # Less than 10KB
+                                    should_download = True
+                                    reason = f"small_file ({file_size} bytes, likely placeholder)"
+                                else:
+                                    # Check website image size to see if it's different
+                                    try:
+                                        # HEAD request to get content-length without downloading full image
+                                        head_response = requests.head(full_img_url, timeout=10)
+                                        if head_response.status_code == 200 and 'content-length' in head_response.headers:
+                                            website_size = int(head_response.headers['content-length'])
+                                            
+                                            if website_size != file_size:
+                                                should_download = True
+                                                reason = f"size_mismatch (local: {file_size} bytes, website: {website_size} bytes)"
+                                        else:
+                                            # If HEAD fails, try GET to check size
+                                            uma_handler_logger.debug(f"[GameTora] HEAD request failed for {banner_id}, will check during download")
+                                    except Exception as size_check_err:
+                                        uma_handler_logger.debug(f"[GameTora] Size check failed for {banner_id}: {size_check_err}")
+                            
+                            if should_download:
                                 try:
                                     response = requests.get(full_img_url, timeout=30)
                                     if response.status_code == 200:
+                                        new_content = response.content
+                                        website_size = len(new_content)
+                                        
+                                        # Check if content is actually different
+                                        if os.path.exists(filepath):
+                                            with open(filepath, 'rb') as f:
+                                                old_content = f.read()
+                                            
+                                            # Compare content
+                                            if new_content == old_content:
+                                                print(f"[GameTora] Skipping {filename} (content unchanged despite size check)")
+                                                # Link to database even if we didn't update the file
+                                                await conn.execute('''
+                                                    INSERT OR REPLACE INTO global_banner_images (banner_id, image_filename)
+                                                    VALUES (?, ?)
+                                                ''', (banner_id, filename))
+                                                continue
+                                            
+                                            # Content is different, log the change
+                                            old_size = len(old_content)
+                                            size_change = website_size - old_size
+                                            size_change_str = f"+{size_change}" if size_change > 0 else str(size_change)
+                                            print(f"[GameTora] Updating {filename}: {old_size} → {website_size} bytes ({size_change_str}), reason: {reason}")
+                                        else:
+                                            print(f"[GameTora] Saving {filename}: {website_size} bytes, reason: {reason}")
+                                        
+                                        # Save the new image
                                         with open(filepath, 'wb') as f:
-                                            f.write(response.content)
-                                        print(f"[GameTora] Saved image: {filename}")
+                                            f.write(new_content)
+                                        
+                                        images_saved += 1
+                                    else:
+                                        uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: HTTP {response.status_code}")
+                                        continue
                                 except Exception as dl_err:
                                     uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: {dl_err}")
                                     continue
+                            else:
+                                # Skip - file exists and size matches
+                                if banner_id not in existing_banner_ids:
+                                    # New banner but file exists (shouldn't happen, but handle it)
+                                    print(f"[GameTora] File exists for new banner {banner_id}, linking to database")
+                                    images_saved += 1
                             
                             # Link banner ID to image filename
                             await conn.execute('''
