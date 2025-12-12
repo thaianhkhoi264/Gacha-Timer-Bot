@@ -3,7 +3,13 @@ from discord.ext import commands
 import aiosqlite
 from datetime import datetime
 import pytz
+import asyncio
 from global_config import CONTROL_PANEL_CHANNELS, GAME_PROFILES, MAIN_SERVER_ID
+
+# --- Rate Limiting for Control Panel Updates ---
+_last_update_time = {}  # Track last update time per profile
+_update_cooldown = 10  # Minimum seconds between updates
+_pending_updates = {}  # Track pending update tasks
 
 # --- Profile-specific imports ---
 from arknights_module import AK_DB_PATH, add_ak_event, delete_event_message, arknights_update_timers, AK_TIMEZONE
@@ -698,12 +704,160 @@ async def cleanup_old_control_panel_messages(channel, profile):
     except Exception as e:
         print(f"[ControlPanel] Error during cleanup: {e}")
 
+async def update_single_event_panels(profile, event_id):
+    """
+    Updates only the panels affected by a single event:
+    - Remove Event dropdown
+    - Edit Event dropdown  
+    - Pending Notifications for that specific event
+    
+    This is much more efficient than updating the entire control panel.
+    """
+    print(f"[ControlPanel] Updating panels for single event (profile: {profile}, event_id: {event_id})")
+    
+    channel_id = CONTROL_PANEL_CHANNELS.get(profile)
+    if not channel_id:
+        print(f"[ControlPanel] No channel ID found for profile {profile}.")
+        return
+    
+    guild = bot.get_guild(MAIN_SERVER_ID)
+    channel = guild.get_channel(channel_id) if guild else None
+    if not channel:
+        print(f"[ControlPanel] Channel {channel_id} not found.")
+        return
+    
+    # Initialize if needed
+    if profile not in CONTROL_PANEL_MESSAGE_IDS:
+        CONTROL_PANEL_MESSAGE_IDS[profile] = {"add": None, "remove": None, "edit": None, "notifs": {}}
+    
+    events = await get_events(profile)
+    
+    # Update Remove Event Panel
+    try:
+        remove_view = RemoveEventView(profile, events)
+        if CONTROL_PANEL_MESSAGE_IDS[profile]["remove"]:
+            try:
+                msg = await channel.fetch_message(CONTROL_PANEL_MESSAGE_IDS[profile]["remove"])
+                await msg.edit(content="**Remove Event**", view=remove_view)
+                print(f"[ControlPanel] Updated Remove Event dropdown")
+            except discord.NotFound:
+                print(f"[ControlPanel] Remove Event message not found, skipping update")
+            except discord.HTTPException as e:
+                if e.code == 30046:  # Too many edits
+                    print(f"[ControlPanel] Rate limited on Remove Event panel, will update later")
+                else:
+                    raise
+    except Exception as e:
+        print(f"[ControlPanel] Error updating Remove Event panel: {e}")
+    
+    # Update Edit Event Panel
+    try:
+        edit_view = EditEventView(profile, events)
+        if CONTROL_PANEL_MESSAGE_IDS[profile]["edit"]:
+            try:
+                msg = await channel.fetch_message(CONTROL_PANEL_MESSAGE_IDS[profile]["edit"])
+                await msg.edit(content="**Edit Event**", view=edit_view)
+                print(f"[ControlPanel] Updated Edit Event dropdown")
+            except discord.NotFound:
+                print(f"[ControlPanel] Edit Event message not found, skipping update")
+            except discord.HTTPException as e:
+                if e.code == 30046:  # Too many edits
+                    print(f"[ControlPanel] Rate limited on Edit Event panel, will update later")
+                else:
+                    raise
+    except Exception as e:
+        print(f"[ControlPanel] Error updating Edit Event panel: {e}")
+    
+    # Update Pending Notification for this specific event
+    try:
+        event = await get_event_by_id(profile, event_id)
+        if event:
+            notifs = await get_pending_notifications_for_event(profile, event_id)
+            print(f"[ControlPanel] Event '{event['title']}' has {len(notifs)} pending notifications.")
+            
+            if notifs:
+                # Create or update notification panel
+                notif_view = PendingNotifView(profile, notifs, event)
+                content = f"**Pending Notifications for {event['title']}**"
+                
+                if event_id in CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"]:
+                    try:
+                        msg_id = CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
+                        msg = await channel.fetch_message(msg_id)
+                        await msg.edit(content=content, view=notif_view)
+                        print(f"[ControlPanel] Updated notification panel for event {event_id}")
+                    except discord.NotFound:
+                        # Message deleted, create new one
+                        msg = await channel.send(content, view=notif_view)
+                        CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id] = msg.id
+                        await save_control_panel_message_id(profile, "notif", event_id, msg.id)
+                        print(f"[ControlPanel] Created new notification panel for event {event_id}")
+                else:
+                    # Create new notification panel
+                    msg = await channel.send(content, view=notif_view)
+                    CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id] = msg.id
+                    await save_control_panel_message_id(profile, "notif", event_id, msg.id)
+                    print(f"[ControlPanel] Created notification panel for event {event_id}")
+            else:
+                # No notifications, delete panel if it exists
+                if event_id in CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"]:
+                    try:
+                        msg_id = CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
+                        msg = await channel.fetch_message(msg_id)
+                        await msg.delete()
+                        await delete_control_panel_message_id(profile, "notif", event_id)
+                        del CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
+                        print(f"[ControlPanel] Deleted notification panel (no notifications)")
+                    except Exception as e:
+                        print(f"[ControlPanel] Error deleting empty notification panel: {e}")
+    except Exception as e:
+        print(f"[ControlPanel] Error updating notification panel: {e}")
+    
+    print(f"[ControlPanel] Finished updating panels for event {event_id}")
+
 async def update_control_panel_messages(profile):
     """
     Updates control panel messages by editing existing ones instead of recreating.
-    This avoids Discord rate limits.
+    Includes rate limiting to prevent Discord 429 errors.
     """
+    global _last_update_time, _pending_updates
+    
+    current_time = datetime.now().timestamp()
+    last_update = _last_update_time.get(profile, 0)
+    time_since_last = current_time - last_update
+    
+    # If an update happened recently, schedule a delayed update instead
+    if time_since_last < _update_cooldown:
+        cooldown_remaining = _update_cooldown - time_since_last
+        print(f"[ControlPanel] Rate limit: Update for {profile} requested too soon ({time_since_last:.1f}s ago). Scheduling delayed update in {cooldown_remaining:.1f}s.")
+        
+        # Cancel any existing pending update
+        if profile in _pending_updates and not _pending_updates[profile].done():
+            _pending_updates[profile].cancel()
+            print(f"[ControlPanel] Cancelled previous pending update for {profile}")
+        
+        # Schedule a new delayed update
+        async def delayed_update():
+            await asyncio.sleep(cooldown_remaining)
+            print(f"[ControlPanel] Executing delayed update for {profile}")
+            await _do_update_control_panel(profile)
+        
+        _pending_updates[profile] = asyncio.create_task(delayed_update())
+        return
+    
+    # Proceed with immediate update
+    await _do_update_control_panel(profile)
+
+async def _do_update_control_panel(profile):
+    """
+    Internal function that performs the actual control panel update.
+    This is separated so it can be called both immediately and after a delay.
+    """
+    global _last_update_time
+    
     print(f"[ControlPanel] Updating control panel for profile: {profile}")
+    _last_update_time[profile] = datetime.now().timestamp()
+    
     channel_id = CONTROL_PANEL_CHANNELS.get(profile)
     print(f"[ControlPanel] Channel ID from config: {channel_id}")
     if not channel_id:
