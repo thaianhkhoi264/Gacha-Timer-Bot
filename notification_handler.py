@@ -65,6 +65,41 @@ NOTIFICATION_TIMINGS = {
     "Offer":     {"start": [180, 1440], "end": [1440]},
 }
 
+# Uma Musume specific notification timings (in minutes before event time)
+UMA_NOTIFICATION_TIMINGS = {
+    # Character/Support/Paid Banners: 1 day before start, 1 day + 1 hour before end
+    "Character Banner": {"start": [1440], "end": [1440, 1500]},
+    "Support Banner": {"start": [1440], "end": [1440, 1500]},
+    "Paid Banner": {"start": [1440], "end": [1440, 1500]},
+    
+    # Story Events: 1 day before start, 3 days + 1 hour before end
+    "Story Event": {"start": [1440], "end": [4320, 4380]},
+    
+    # Champions Meeting and Legend Race: Custom handling (will be handled separately)
+    "Champions Meeting": {"start": [], "end": []},
+    "Legend Race": {"start": [], "end": []},
+}
+
+# Notification message templates
+MESSAGE_TEMPLATES = {
+    # Default template (used when no specific template exists)
+    "default": "{role}, The {category} {name} is {action} {time}!",
+    
+    # Uma Musume - Champions Meeting phases
+    "uma_champions_meeting_registration_start": "{role}, {name} Registration has started!",
+    "uma_champions_meeting_round1_start": "{role}, {name} Round 1 has started!",
+    "uma_champions_meeting_round2_start": "{role}, {name} Round 2 has started!",
+    "uma_champions_meeting_final_registration_start": "{role}, {name} Final Registration has started!",
+    "uma_champions_meeting_finals_start": "{role}, {name} Finals has started! Good luck!",
+    "uma_champions_meeting_end": "{role}, {name} has ended! Hope you got a good placement!",
+    "uma_champions_meeting_reminder": "{role}, {name} is starting in {time}!",
+    
+    # Uma Musume - Legend Race
+    "uma_legend_race_character_start": "{role}, {character}'s Legend Race has started!",
+    "uma_legend_race_end": "{role}, {name} has ended!",
+    "uma_legend_race_reminder": "{role}, {name} is starting in 1 day!",
+}
+
 MAX_FIELDS = 25
 
 def safe_int(val, fallback):
@@ -99,6 +134,60 @@ def format_minutes(minutes):
         parts.append(f"{minutes}m")
     return " ".join(parts) if parts else "0m"
 
+def format_notification_message(template_key, **kwargs):
+    """
+    Format a notification message using a template and provided variables.
+    
+    Args:
+        template_key: Template key (e.g., "uma_champions_meeting_registration_start")
+        **kwargs: Variables to substitute in template (role, name, character, etc.)
+    
+    Returns:
+        Formatted message string
+    """
+    template = MESSAGE_TEMPLATES.get(template_key, MESSAGE_TEMPLATES["default"])
+    try:
+        return template.format(**kwargs)
+    except KeyError as e:
+        print(f"Warning: Missing variable {e} in template '{template_key}'")
+        return template
+
+def get_message_template_key(profile, category, timing_type, phase=None, character_name=None):
+    """
+    Determine which message template to use based on event details.
+    
+    Args:
+        profile: Event profile (e.g., "UMA", "AK")
+        category: Event category (e.g., "Champions Meeting", "Legend Race")
+        timing_type: "start", "end", or "reminder"
+        phase: Champions Meeting phase (e.g., "registration", "round1")
+        character_name: Legend Race character name (indicates per-character notification)
+    
+    Returns:
+        Template key string
+    """
+    if profile == "UMA":
+        # Champions Meeting
+        if category == "Champions Meeting":
+            if phase and timing_type == "start":
+                return f"uma_champions_meeting_{phase}_start"
+            elif timing_type == "reminder":
+                return "uma_champions_meeting_reminder"
+            elif timing_type == "end":
+                return "uma_champions_meeting_end"
+        
+        # Legend Race
+        elif category == "Legend Race":
+            if character_name and timing_type == "start":
+                return "uma_legend_race_character_start"
+            elif timing_type == "end":
+                return "uma_legend_race_end"
+            elif timing_type == "reminder":
+                return "uma_legend_race_reminder"
+    
+    # Fall back to default
+    return "default"
+
 # Function to log messages to both console and a file
 def send_log(*args):
     """Logs a message to both the console and the discord.log file. Accepts any arguments and joins them as a string."""
@@ -127,9 +216,32 @@ async def remove_duplicate_pending_notifications():
         await conn.commit()
     print("Duplicate pending_notifications removed.")
 
-def get_notification_timings(category):
-    # Returns a list of (timing_type, timing_minutes) tuples for the given category
+def get_notification_timings(category, profile=None):
+    """
+    Returns a list of (timing_type, timing_minutes) tuples for the given category.
+    Now supports profile-specific timings (e.g., Uma Musume).
+    
+    Args:
+        category: Event category (e.g., "Banner", "Event", "Character Banner")
+        profile: Profile name (e.g., "UMA", "AK", "HSR") - optional
+    
+    Returns:
+        List of (timing_type, minutes) tuples
+    """
     timings = []
+    
+    # Check for profile-specific timings first
+    if profile == "UMA":
+        cat_timings = UMA_NOTIFICATION_TIMINGS.get(category, {})
+        if cat_timings:
+            for timing_type in ("start", "end"):
+                for minutes in cat_timings.get(timing_type, []):
+                    timings.append((timing_type, minutes))
+            # Return early if we found Uma-specific timings
+            if timings:
+                return timings
+    
+    # Fall back to generic timings if no profile-specific ones found
     cat_timings = NOTIFICATION_TIMINGS.get(category, {})
     for timing_type in ("start", "end"):
         for minutes in cat_timings.get(timing_type, []):
@@ -138,10 +250,11 @@ def get_notification_timings(category):
 
 async def schedule_notifications_for_event(event):
     """
-    Schedules notifications for an event using only profile-based channels and hardcoded timings.
+    Schedules notifications for an event using profile-based timings.
+    Now supports profile-specific timings (e.g., Uma Musume).
     """
     send_log(MAIN_SERVER_ID, f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
-    timings = get_notification_timings(event['category'])
+    timings = get_notification_timings(event['category'], event.get('profile'))
     send_log(MAIN_SERVER_ID, f"Using timings for event: {timings}")
 
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
@@ -290,7 +403,7 @@ async def validate_event_notifications():
     # For each event, check if it has all expected notifications
     fixed_count = 0
     for event in all_events:
-        expected_timings = get_notification_timings(event['category'])
+        expected_timings = get_notification_timings(event['category'], event.get('profile'))
         
         # Check what notifications exist for this event
         async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
