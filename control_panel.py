@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import aiosqlite
 from datetime import datetime
+import pytz
 from global_config import CONTROL_PANEL_CHANNELS, GAME_PROFILES, MAIN_SERVER_ID
 
 # --- Profile-specific imports ---
@@ -493,8 +494,15 @@ class PendingNotifSelect(discord.ui.Select):
     def __init__(self, notifs, profile, event):
         # Truncate if needed (timing_type is usually short, but be safe)
         options = []
+        est_tz = pytz.timezone("US/Eastern")
+        
         for n in notifs:
-            label = f"{n['timing_type']} <t:{n['notify_unix']}:F>"
+            # Convert Unix timestamp to EST datetime
+            dt_utc = datetime.fromtimestamp(n['notify_unix'], tz=pytz.UTC)
+            dt_est = dt_utc.astimezone(est_tz)
+            est_time_str = dt_est.strftime("%m/%d/%Y %I:%M %p EST")
+            
+            label = f"{n['timing_type']} {est_time_str}"
             # Discord limit is 100 chars for label
             if len(label) > 100:
                 label = label[:97] + "..."
