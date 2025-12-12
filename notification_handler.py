@@ -280,125 +280,14 @@ def get_notification_timings(category, profile=None):
             timings.append((timing_type, minutes))
     return timings
 
-def parse_champions_meeting_phases(event_description, event_start):
-    """
-    Parse Champions Meeting phase information from event description.
-    
-    Expected format:
-    Registration: December 16, 08:00 - December 20, 07:59 (4 days)
-    Round 1: December 20, 08:00 - December 22, 07:59 (2 days)
-    ...
-    
-    Returns:
-        List of dicts: [{name, start_time, duration_days}, ...]
-    """
-    import re
-    phases = []
-    
-    phase_patterns = [
-        ("Registration", ["Registration"]),
-        ("Round 1", ["Round 1"]),
-        ("Round 2", ["Round 2"]),
-        ("Final Registration", ["Final Registration"]),
-        ("Finals", ["Finals"])
-    ]
-    
-    lines = event_description.split('\n')
-    current_start = event_start
-    
-    for phase_name, patterns in phase_patterns:
-        for line in lines:
-            line_matches = any(pattern in line for pattern in patterns)
-            if line_matches and ("day" in line.lower()):
-                duration_match = re.search(r'\((\d+)\s+days?\)', line)
-                if duration_match:
-                    duration_days = int(duration_match.group(1))
-                    phases.append({
-                        "name": phase_name,
-                        "start_time": current_start,
-                        "duration_days": duration_days
-                    })
-                    current_start += duration_days * 86400
-                    break
-    
-    return phases
-
-def parse_legend_race_characters(event_description, event_start):
-    """
-    Parse Legend Race character information from event description.
-    
-    Supports multiple formats:
-    - Simple: "- Character Name (dates)"
-    - Markdown links: "[Character Name](URL)"
-    - Comma-separated: "Character1, Character2, Character3"
-    
-    Returns:
-        List of dicts: [{name, start_time, end_time, duration_days}, ...]
-    """
-    import re
-    characters = []
-    lines = event_description.split('\n')
-    current_start = event_start
-    character_duration = 3 * 86400  # 3 days in seconds
-    
-    # Try to find character names in various formats
-    character_names = []
-    
-    # Format 1: Lines starting with "- " (simple format)
-    for line in lines:
-        line = line.strip()
-        if line.startswith('-') and '(' in line:
-            # Extract character name (before parentheses)
-            char_name = line[1:line.index('(')].strip()
-            if char_name:
-                character_names.append(char_name)
-    
-    # Format 2: Markdown links [Name](URL)
-    if not character_names:
-        # Look for **Characters:** line followed by markdown links
-        in_character_section = False
-        for line in lines:
-            if '**Characters:**' in line or '**characters:**' in line.lower():
-                in_character_section = True
-                # Extract from same line
-                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
-                character_names.extend(markdown_links)
-            elif in_character_section and '[' in line:
-                # Continue extracting from following lines
-                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
-                character_names.extend(markdown_links)
-            elif in_character_section and line and not line.startswith('**'):
-                # Stop if we hit a new section
-                break
-    
-    # Format 3: Comma-separated list
-    if not character_names:
-        for line in lines:
-            if 'characters:' in line.lower():
-                # Try to extract comma-separated names
-                parts = line.split(':', 1)
-                if len(parts) > 1:
-                    names = parts[1].split(',')
-                    character_names.extend([n.strip() for n in names if n.strip()])
-    
-    # Build character list with timing
-    for char_name in character_names:
-        if char_name:
-            characters.append({
-                "name": char_name,
-                "start_time": current_start,
-                "end_time": current_start + character_duration,
-                "duration_days": 3
-            })
-            current_start += character_duration
-    
-    return characters
-
 async def schedule_champions_meeting_notifications(event):
     """
     Schedule notifications for Champions Meeting event.
     Creates 7 notifications: 1 reminder + 5 phases + 1 end
     """
+    # Import here to avoid circular dependency
+    from uma_module import parse_champions_meeting_phases
+    
     send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduling notifications for: {event['title']}")
     
     # Parse phases from description
@@ -407,7 +296,7 @@ async def schedule_champions_meeting_notifications(event):
         send_log(MAIN_SERVER_ID, f"[Champions Meeting] No description found, falling back to generic notifications")
         return False
     
-    phases = parse_champions_meeting_phases(description, int(event['start_date']))
+    phases = parse_champions_meeting_phases(description, int(event['start_date']), int(event['end_date']))
     if not phases:
         send_log(MAIN_SERVER_ID, f"[Champions Meeting] Failed to parse phases, falling back to generic notifications")
         return False
@@ -426,9 +315,9 @@ async def schedule_champions_meeting_notifications(event):
                   reminder_time, int(event['start_date']), 'uma_champions_meeting_reminder'))
             send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled reminder at <t:{reminder_time}:F>")
         
-        # 2-6. Phase start notifications
+        # 2-6. Phase start notifications (all 5 phases)
         phase_template_map = {
-            "Registration": "uma_champions_meeting_registration_start",
+            "League Selection": "uma_champions_meeting_registration_start",
             "Round 1": "uma_champions_meeting_round1_start",
             "Round 2": "uma_champions_meeting_round2_start",
             "Final Registration": "uma_champions_meeting_final_registration_start",
@@ -468,6 +357,9 @@ async def schedule_legend_race_notifications(event):
     Schedule notifications for Legend Race event.
     Creates N+2 notifications: 1 reminder + N characters + 1 end
     """
+    # Import here to avoid circular dependency
+    from uma_module import parse_legend_race_characters
+    
     send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduling notifications for: {event['title']}")
     
     # Parse characters from description
@@ -476,7 +368,7 @@ async def schedule_legend_race_notifications(event):
         send_log(MAIN_SERVER_ID, f"[Legend Race] No description found, falling back to generic notifications")
         return False
     
-    characters = parse_legend_race_characters(description, int(event['start_date']))
+    characters = parse_legend_race_characters(description, int(event['start_date']), int(event['end_date']))
     if not characters:
         send_log(MAIN_SERVER_ID, f"[Legend Race] Failed to parse characters, falling back to generic notifications")
         return False
