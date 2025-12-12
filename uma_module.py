@@ -676,7 +676,7 @@ async def add_uma_event(ctx, event_data):
             else:
                 uma_logger.info(f"[Add Event] Event unchanged, skipping: {event_data['title']}")
                 print(f"[UMA] Event unchanged: {event_data['title']}")
-                return  # Don't reschedule notifications if nothing changed
+                # Don't return - continue to check if notifications need to be scheduled
         else:
             # Insert new event
             await conn.execute(
@@ -690,6 +690,28 @@ async def add_uma_event(ctx, event_data):
             await conn.commit()
             uma_logger.info(f"[Add Event] Inserted new event: {event_data['title']}")
             print(f"[UMA] New event: {event_data['title']}")
+    
+    # Check if notifications already exist before scheduling
+    from notification_handler import NOTIF_DB_PATH
+    async with aiosqlite.connect(NOTIF_DB_PATH) as notif_conn:
+        async with notif_conn.execute(
+            'SELECT COUNT(*) FROM pending_notifications WHERE title = ? AND profile = ?',
+            (event_data['title'], "UMA")
+        ) as cursor:
+            notif_count = (await cursor.fetchone())[0]
+    
+    if notif_count > 0:
+        print(f"[UMA] Notifications already exist for: {event_data['title']} ({notif_count} notifications), skipping schedule")
+        uma_logger.info(f"[Add Event] Skipping notification schedule - already exists ({notif_count} notifications)")
+        # Update control panel to reflect any event changes
+        uma_logger.info("[add_uma_event] Updating control panel...")
+        try:
+            from control_panel import update_control_panel_messages
+            await update_control_panel_messages("UMA")
+            uma_logger.info("[add_uma_event] Control panel updated.")
+        except Exception as e:
+            uma_logger.error(f"[add_uma_event] Failed to update control panel: {e}")
+        return
     
     # Schedule notifications (for new or updated events)
     event_for_notification = {
