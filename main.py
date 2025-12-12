@@ -399,6 +399,16 @@ async def on_ready():
         bot._notif_db_initialized = True
         await notification_handler.init_notification_db()
 
+    # Initialize Uma Musume database FIRST (before control panel tries to read from it)
+    print("[DEBUG] Initializing Uma Musume database...")
+    try:
+        await uma_module.init_uma_db()
+        print("[DEBUG] Uma Musume database initialized.")
+    except Exception as e:
+        print(f"[ERROR] Uma Musume database initialization failed: {e}")
+        import traceback
+        traceback.print_exc()
+
     # Initialize control panel database and load message IDs
     print("[DEBUG] Initializing control panel database...")
     await control_panel.init_control_panel_db()
@@ -441,17 +451,7 @@ async def on_ready():
     # asyncio.create_task(hsr_scraper.periodic_hsr_scraping_task())
     # print("[DEBUG] HSR periodic scraping task created.")
 
-    # Initialize Uma Musume database BEFORE control panels (control panel needs DB to exist)
-    print("[DEBUG] Initializing Uma Musume database...")
-    try:
-        await uma_module.init_uma_db()
-        print("[DEBUG] Uma Musume database initialized.")
-    except Exception as e:
-        print(f"[ERROR] Uma Musume database initialization failed: {e}")
-        import traceback
-        traceback.print_exc()
-
-    # Now initialize control panels
+    # Now initialize control panels (UMA DB already initialized above)
     print("[DEBUG] About to call ensure_control_panels...")
     await control_panel.ensure_control_panels()
     print("[DEBUG] ensure_control_panels completed.")
