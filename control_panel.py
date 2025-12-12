@@ -540,6 +540,65 @@ class PendingNotifView(discord.ui.View):
 # Store control panel message IDs: {profile: {"add": msg_id, "remove": msg_id, "edit": msg_id, "notifs": {event_id: msg_id}}}
 CONTROL_PANEL_MESSAGE_IDS = {}
 
+async def load_control_panel_message_ids():
+    """Load control panel message IDs from database on bot startup."""
+    global CONTROL_PANEL_MESSAGE_IDS
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        async with conn.execute("SELECT profile, panel_type, event_id, message_id FROM control_panel_messages") as cursor:
+            async for row in cursor:
+                profile, panel_type, event_id, message_id = row
+                if profile not in CONTROL_PANEL_MESSAGE_IDS:
+                    CONTROL_PANEL_MESSAGE_IDS[profile] = {"add": None, "remove": None, "edit": None, "notifs": {}}
+                
+                if panel_type in ["add", "remove", "edit"]:
+                    CONTROL_PANEL_MESSAGE_IDS[profile][panel_type] = int(message_id)
+                elif panel_type == "notif" and event_id is not None:
+                    CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][int(event_id)] = int(message_id)
+    print(f"[ControlPanel] Loaded message IDs: {CONTROL_PANEL_MESSAGE_IDS}")
+
+async def save_control_panel_message_id(profile, panel_type, message_id, event_id=None):
+    """Save a control panel message ID to database."""
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        # Delete existing entry first (in case it's an update)
+        if event_id is not None:
+            await conn.execute("DELETE FROM control_panel_messages WHERE profile=? AND panel_type=? AND event_id=?", 
+                             (profile, panel_type, event_id))
+        else:
+            await conn.execute("DELETE FROM control_panel_messages WHERE profile=? AND panel_type=? AND event_id IS NULL", 
+                             (profile, panel_type))
+        
+        # Insert new entry
+        await conn.execute("INSERT INTO control_panel_messages (profile, panel_type, event_id, message_id) VALUES (?, ?, ?, ?)",
+                         (profile, panel_type, event_id, str(message_id)))
+        await conn.commit()
+
+async def delete_control_panel_message_id(profile, panel_type, event_id=None):
+    """Delete a control panel message ID from database."""
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        if event_id is not None:
+            await conn.execute("DELETE FROM control_panel_messages WHERE profile=? AND panel_type=? AND event_id=?", 
+                             (profile, panel_type, event_id))
+        else:
+            await conn.execute("DELETE FROM control_panel_messages WHERE profile=? AND panel_type=? AND event_id IS NULL", 
+                             (profile, panel_type))
+        await conn.commit()
+
+async def init_control_panel_db():
+    """Initialize control panel message tracking table."""
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS control_panel_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile TEXT NOT NULL,
+                panel_type TEXT NOT NULL,
+                event_id INTEGER,
+                message_id TEXT NOT NULL,
+                UNIQUE(profile, panel_type, event_id)
+            )
+        """)
+        await conn.commit()
+    print("[ControlPanel] Database initialized.")
+
 async def cleanup_old_control_panel_messages(channel, profile):
     """
     Deletes all messages in the control panel channel that are not tracked in CONTROL_PANEL_MESSAGE_IDS.
@@ -613,10 +672,12 @@ async def update_control_panel_messages(profile):
                 # Message was deleted, create a new one
                 msg = await channel.send("**Add Event**", view=add_view)
                 CONTROL_PANEL_MESSAGE_IDS[profile]["add"] = msg.id
+                await save_control_panel_message_id(profile, "add", msg.id)
                 print(f"[ControlPanel] Sent new Add Event message: {msg.id}")
         else:
             msg = await channel.send("**Add Event**", view=add_view)
             CONTROL_PANEL_MESSAGE_IDS[profile]["add"] = msg.id
+            await save_control_panel_message_id(profile, "add", msg.id)
             print(f"[ControlPanel] Sent Add Event message: {msg.id}")
     except Exception as e:
         print(f"[ControlPanel] Error updating Add Event panel: {e}")
@@ -632,10 +693,12 @@ async def update_control_panel_messages(profile):
             except discord.NotFound:
                 msg = await channel.send("**Remove Event**", view=remove_view)
                 CONTROL_PANEL_MESSAGE_IDS[profile]["remove"] = msg.id
+                await save_control_panel_message_id(profile, "remove", msg.id)
                 print(f"[ControlPanel] Sent new Remove Event message: {msg.id}")
         else:
             msg = await channel.send("**Remove Event**", view=remove_view)
             CONTROL_PANEL_MESSAGE_IDS[profile]["remove"] = msg.id
+            await save_control_panel_message_id(profile, "remove", msg.id)
             print(f"[ControlPanel] Sent Remove Event message: {msg.id}")
     except Exception as e:
         print(f"[ControlPanel] Error updating Remove Event panel: {e}")
@@ -651,10 +714,12 @@ async def update_control_panel_messages(profile):
             except discord.NotFound:
                 msg = await channel.send("**Edit Event**", view=edit_view)
                 CONTROL_PANEL_MESSAGE_IDS[profile]["edit"] = msg.id
+                await save_control_panel_message_id(profile, "edit", msg.id)
                 print(f"[ControlPanel] Sent new Edit Event message: {msg.id}")
         else:
             msg = await channel.send("**Edit Event**", view=edit_view)
             CONTROL_PANEL_MESSAGE_IDS[profile]["edit"] = msg.id
+            await save_control_panel_message_id(profile, "edit", msg.id)
             print(f"[ControlPanel] Sent Edit Event message: {msg.id}")
     except Exception as e:
         print(f"[ControlPanel] Error updating Edit Event panel: {e}")
@@ -669,6 +734,7 @@ async def update_control_panel_messages(profile):
             msg_id = CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
             msg = await channel.fetch_message(msg_id)
             await msg.delete()
+            await delete_control_panel_message_id(profile, "notif", event_id)
             print(f"[ControlPanel] Deleted notification panel for removed event {event_id}")
         except Exception as e:
             print(f"[ControlPanel] Error deleting notification panel for event {event_id}: {e}")
@@ -686,6 +752,7 @@ async def update_control_panel_messages(profile):
                     msg_id = CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event["id"]]
                     msg = await channel.fetch_message(msg_id)
                     await msg.delete()
+                    await delete_control_panel_message_id(profile, "notif", event["id"])
                     print(f"[ControlPanel] Deleted empty notification panel for event {event['id']}")
                 except Exception as e:
                     print(f"[ControlPanel] Error deleting empty notification panel: {e}")
@@ -706,10 +773,12 @@ async def update_control_panel_messages(profile):
                 except discord.NotFound:
                     msg = await channel.send(content, view=notif_view)
                     CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event["id"]] = msg.id
+                    await save_control_panel_message_id(profile, "notif", msg.id, event["id"])
                     print(f"[ControlPanel] Sent new notification panel for event '{event['title']}'")
             else:
                 msg = await channel.send(content, view=notif_view)
                 CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event["id"]] = msg.id
+                await save_control_panel_message_id(profile, "notif", msg.id, event["id"])
                 print(f"[ControlPanel] Sent notification panel for event '{event['title']}'")
         except Exception as e:
             print(f"[ControlPanel] Error updating notification panel for event '{event['title']}': {e}")

@@ -399,10 +399,35 @@ async def on_ready():
         bot._notif_db_initialized = True
         await notification_handler.init_notification_db()
 
+    # Initialize control panel database and load message IDs
+    print("[DEBUG] Initializing control panel database...")
+    await control_panel.init_control_panel_db()
+    await control_panel.load_control_panel_message_ids()
+    print("[DEBUG] Control panel database initialized and message IDs loaded.")
+
     # Register persistent views BEFORE ensure_control_panels
     print("[DEBUG] Registering persistent views...")
+    events_ak = await control_panel.get_events("AK")
+    events_uma = await control_panel.get_events("UMA")
+    
+    # Register views for each profile
     for profile in CONTROL_PANEL_CHANNELS:
         bot.add_view(control_panel.AddEventView(profile))
+        
+        # Get events for this profile
+        events = events_ak if profile == "AK" else events_uma
+        
+        # Register Remove/Edit views with current events
+        if events:
+            bot.add_view(control_panel.RemoveEventView(profile, events))
+            bot.add_view(control_panel.EditEventView(profile, events))
+            
+            # Register notification views for each event
+            for event in events:
+                notifs = await control_panel.get_pending_notifications_for_event(profile, event["id"])
+                if notifs:
+                    bot.add_view(control_panel.PendingNotifView(profile, event, notifs))
+    
     print("[DEBUG] Persistent views registered.")
 
     # Create background tasks FIRST (so they start immediately)
