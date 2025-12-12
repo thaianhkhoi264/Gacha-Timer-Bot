@@ -688,7 +688,7 @@ async def add_uma_event(ctx, event_data):
                 # Don't return - continue to check if notifications need to be scheduled
         else:
             # Insert new event
-            await conn.execute(
+            cursor = await conn.execute(
                 '''INSERT INTO events (user_id, title, start_date, end_date, image, category, profile, description)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
                 (str(ctx.author.id) if hasattr(ctx, 'author') else "0",
@@ -697,7 +697,7 @@ async def add_uma_event(ctx, event_data):
                  event_data.get("description", ""))
             )
             await conn.commit()
-            event_id = conn.last_insert_rowid  # Get the ID of the newly inserted event
+            event_id = cursor.lastrowid  # Get the ID of the newly inserted event
             uma_logger.info(f"[Add Event] Inserted new event: {event_data['title']} (ID: {event_id})")
             print(f"[UMA] New event: {event_data['title']}")
     
@@ -1755,6 +1755,164 @@ async def uma_dump_db(ctx):
         import traceback
         error_msg = f"❌ Dump failed: {e}\n```{traceback.format_exc()[:1500]}```"
         await ctx.send(error_msg)
+
+
+# ============================================================================
+# UMA-SPECIFIC PARSING FUNCTIONS
+# ============================================================================
+
+def parse_champions_meeting_phases(event_description, event_start, event_end):
+    """
+    Calculate Champions Meeting phase times based on event end time.
+
+    Phases are calculated BACKWARDS from event end with standard durations:
+    - Finals: Last 1 day (ends when event ends)
+    - Final Registration: 1 day before Finals
+    - Round 2: 2 days before Final Registration
+    - Round 1: 2 days before Round 2
+    - League Selection: Remaining time from event start
+
+    Example: 10-day event (Dec 8-18)
+    - League Selection: Dec 8-12 (4 days)
+    - Round 1: Dec 12-14 (2 days)
+    - Round 2: Dec 14-16 (2 days)
+    - Final Registration: Dec 16-17 (1 day)
+    - Finals: Dec 17-18 (1 day)
+
+    Returns:
+        List of dicts: [{name, start_time, duration_days}, ...]
+    """
+    import re
+    phases = []
+
+    # Standard Champions Meeting phase durations (working backwards from end)
+    # These are the standard durations used in every Champions Meeting
+    phase_definitions = [
+        ("Finals", 1),              # Last 1 day
+        ("Final Registration", 1),   # 1 day before Finals
+        ("Round 2", 2),             # 2 days before Final Registration
+        ("Round 1", 2),             # 2 days before Round 2
+        ("League Selection", None)   # Remaining time from start
+    ]
+
+    # Try to parse custom durations from description if available
+    # (for future-proofing in case description format changes)
+    duration_map = {}
+    if event_description:
+        lines = event_description.split('\n')
+        for line in lines:
+            # Match patterns like "Round 1: ... (2 days)" or "**Round 1:** ... (2 days)"
+            if "Round 1" in line:
+                duration_match = re.search(r'\((\d+)\s+days?\)', line)
+                if duration_match:
+                    duration_map["Round 1"] = int(duration_match.group(1))
+            elif "Round 2" in line:
+                duration_match = re.search(r'\((\d+)\s+days?\)', line)
+                if duration_match:
+                    duration_map["Round 2"] = int(duration_match.group(1))
+
+    # Calculate backwards from event end
+    # Finals ENDS at event_end, so we start from there
+    current_end = event_end
+
+    for phase_name, default_duration in phase_definitions:
+        if phase_name == "League Selection":
+            # Remaining time from event start to current position
+            duration_seconds = current_end - event_start
+            phase_start = event_start
+        else:
+            # Get duration (from parsed data or use standard duration)
+            duration_days = duration_map.get(phase_name, default_duration)
+            duration_seconds = duration_days * 86400
+            phase_start = current_end - duration_seconds
+
+        phases.insert(0, {  # Insert at beginning to maintain chronological order
+            "name": phase_name,
+            "start_time": phase_start,
+            "duration_days": duration_seconds // 86400
+        })
+
+        # Move end time backwards for next phase
+        current_end = phase_start
+
+    return phases
+
+def parse_legend_race_characters(event_description, event_start, event_end):
+    """
+    Calculate Legend Race character times based on event timing.
+    
+    Characters are divided evenly across the event duration, each getting 3 days.
+    Calculated FORWARDS from event start (character 1 starts when event starts).
+    
+    Example: 9-day event with 3 characters
+    - Day 1-3: Character 1
+    - Day 4-6: Character 2
+    - Day 7-9: Character 3
+    
+    Returns:
+        List of dicts: [{name, start_time, end_time, duration_days}, ...]
+    """
+    import re
+    characters = []
+    lines = event_description.split('\n')
+    character_duration = 3 * 86400  # 3 days in seconds
+    
+    # Try to find character names in various formats
+    character_names = []
+    
+    # Format 1: Lines starting with "- " (simple format)
+    for line in lines:
+        line = line.strip()
+        if line.startswith('-') and '(' in line:
+            # Extract character name (before parentheses)
+            char_name = line[1:line.index('(')].strip()
+            if char_name:
+                character_names.append(char_name)
+    
+    # Format 2: Markdown links [Name](URL)
+    if not character_names:
+        # Look for **Characters:** line followed by markdown links
+        in_character_section = False
+        for line in lines:
+            if '**Characters:**' in line or '**characters:**' in line.lower():
+                in_character_section = True
+                # Extract from same line
+                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
+                character_names.extend(markdown_links)
+            elif in_character_section and '[' in line:
+                # Continue extracting from following lines
+                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
+                character_names.extend(markdown_links)
+            elif in_character_section and line and not line.startswith('**'):
+                # Stop if we hit a new section
+                break
+    
+    # Format 3: Comma-separated list
+    if not character_names:
+        for line in lines:
+            if 'characters:' in line.lower():
+                # Try to extract comma-separated names
+                parts = line.split(':', 1)
+                if len(parts) > 1:
+                    names = parts[1].split(',')
+                    character_names.extend([n.strip() for n in names if n.strip()])
+    
+    # Build character list with timing - FORWARDS from event start
+    # Character 1 starts when event starts
+    current_start = event_start
+    
+    for char_name in character_names:
+        if char_name:
+            char_end = current_start + character_duration
+            characters.append({
+                "name": char_name,
+                "start_time": current_start,
+                "end_time": char_end,
+                "duration_days": 3
+            })
+            current_start = char_end  # Next character starts when previous ends
+    
+    return characters
 
 
 print("[INIT] uma_module.py fully loaded - all commands registered")

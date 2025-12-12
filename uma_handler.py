@@ -83,6 +83,28 @@ async def download_timeline():
             await page.goto("https://uma.moe/timeline", timeout=60000)
             await page.wait_for_load_state("networkidle")
 
+            # Check for and close Christmas popup if it exists
+            try:
+                print("[UMA HANDLER] Checking for Christmas popup...")
+                popup = await page.query_selector('.christmas-popup-dialog')
+                if popup:
+                    print("[UMA HANDLER] Christmas popup detected, closing...")
+                    # Try to find and click the close button
+                    close_button = await page.query_selector('.christmas-popup-dialog button[mat-dialog-close], .christmas-popup-dialog .close-button, .christmas-popup-dialog [aria-label="Close"]')
+                    if close_button:
+                        await close_button.click()
+                        await asyncio.sleep(0.5)
+                        print("[UMA HANDLER] Christmas popup closed via button")
+                    else:
+                        # If no close button, try pressing Escape
+                        await page.keyboard.press('Escape')
+                        await asyncio.sleep(0.5)
+                        print("[UMA HANDLER] Christmas popup closed via Escape key")
+                else:
+                    print("[UMA HANDLER] No Christmas popup detected")
+            except Exception as e:
+                print(f"[UMA HANDLER] Error handling popup (non-critical): {e}")
+
             timeline = await page.query_selector('.timeline-container')
             if not timeline:
                 uma_handler_logger.error("Timeline container not found!")
