@@ -1466,16 +1466,24 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                 # Save to database
                 if characters_data:
                     async with aiosqlite.connect(GAMETORA_DB_PATH) as db:
-                        # Insert or replace characters (upsert)
+                        # First, log some sample characters to verify format
+                        sample_chars = characters_data[:5]
+                        print(f"[GameTora] Sample character names being saved:")
+                        for char in sample_chars:
+                            print(f"  ID {char['character_id']}: {char['name']}")
+                        
+                        # Insert or replace characters (this will overwrite old bad data)
+                        updated_count = 0
                         for char in characters_data:
                             await db.execute('''
                                 INSERT OR REPLACE INTO characters (character_id, name, link)
                                 VALUES (?, ?, ?)
                             ''', (char['character_id'], char['name'], char['link']))
+                            updated_count += 1
                         
                         await db.commit()
-                        print(f"[GameTora] Saved {len(characters_data)} characters to database")
-                        uma_handler_logger.info(f"[GameTora] Saved {len(characters_data)} characters to database")
+                        print(f"[GameTora] Saved/updated {updated_count} characters to database")
+                        uma_handler_logger.info(f"[GameTora] Saved/updated {updated_count} characters to database")
                 
                 return len(characters_data)
                 
