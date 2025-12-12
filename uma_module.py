@@ -94,12 +94,12 @@ def get_event_color(event):
         else:
             return discord.Color.blue()
     
-    # Champions Meeting - Purple
-    if "champions meeting" in title:
+    # Champions Meeting - Purple (check category or title)
+    if category == "champions meeting" or "champions meeting" in title:
         return discord.Color.purple()
     
-    # Legend Race - Pink/Magenta
-    if "legend race" in title:
+    # Legend Race - Pink/Magenta (check category or title)
+    if category == "legend race" or "legend race" in title:
         return discord.Color.magenta()
     
     # Story Event or generic Event - Yellow/Gold
@@ -628,6 +628,15 @@ async def uma_update_timers(_guild=None, force_update=False):
 async def add_uma_event(ctx, event_data):
     """Adds or updates an Uma Musume event in the database (only if changed)."""
     uma_logger.info(f"[Add Event] Processing event: {event_data.get('title', 'Unknown')}")
+    
+    # Auto-convert category based on title for UMA events
+    title = event_data.get("title", "").lower()
+    if "legend race" in title:
+        uma_logger.info(f"[Add Event] Auto-converting category to 'Legend Race' based on title")
+        event_data["category"] = "Legend Race"
+    elif "champions meeting" in title or "champion's meeting" in title:
+        uma_logger.info(f"[Add Event] Auto-converting category to 'Champions Meeting' based on title")
+        event_data["category"] = "Champions Meeting"
     
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         # Check if event already exists

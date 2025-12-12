@@ -248,12 +248,280 @@ def get_notification_timings(category, profile=None):
             timings.append((timing_type, minutes))
     return timings
 
+def parse_champions_meeting_phases(event_description, event_start):
+    """
+    Parse Champions Meeting phase information from event description.
+    
+    Expected format:
+    Registration: December 16, 08:00 - December 20, 07:59 (4 days)
+    Round 1: December 20, 08:00 - December 22, 07:59 (2 days)
+    ...
+    
+    Returns:
+        List of dicts: [{name, start_time, duration_days}, ...]
+    """
+    import re
+    phases = []
+    
+    phase_patterns = [
+        ("Registration", ["Registration"]),
+        ("Round 1", ["Round 1"]),
+        ("Round 2", ["Round 2"]),
+        ("Final Registration", ["Final Registration"]),
+        ("Finals", ["Finals"])
+    ]
+    
+    lines = event_description.split('\n')
+    current_start = event_start
+    
+    for phase_name, patterns in phase_patterns:
+        for line in lines:
+            line_matches = any(pattern in line for pattern in patterns)
+            if line_matches and ("day" in line.lower()):
+                duration_match = re.search(r'\((\d+)\s+days?\)', line)
+                if duration_match:
+                    duration_days = int(duration_match.group(1))
+                    phases.append({
+                        "name": phase_name,
+                        "start_time": current_start,
+                        "duration_days": duration_days
+                    })
+                    current_start += duration_days * 86400
+                    break
+    
+    return phases
+
+def parse_legend_race_characters(event_description, event_start):
+    """
+    Parse Legend Race character information from event description.
+    
+    Supports multiple formats:
+    - Simple: "- Character Name (dates)"
+    - Markdown links: "[Character Name](URL)"
+    - Comma-separated: "Character1, Character2, Character3"
+    
+    Returns:
+        List of dicts: [{name, start_time, end_time, duration_days}, ...]
+    """
+    import re
+    characters = []
+    lines = event_description.split('\n')
+    current_start = event_start
+    character_duration = 3 * 86400  # 3 days in seconds
+    
+    # Try to find character names in various formats
+    character_names = []
+    
+    # Format 1: Lines starting with "- " (simple format)
+    for line in lines:
+        line = line.strip()
+        if line.startswith('-') and '(' in line:
+            # Extract character name (before parentheses)
+            char_name = line[1:line.index('(')].strip()
+            if char_name:
+                character_names.append(char_name)
+    
+    # Format 2: Markdown links [Name](URL)
+    if not character_names:
+        # Look for **Characters:** line followed by markdown links
+        in_character_section = False
+        for line in lines:
+            if '**Characters:**' in line or '**characters:**' in line.lower():
+                in_character_section = True
+                # Extract from same line
+                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
+                character_names.extend(markdown_links)
+            elif in_character_section and '[' in line:
+                # Continue extracting from following lines
+                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
+                character_names.extend(markdown_links)
+            elif in_character_section and line and not line.startswith('**'):
+                # Stop if we hit a new section
+                break
+    
+    # Format 3: Comma-separated list
+    if not character_names:
+        for line in lines:
+            if 'characters:' in line.lower():
+                # Try to extract comma-separated names
+                parts = line.split(':', 1)
+                if len(parts) > 1:
+                    names = parts[1].split(',')
+                    character_names.extend([n.strip() for n in names if n.strip()])
+    
+    # Build character list with timing
+    for char_name in character_names:
+        if char_name:
+            characters.append({
+                "name": char_name,
+                "start_time": current_start,
+                "end_time": current_start + character_duration,
+                "duration_days": 3
+            })
+            current_start += character_duration
+    
+    return characters
+
+async def schedule_champions_meeting_notifications(event):
+    """
+    Schedule notifications for Champions Meeting event.
+    Creates 7 notifications: 1 reminder + 5 phases + 1 end
+    """
+    send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduling notifications for: {event['title']}")
+    
+    # Parse phases from description
+    description = event.get('description', '')
+    if not description:
+        send_log(MAIN_SERVER_ID, f"[Champions Meeting] No description found, falling back to generic notifications")
+        return False
+    
+    phases = parse_champions_meeting_phases(description, int(event['start_date']))
+    if not phases:
+        send_log(MAIN_SERVER_ID, f"[Champions Meeting] Failed to parse phases, falling back to generic notifications")
+        return False
+    
+    send_log(MAIN_SERVER_ID, f"[Champions Meeting] Parsed {len(phases)} phases")
+    
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        # 1. Reminder: 1 day before event starts
+        reminder_time = int(event['start_date']) - 86400
+        if reminder_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+            await conn.execute("""
+                INSERT INTO pending_notifications 
+                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+            """, (event['category'], event['profile'], event['title'], 'reminder', 
+                  reminder_time, int(event['start_date']), 'uma_champions_meeting_reminder'))
+            send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled reminder at <t:{reminder_time}:F>")
+        
+        # 2-6. Phase start notifications
+        phase_template_map = {
+            "Registration": "uma_champions_meeting_registration_start",
+            "Round 1": "uma_champions_meeting_round1_start",
+            "Round 2": "uma_champions_meeting_round2_start",
+            "Final Registration": "uma_champions_meeting_final_registration_start",
+            "Finals": "uma_champions_meeting_finals_start"
+        }
+        
+        for phase in phases:
+            template_key = phase_template_map.get(phase['name'])
+            if template_key and phase['start_time'] > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+                await conn.execute("""
+                    INSERT INTO pending_notifications 
+                    (category, profile, title, timing_type, notify_unix, event_time_unix, sent, 
+                     message_template, phase)
+                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                """, (event['category'], event['profile'], event['title'], 'phase_start',
+                      phase['start_time'], phase['start_time'], template_key, phase['name']))
+                send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled {phase['name']} at <t:{phase['start_time']}:F>")
+        
+        # 7. Event end notification
+        end_time = int(event['end_date'])
+        if end_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+            await conn.execute("""
+                INSERT INTO pending_notifications 
+                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+            """, (event['category'], event['profile'], event['title'], 'end',
+                  end_time, end_time, 'uma_champions_meeting_end'))
+            send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled end notification at <t:{end_time}:F>")
+        
+        await conn.commit()
+    
+    send_log(MAIN_SERVER_ID, f"[Champions Meeting] Successfully scheduled all notifications")
+    return True
+
+async def schedule_legend_race_notifications(event):
+    """
+    Schedule notifications for Legend Race event.
+    Creates N+2 notifications: 1 reminder + N characters + 1 end
+    """
+    send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduling notifications for: {event['title']}")
+    
+    # Parse characters from description
+    description = event.get('description', '')
+    if not description:
+        send_log(MAIN_SERVER_ID, f"[Legend Race] No description found, falling back to generic notifications")
+        return False
+    
+    characters = parse_legend_race_characters(description, int(event['start_date']))
+    if not characters:
+        send_log(MAIN_SERVER_ID, f"[Legend Race] Failed to parse characters, falling back to generic notifications")
+        return False
+    
+    send_log(MAIN_SERVER_ID, f"[Legend Race] Parsed {len(characters)} characters")
+    
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        # 1. Reminder: 1 day before event starts
+        reminder_time = int(event['start_date']) - 86400
+        if reminder_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+            await conn.execute("""
+                INSERT INTO pending_notifications 
+                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+            """, (event['category'], event['profile'], event['title'], 'reminder',
+                  reminder_time, int(event['start_date']), 'uma_legend_race_reminder'))
+            send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled reminder at <t:{reminder_time}:F>")
+        
+        # 2-(N+1). Character start notifications
+        for char in characters:
+            if char['start_time'] > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+                await conn.execute("""
+                    INSERT INTO pending_notifications 
+                    (category, profile, title, timing_type, notify_unix, event_time_unix, sent,
+                     message_template, character_name)
+                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                """, (event['category'], event['profile'], event['title'], 'character_start',
+                      char['start_time'], char['start_time'], 'uma_legend_race_character_start', char['name']))
+                send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled {char['name']} at <t:{char['start_time']}:F>")
+        
+        # (N+2). Event end notification
+        end_time = int(event['end_date'])
+        if end_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+            await conn.execute("""
+                INSERT INTO pending_notifications 
+                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+            """, (event['category'], event['profile'], event['title'], 'end',
+                  end_time, end_time, 'uma_legend_race_end'))
+            send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled end notification at <t:{end_time}:F>")
+        
+        await conn.commit()
+    
+    send_log(MAIN_SERVER_ID, f"[Legend Race] Successfully scheduled all notifications")
+    return True
+
 async def schedule_notifications_for_event(event):
     """
     Schedules notifications for an event using profile-based timings.
-    Now supports profile-specific timings (e.g., Uma Musume).
+    Now supports Champions Meeting and Legend Race special scheduling.
     """
     send_log(MAIN_SERVER_ID, f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
+    
+    # Special handling for Champions Meeting (detect by title pattern)
+    title_lower = event.get('title', '').lower()
+    if 'champions meeting' in title_lower or event.get('category') == 'Champions Meeting':
+        success = await schedule_champions_meeting_notifications(event)
+        if success:
+            # Update control panel after scheduling
+            guild = bot.get_guild(MAIN_SERVER_ID)
+            await update_pending_notifications_embed_for_profile(guild, event['profile'])
+            return
+        # If special scheduling fails, fall through to generic scheduling
+        send_log(MAIN_SERVER_ID, "[Champions Meeting] Using generic scheduling as fallback")
+    
+    # Special handling for Legend Race (detect by title pattern)
+    if 'legend race' in title_lower or event.get('category') == 'Legend Race':
+        success = await schedule_legend_race_notifications(event)
+        if success:
+            # Update control panel after scheduling
+            guild = bot.get_guild(MAIN_SERVER_ID)
+            await update_pending_notifications_embed_for_profile(guild, event['profile'])
+            return
+        # If special scheduling fails, fall through to generic scheduling
+        send_log(MAIN_SERVER_ID, "[Legend Race] Using generic scheduling as fallback")
+    
+    # Generic notification scheduling for all other events
     timings = get_notification_timings(event['category'], event.get('profile'))
     send_log(MAIN_SERVER_ID, f"Using timings for event: {timings}")
 
@@ -482,11 +750,35 @@ async def send_notification(event, timing_type):
         if not unix_time:
             unix_time = event['start_date'] if timing_type == "start" else event['end_date']
         
-        time_str = "starting" if timing_type == "start" else "ending"
+        # Build message: Priority 1 = custom_message, Priority 2 = template, Priority 3 = default
+        message = None
+        if event.get('custom_message'):
+            message = event['custom_message']
+        elif event.get('message_template') and event.get('message_template') in MESSAGE_TEMPLATES:
+            template = MESSAGE_TEMPLATES[event['message_template']]
+            time_str = "starting" if timing_type == "start" else "ending"
+            kwargs = {
+                'role': role_mention,
+                'name': event['title'],
+                'category': event['category'],
+                'action': time_str,
+                'time': f"<t:{unix_time}:R>"
+            }
+            if event.get('phase'):
+                kwargs['phase'] = event['phase']
+            if event.get('character'):
+                kwargs['character'] = event['character_name']
+            try:
+                message = template.format(**kwargs)
+            except KeyError:
+                pass  # Fall through to default
+        
+        if not message:
+            time_str = "starting" if timing_type == "start" else "ending"
+            message = f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
+        
         try:
-            await channel.send(
-                f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
-            )
+            await channel.send(message)
             send_log(event.get('server_id', 'N/A'), f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
         except Exception as e:
             send_log(event.get('server_id', 'N/A'), f"Failed to send notification for {profile} {region}: {e}")
@@ -509,11 +801,36 @@ async def send_notification(event, timing_type):
             send_log(event.get('server_id', 'N/A'), f"No emoji found for profile {profile}")
 
         unix_time = event['start_date'] if timing_type == "start" else event['end_date']
-        time_str = "starting" if timing_type == "start" else "ending"
+        
+        # Build message: Priority 1 = custom_message, Priority 2 = template, Priority 3 = default
+        message = None
+        if event.get('custom_message'):
+            message = event['custom_message']
+        elif event.get('message_template') and event.get('message_template') in MESSAGE_TEMPLATES:
+            template = MESSAGE_TEMPLATES[event['message_template']]
+            time_str = "starting" if timing_type == "start" else "ending"
+            kwargs = {
+                'role': role_mention,
+                'name': event['title'],
+                'category': event['category'],
+                'action': time_str,
+                'time': f"<t:{unix_time}:R>"
+            }
+            if event.get('phase'):
+                kwargs['phase'] = event['phase']
+            if event.get('character_name'):
+                kwargs['character'] = event['character_name']
+            try:
+                message = template.format(**kwargs)
+            except KeyError:
+                pass  # Fall through to default
+        
+        if not message:
+            time_str = "starting" if timing_type == "start" else "ending"
+            message = f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
+        
         try:
-            await channel.send(
-                f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
-            )
+            await channel.send(message)
             send_log(event.get('server_id', 'N/A'), f"Notification sent to channel {channel_id} for event {event['title']}")
         except Exception as e:
             send_log(event.get('server_id', 'N/A'), f"Failed to send notification: {e}")
@@ -526,21 +843,28 @@ async def load_and_schedule_pending_notifications(bot):
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
         async with conn.execute("""
-            SELECT id, category, profile, title, timing_type, notify_unix, event_time_unix, region
+            SELECT id, category, profile, title, timing_type, notify_unix, event_time_unix, region,
+                   custom_message, message_template, phase, character_name
             FROM pending_notifications
             WHERE sent=0 AND notify_unix <= ?
         """, (now + 60,)) as cursor:
             rows = await cursor.fetchall()
 
         for row in rows:
-            notif_id, category, profile, title, timing_type, notify_unix, event_time_unix, region = row
+            notif_id, category, profile, title, timing_type, notify_unix, event_time_unix, region, \
+            custom_message, message_template, phase, character_name = row
+            
             event = {
                 'category': category,
                 'profile': profile,
                 'title': title,
                 'start_date': event_time_unix if timing_type == "start" else None,
                 'end_date': event_time_unix if timing_type == "end" else None,
-                'region': region
+                'region': region,
+                'custom_message': custom_message,
+                'message_template': message_template,
+                'phase': phase,
+                'character_name': character_name
             }
             await conn.execute("UPDATE pending_notifications SET sent=1 WHERE id=?", (notif_id,))
             await send_notification(event, timing_type)

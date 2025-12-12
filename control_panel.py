@@ -509,12 +509,71 @@ class PendingNotifSelect(discord.ui.Select):
         action_view = PendingNotifActionView(self.profile, self.event, int(notif_id))
         await interaction.response.edit_message(content=f"Selected notification ID: {notif_id}. Choose an action below.", view=action_view)
 
+class EditMessageModal(discord.ui.Modal):
+    """Modal for editing a notification's custom message."""
+    def __init__(self, profile, notif_id, current_message=None):
+        super().__init__(title="Edit Notification Message")
+        self.profile = profile
+        self.notif_id = notif_id
+        
+        # Text input for custom message
+        self.custom_message_input = discord.ui.TextInput(
+            label="Custom Notification Message",
+            style=discord.TextStyle.paragraph,
+            placeholder="Enter custom message or leave blank to use template",
+            default=current_message if current_message else "",
+            required=False,
+            max_length=2000
+        )
+        self.add_item(self.custom_message_input)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Get custom message (or None if empty)
+        custom_message = self.custom_message_input.value.strip() if self.custom_message_input.value else None
+        
+        # Update database
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            await conn.execute(
+                "UPDATE pending_notifications SET custom_message=? WHERE id=?",
+                (custom_message, self.notif_id)
+            )
+            await conn.commit()
+        
+        # Send confirmation
+        if custom_message:
+            await interaction.response.send_message(
+                f"✅ Custom message saved!\n\n**Preview:** {custom_message[:100]}{'...' if len(custom_message) > 100 else ''}",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "✅ Custom message cleared. Template message will be used.",
+                ephemeral=True
+            )
+        
+        # Refresh control panel
+        await update_control_panel_messages(self.profile)
+
 class PendingNotifActionView(discord.ui.View):
     def __init__(self, profile, event, notif_id):
         super().__init__(timeout=None)
         self.profile = profile
         self.event = event
         self.notif_id = notif_id
+
+    @discord.ui.button(label="Edit Message", style=discord.ButtonStyle.gray, custom_id="edit_pending_message")
+    async def edit_pending_message(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Get current custom message from database
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT custom_message FROM pending_notifications WHERE id=?",
+                (self.notif_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                current_message = row[0] if row and row[0] else None
+        
+        # Show edit modal
+        await interaction.response.send_modal(EditMessageModal(self.profile, self.notif_id, current_message))
 
     @discord.ui.button(label="Remove Selected", style=discord.ButtonStyle.red, custom_id="remove_pending_confirm")
     async def remove_pending_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
