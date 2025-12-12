@@ -712,12 +712,12 @@ async def add_uma_event(ctx, event_data):
     if notif_count > 0:
         print(f"[UMA] Notifications already exist for: {event_data['title']} ({notif_count} notifications), skipping schedule")
         uma_logger.info(f"[Add Event] Skipping notification schedule - already exists ({notif_count} notifications)")
-        # Update control panel to reflect any event changes
-        uma_logger.info("[add_uma_event] Updating control panel...")
+        # Update control panel to reflect any event changes (targeted update only)
+        uma_logger.info(f"[add_uma_event] Updating control panel panels for event {event_id}...")
         try:
-            from control_panel import update_control_panel_messages
-            await update_control_panel_messages("UMA")
-            uma_logger.info("[add_uma_event] Control panel updated.")
+            from control_panel import update_single_event_panels
+            await update_single_event_panels("UMA", event_id)
+            uma_logger.info(f"[add_uma_event] Control panel panels updated for event {event_id}.")
         except Exception as e:
             uma_logger.error(f"[add_uma_event] Failed to update control panel: {e}")
         return
@@ -740,11 +740,12 @@ async def add_uma_event(ctx, event_data):
         uma_logger.error(f"Failed to schedule notifications for {event_data['title']}: {e}")
     
     # Update control panel to show new event in Remove/Edit/Notif panels
-    uma_logger.info("[add_uma_event] Updating control panel with new event...")
+    # Only update the specific panels affected by this event (much faster!)
+    uma_logger.info(f"[add_uma_event] Updating control panel panels for event {event_id}...")
     try:
-        from control_panel import update_control_panel_messages
-        await update_control_panel_messages("UMA")
-        uma_logger.info("[add_uma_event] Control panel updated.")
+        from control_panel import update_single_event_panels
+        await update_single_event_panels("UMA", event_id)
+        uma_logger.info(f"[add_uma_event] Control panel panels updated for event {event_id}.")
     except Exception as e:
         uma_logger.error(f"[add_uma_event] Failed to update control panel: {e}")
 
@@ -1095,12 +1096,12 @@ async def uma_edit(ctx, title: str, item: str, *, value: str):
     await uma_update_timers()
     uma_logger.info("[uma_edit] Dashboard refresh completed.")
     
-    # Update control panel to reflect edits
-    uma_logger.info("[uma_edit] Updating control panel after editing event...")
+    # Update control panel to reflect edits (targeted update only)
+    uma_logger.info(f"[uma_edit] Updating control panel panels for event {event_id}...")
     try:
-        from control_panel import update_control_panel_messages
-        await update_control_panel_messages("UMA")
-        uma_logger.info("[uma_edit] Control panel updated.")
+        from control_panel import update_single_event_panels
+        await update_single_event_panels("UMA", event_id)
+        uma_logger.info(f"[uma_edit] Control panel panels updated for event {event_id}.")
     except Exception as e:
         uma_logger.error(f"[uma_edit] Failed to update control panel: {e}")
 
