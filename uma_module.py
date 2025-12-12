@@ -697,7 +697,8 @@ async def add_uma_event(ctx, event_data):
                  event_data.get("description", ""))
             )
             await conn.commit()
-            uma_logger.info(f"[Add Event] Inserted new event: {event_data['title']}")
+            event_id = conn.last_insert_rowid  # Get the ID of the newly inserted event
+            uma_logger.info(f"[Add Event] Inserted new event: {event_data['title']} (ID: {event_id})")
             print(f"[UMA] New event: {event_data['title']}")
     
     # Check if notifications already exist before scheduling
