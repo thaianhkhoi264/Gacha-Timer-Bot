@@ -728,7 +728,8 @@ async def add_uma_event(ctx, event_data):
         'profile': "UMA",
         'title': event_data['title'],
         'start_date': event_data['start'],
-        'end_date': event_data['end']
+        'end_date': event_data['end'],
+        'description': event_data.get('description', '')  # Include description for special scheduling
     }
     from notification_handler import schedule_notifications_for_event
     print(f"[UMA] Scheduling notifications for: {event_data['title']} (start: {event_data['start']})")
@@ -771,19 +772,20 @@ async def uma_force_refresh(ctx):
         from notification_handler import schedule_notifications_for_event
         async with aiosqlite.connect(UMA_DB_PATH) as conn:
             async with conn.execute(
-                "SELECT id, title, category, start_date, end_date FROM events WHERE profile='UMA'"
+                "SELECT id, title, category, start_date, end_date, description FROM events WHERE profile='UMA'"
             ) as cursor:
                 rows = await cursor.fetchall()
         
         rescheduled = 0
         for row in rows:
-            event_id, title, category, start_date, end_date = row
+            event_id, title, category, start_date, end_date, description = row
             event_for_notification = {
                 'category': category,
                 'profile': "UMA",
                 'title': title,
                 'start_date': int(start_date),
-                'end_date': int(end_date)
+                'end_date': int(end_date),
+                'description': description or ''  # Include description for special scheduling
             }
             try:
                 await schedule_notifications_for_event(event_for_notification)
@@ -1076,18 +1078,19 @@ async def uma_edit(ctx, title: str, item: str, *, value: str):
     # Fetch updated event info for notification rescheduling
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         async with conn.execute(
-            "SELECT title, start_date, end_date, category, profile FROM events WHERE id=?",
+            "SELECT title, start_date, end_date, category, profile, description FROM events WHERE id=?",
             (event_id,)
         ) as cursor:
             updated = await cursor.fetchone()
     if updated:
-        new_title, new_start, new_end, new_category, new_profile = updated
+        new_title, new_start, new_end, new_category, new_profile, new_description = updated
         event_for_notification = {
             'category': new_category,
             'profile': new_profile,
             'title': new_title,
             'start_date': str(new_start),
-            'end_date': str(new_end)
+            'end_date': str(new_end),
+            'description': new_description or ''  # Include description for special scheduling
         }
         await schedule_notifications_for_event(event_for_notification)
     

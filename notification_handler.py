@@ -25,8 +25,40 @@ async def init_notification_db():
             notify_unix INTEGER,
             event_time_unix INTEGER,
             sent INTEGER DEFAULT 0,
-            region TEXT
+            region TEXT,
+            send_time TEXT,
+            message_template TEXT,
+            custom_message TEXT,
+            phase TEXT,
+            character_name TEXT
         )''')
+        
+        # Add new columns if they don't exist (for existing databases)
+        try:
+            await conn.execute('ALTER TABLE pending_notifications ADD COLUMN send_time TEXT')
+        except:
+            pass  # Column already exists
+        
+        try:
+            await conn.execute('ALTER TABLE pending_notifications ADD COLUMN message_template TEXT')
+        except:
+            pass  # Column already exists
+        
+        try:
+            await conn.execute('ALTER TABLE pending_notifications ADD COLUMN custom_message TEXT')
+        except:
+            pass  # Column already exists
+        
+        try:
+            await conn.execute('ALTER TABLE pending_notifications ADD COLUMN phase TEXT')
+        except:
+            pass  # Column already exists
+        
+        try:
+            await conn.execute('ALTER TABLE pending_notifications ADD COLUMN character_name TEXT')
+        except:
+            pass  # Column already exists
+        
         # UNIQUE index to prevent duplicates (including region for HYV)
         await conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_notif
