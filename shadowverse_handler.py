@@ -43,6 +43,7 @@ async def init_sv_db():
     """
     Initializes the Shadowverse database with tables for channel assignment and winrate tracking.
     Adds 'bricks' column if missing. Adds season tracking.
+    Adds detailed match history table for individual match records.
     """
     async with aiosqlite.connect('shadowverse_data.db') as conn:
         await conn.execute('''
@@ -82,6 +83,28 @@ async def init_sv_db():
                 losses INTEGER DEFAULT 0,
                 bricks INTEGER DEFAULT 0,
                 PRIMARY KEY (season, user_id, server_id, played_craft, opponent_craft)
+            )
+        ''')
+        # Detailed match history table (for individual matches with metadata)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                server_id TEXT NOT NULL,
+                played_craft TEXT NOT NULL,
+                opponent_craft TEXT NOT NULL,
+                win INTEGER NOT NULL,
+                brick INTEGER DEFAULT 0,
+                timestamp TEXT,
+                player_points INTEGER,
+                player_point_type TEXT,
+                player_rank TEXT,
+                player_group TEXT,
+                opponent_points INTEGER,
+                opponent_point_type TEXT,
+                opponent_rank TEXT,
+                opponent_group TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
             )
         ''')
         # Try to add bricks column if missing (for upgrades)
@@ -178,14 +201,33 @@ async def get_available_seasons(server_id):
             seasons = [row[0] async for row in cursor]
     return seasons
 
-async def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
+async def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False,
+                       timestamp: str = None, player_points: int = None, player_point_type: str = None,
+                       player_rank: str = None, player_group: str = None, opponent_points: int = None,
+                       opponent_point_type: str = None, opponent_rank: str = None, opponent_group: str = None):
     """
     Records a match result for a user.
+
+    :param user_id: Discord user ID
+    :param server_id: Discord server ID
+    :param played_craft: Craft played by the user
+    :param opponent_craft: Craft played by the opponent
+    :param win: True if win, False if loss
     :param brick: True if the match was a brick, False otherwise
+    :param timestamp: ISO format timestamp of the match (optional)
+    :param player_points: Player's points (optional)
+    :param player_point_type: Type of points (e.g., 'RP', 'MP') (optional)
+    :param player_rank: Player's rank (e.g., 'A1', 'Master') (optional)
+    :param player_group: Player's group (e.g., 'Topaz', 'Diamond') (optional)
+    :param opponent_points: Opponent's points (optional)
+    :param opponent_point_type: Opponent's point type (optional)
+    :param opponent_rank: Opponent's rank (optional)
+    :param opponent_group: Opponent's group (optional)
     """
     if played_craft not in CRAFTS or opponent_craft not in CRAFTS:
         raise ValueError("Invalid craft name.")
     async with aiosqlite.connect('shadowverse_data.db') as conn:
+        # Update aggregated winrates table
         # Ensure row exists
         await conn.execute('''
             INSERT OR IGNORE INTO winrates (user_id, server_id, played_craft, opponent_craft, wins, losses, bricks)
@@ -207,6 +249,18 @@ async def record_match(user_id: str, server_id: str, played_craft: str, opponent
                 UPDATE winrates SET bricks = bricks + 1
                 WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
             ''', (user_id, server_id, played_craft, opponent_craft))
+
+        # Record detailed match history
+        await conn.execute('''
+            INSERT INTO matches (
+                user_id, server_id, played_craft, opponent_craft, win, brick,
+                timestamp, player_points, player_point_type, player_rank, player_group,
+                opponent_points, opponent_point_type, opponent_rank, opponent_group
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, server_id, played_craft, opponent_craft, int(win), int(brick),
+              timestamp, player_points, player_point_type, player_rank, player_group,
+              opponent_points, opponent_point_type, opponent_rank, opponent_group))
+
         await conn.commit()
 
 def parse_sv_input(text):
