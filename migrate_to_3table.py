@@ -18,16 +18,45 @@ import sys
 import argparse
 from datetime import datetime
 
+async def check_table_exists(table_name):
+    """
+    Check if a table exists in the database.
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        async with conn.execute('''
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name=?
+        ''', (table_name,)) as cursor:
+            return (await cursor.fetchone()) is not None
+
+
 async def analyze_existing_matches():
     """
-    Analyzes existing matches table to categorize by source.
+    Analyzes existing database structure and data.
 
-    Classification rules:
-    - API matches: ANY metadata field is non-NULL (timestamp, points, rank, etc.)
-    - Discord matches: ALL metadata fields are NULL
-
-    Returns: (discord_count, api_count, total_count)
+    Returns: (has_matches_table, discord_count, api_count, total_count, winrates_count)
+    - has_matches_table: True if matches table exists (current structure),
+                        False if only winrates exists (old structure)
     """
+    # Check if matches table exists
+    has_matches = await check_table_exists('matches')
+
+    if not has_matches:
+        # Old database - only has winrates table, no individual match records
+        print("  → Database has only 'winrates' table (old structure)")
+        print("  → Individual match records not available")
+
+        async with aiosqlite.connect('shadowverse_data.db') as conn:
+            # Count winrate entries
+            async with conn.execute('SELECT COUNT(*) FROM winrates') as cursor:
+                winrates_count = (await cursor.fetchone())[0]
+
+        print(f"  → Found {winrates_count} winrate entries (aggregated stats)")
+        return False, 0, 0, 0, winrates_count
+
+    # New database - has matches table with individual records
+    print("  → Database has 'matches' table (current structure)")
+
     async with aiosqlite.connect('shadowverse_data.db') as conn:
         # Count API matches (have metadata)
         async with conn.execute('''
@@ -59,16 +88,24 @@ async def analyze_existing_matches():
         async with conn.execute('SELECT COUNT(*) FROM matches') as cursor:
             total_count = (await cursor.fetchone())[0]
 
-    return discord_count, api_count, total_count
+    return True, discord_count, api_count, total_count, 0
 
 
-async def migrate_existing_data():
+async def migrate_existing_data(has_matches_table):
     """
-    Migrates data from matches table to discord_matches and api_matches.
+    Migrates data based on database structure.
 
-    API matches (with metadata) → api_matches
-    Discord matches (no metadata) → discord_matches
+    For new structure (has matches table):
+        - API matches (with metadata) → api_matches
+        - Discord matches (no metadata) → discord_matches
+
+    For old structure (only winrates):
+        - No individual matches to migrate (only aggregated stats exist)
     """
+    if not has_matches_table:
+        print("  Skipping individual match migration (no matches table)")
+        return
+
     async with aiosqlite.connect('shadowverse_data.db') as conn:
         # Migrate API matches (those with metadata)
         print("  Migrating API matches...")
@@ -115,15 +152,42 @@ async def migrate_existing_data():
         await conn.commit()
 
 
-async def rebuild_combined_winrates():
+async def rebuild_combined_winrates(has_matches_table):
     """
-    Rebuilds combined_winrates from discord_matches and api_matches.
-    This creates a fresh aggregated view of all matches.
+    Rebuilds combined_winrates based on database structure.
+
+    For new structure (has matches table):
+        - Aggregates from discord_matches and api_matches
+
+    For old structure (only winrates):
+        - Copies aggregated stats from winrates table
+        - Treats all as Discord matches (no API data available)
     """
     async with aiosqlite.connect('shadowverse_data.db') as conn:
         # Clear existing data
         await conn.execute('DELETE FROM combined_winrates')
 
+        if not has_matches_table:
+            # Old database - copy from winrates table
+            print("  Copying winrates to combined_winrates (as Discord matches)...")
+            await conn.execute('''
+                INSERT INTO combined_winrates (
+                    user_id, server_id, played_craft, opponent_craft,
+                    discord_wins, discord_losses, discord_bricks,
+                    api_wins, api_losses, api_bricks,
+                    total_wins, total_losses, total_bricks
+                )
+                SELECT
+                    user_id, server_id, played_craft, opponent_craft,
+                    wins, losses, bricks,
+                    0, 0, 0,
+                    wins, losses, bricks
+                FROM winrates
+            ''')
+            await conn.commit()
+            return
+
+        # New database - aggregate from matches tables
         # Get all unique user/server/craft combinations from both tables
         await conn.execute('''
             INSERT OR IGNORE INTO combined_winrates (
@@ -214,7 +278,7 @@ async def rebuild_combined_winrates():
         await conn.commit()
 
 
-async def archive_old_tables():
+async def archive_old_tables(has_matches_table):
     """
     Creates backup copies of old tables for verification and rollback.
     """
@@ -222,7 +286,7 @@ async def archive_old_tables():
         # Check if backup tables already exist
         async with conn.execute('''
             SELECT name FROM sqlite_master
-            WHERE type='table' AND name='_backup_matches'
+            WHERE type='table' AND name='_backup_winrates'
         ''') as cursor:
             backup_exists = await cursor.fetchone()
 
@@ -230,51 +294,74 @@ async def archive_old_tables():
             print("  Backup tables already exist, skipping backup...")
             return
 
-        # Create backup of matches table
-        await conn.execute('''
-            CREATE TABLE _backup_matches AS SELECT * FROM matches
-        ''')
+        # Create backup of matches table (if it exists)
+        if has_matches_table:
+            await conn.execute('''
+                CREATE TABLE _backup_matches AS SELECT * FROM matches
+            ''')
+            print("  ✓ _backup_matches created")
 
         # Create backup of winrates table
         await conn.execute('''
             CREATE TABLE _backup_winrates AS SELECT * FROM winrates
         ''')
+        print("  ✓ _backup_winrates created")
 
         await conn.commit()
 
 
-async def verify_migration():
+async def verify_migration(has_matches_table):
     """
     Verifies that migration was successful by checking counts.
 
     Returns: (success, report_dict)
     """
+    has_matches = await check_table_exists('matches')
+
     async with aiosqlite.connect('shadowverse_data.db') as conn:
-        # Count original matches
-        async with conn.execute('SELECT COUNT(*) FROM matches') as cursor:
-            original_total = (await cursor.fetchone())[0]
+        if has_matches:
+            # New structure - verify individual match counts
+            async with conn.execute('SELECT COUNT(*) FROM matches') as cursor:
+                original_total = (await cursor.fetchone())[0]
 
-        # Count new discord_matches
-        async with conn.execute('SELECT COUNT(*) FROM discord_matches') as cursor:
-            new_discord = (await cursor.fetchone())[0]
+            # Count new discord_matches
+            async with conn.execute('SELECT COUNT(*) FROM discord_matches') as cursor:
+                new_discord = (await cursor.fetchone())[0]
 
-        # Count new api_matches
-        async with conn.execute('SELECT COUNT(*) FROM api_matches') as cursor:
-            new_api = (await cursor.fetchone())[0]
+            # Count new api_matches
+            async with conn.execute('SELECT COUNT(*) FROM api_matches') as cursor:
+                new_api = (await cursor.fetchone())[0]
+
+            # Verify total matches preserved
+            new_total = new_discord + new_api
+            success = (new_total == original_total)
+        else:
+            # Old structure - no individual matches to verify
+            original_total = 0
+            new_discord = 0
+            new_api = 0
+            new_total = 0
+            success = True  # Success if combined_winrates was populated
 
         # Count combined_winrates rows
         async with conn.execute('SELECT COUNT(*) FROM combined_winrates') as cursor:
             winrate_rows = (await cursor.fetchone())[0]
 
-        # Verify total matches preserved
-        new_total = new_discord + new_api
-        success = (new_total == original_total)
+        # Count original winrates
+        async with conn.execute('SELECT COUNT(*) FROM winrates') as cursor:
+            original_winrates = (await cursor.fetchone())[0]
+
+        # For old structure, verify winrates were copied
+        if not has_matches:
+            success = (winrate_rows == original_winrates)
 
         report = {
+            "has_matches_table": has_matches,
             "original_total": original_total,
             "new_discord": new_discord,
             "new_api": new_api,
             "new_total": new_total,
+            "original_winrates": original_winrates,
             "winrate_rows": winrate_rows,
             "success": success
         }
@@ -302,10 +389,14 @@ async def run_migration(dry_run=True):
 
     # Step 1: Analyze existing data
     print("Step 1: Analyzing existing data...")
-    discord_count, api_count, total_count = await analyze_existing_matches()
-    print(f"  Found {total_count} total matches:")
-    print(f"    - Discord matches (no metadata): {discord_count}")
-    print(f"    - API matches (with metadata): {api_count}")
+    has_matches_table, discord_count, api_count, total_count, winrates_count = await analyze_existing_matches()
+
+    if has_matches_table:
+        print(f"  Found {total_count} total matches:")
+        print(f"    - Discord matches (no metadata): {discord_count}")
+        print(f"    - API matches (with metadata): {api_count}")
+    else:
+        print(f"  Found {winrates_count} winrate entries (aggregated stats)")
     print()
 
     if dry_run:
@@ -319,9 +410,11 @@ async def run_migration(dry_run=True):
         print()
         return {
             "dry_run": True,
+            "has_matches_table": has_matches_table,
             "discord_count": discord_count,
             "api_count": api_count,
-            "total_count": total_count
+            "total_count": total_count,
+            "winrates_count": winrates_count
         }
 
     # EXECUTE MODE - Make actual changes
@@ -345,32 +438,36 @@ async def run_migration(dry_run=True):
 
     # Step 3: Migrate data
     print("Step 3: Migrating data...")
-    await migrate_existing_data()
-    print(f"  ✓ Migrated {discord_count} Discord matches")
-    print(f"  ✓ Migrated {api_count} API matches")
+    await migrate_existing_data(has_matches_table)
+    if has_matches_table:
+        print(f"  ✓ Migrated {discord_count} Discord matches")
+        print(f"  ✓ Migrated {api_count} API matches")
+    else:
+        print("  ✓ No individual matches to migrate")
     print()
 
     # Step 4: Rebuild aggregated stats
     print("Step 4: Rebuilding aggregated stats...")
-    await rebuild_combined_winrates()
+    await rebuild_combined_winrates(has_matches_table)
     print("  ✓ combined_winrates populated")
     print()
 
     # Step 5: Archive old tables
     print("Step 5: Archiving old tables...")
-    await archive_old_tables()
-    print("  ✓ _backup_matches created")
-    print("  ✓ _backup_winrates created")
+    await archive_old_tables(has_matches_table)
     print()
 
     # Step 6: Verify migration
     print("Step 6: Verifying migration...")
-    success, report = await verify_migration()
+    success, report = await verify_migration(has_matches_table)
 
-    print(f"  Original matches: {report['original_total']}")
-    print(f"  New discord_matches: {report['new_discord']}")
-    print(f"  New api_matches: {report['new_api']}")
-    print(f"  New total: {report['new_total']}")
+    if report['has_matches_table']:
+        print(f"  Original matches: {report['original_total']}")
+        print(f"  New discord_matches: {report['new_discord']}")
+        print(f"  New api_matches: {report['new_api']}")
+        print(f"  New total: {report['new_total']}")
+    else:
+        print(f"  Original winrates: {report['original_winrates']}")
     print(f"  Combined winrate rows: {report['winrate_rows']}")
     print()
 
@@ -381,22 +478,34 @@ async def run_migration(dry_run=True):
         print()
         print("Next steps:")
         print("  1. Test Discord match logging")
-        print("  2. Test API match logging")
-        print("  3. Test Discord 'r' removal (should only affect Discord matches)")
-        print("  4. Test API match removal (should only affect API matches)")
+        if report['has_matches_table']:
+            print("  2. Test API match logging")
+            print("  3. Test Discord 'r' removal (should only affect Discord matches)")
+            print("  4. Test API match removal (should only affect API matches)")
+        else:
+            print("  2. Test Discord 'r' removal")
         print("  5. Verify dashboard displays combined stats correctly")
         print()
         print("After verification (1-2 weeks):")
-        print("  - Drop old tables: DROP TABLE matches; DROP TABLE winrates;")
-        print("  - Drop backup tables: DROP TABLE _backup_matches; DROP TABLE _backup_winrates;")
+        if report['has_matches_table']:
+            print("  - Drop old tables: DROP TABLE matches; DROP TABLE winrates;")
+            print("  - Drop backup tables: DROP TABLE _backup_matches; DROP TABLE _backup_winrates;")
+        else:
+            print("  - Drop old tables: DROP TABLE winrates;")
+            print("  - Drop backup tables: DROP TABLE _backup_winrates;")
         print()
     else:
         print("⚠️  MIGRATION COMPLETED WITH WARNINGS!")
         print("=" * 60)
         print()
-        print(f"  Count mismatch detected:")
-        print(f"    Original: {report['original_total']}")
-        print(f"    New total: {report['new_total']}")
+        if report['has_matches_table']:
+            print(f"  Count mismatch detected:")
+            print(f"    Original: {report['original_total']}")
+            print(f"    New total: {report['new_total']}")
+        else:
+            print(f"  Winrate mismatch detected:")
+            print(f"    Original: {report['original_winrates']}")
+            print(f"    New: {report['winrate_rows']}")
         print()
         print("  Please review the migration and verify data integrity.")
         print("  You can restore from backup if needed:")
