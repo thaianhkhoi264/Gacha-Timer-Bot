@@ -86,6 +86,7 @@ async def init_sv_db():
             )
         ''')
         # Detailed match history table (for individual matches with metadata)
+        # NOTE: This table will be deprecated after migration to 3-table system
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS matches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,6 +108,65 @@ async def init_sv_db():
                 created_at TEXT DEFAULT (datetime('now'))
             )
         ''')
+
+        # NEW: 3-Table Architecture for clean source separation
+        # Discord-logged matches (simple, no metadata)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS discord_matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                server_id TEXT NOT NULL,
+                played_craft TEXT NOT NULL,
+                opponent_craft TEXT NOT NULL,
+                win INTEGER NOT NULL,
+                brick INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+
+        # API-logged matches (detailed with metadata)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS api_matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                server_id TEXT NOT NULL,
+                played_craft TEXT NOT NULL,
+                opponent_craft TEXT NOT NULL,
+                win INTEGER NOT NULL,
+                brick INTEGER DEFAULT 0,
+                timestamp TEXT,
+                player_points INTEGER,
+                player_point_type TEXT,
+                player_rank TEXT,
+                player_group TEXT,
+                opponent_points INTEGER,
+                opponent_point_type TEXT,
+                opponent_rank TEXT,
+                opponent_group TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        ''')
+
+        # Combined winrates (aggregated from both discord_matches and api_matches)
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS combined_winrates (
+                user_id TEXT,
+                server_id TEXT,
+                played_craft TEXT,
+                opponent_craft TEXT,
+                discord_wins INTEGER DEFAULT 0,
+                discord_losses INTEGER DEFAULT 0,
+                discord_bricks INTEGER DEFAULT 0,
+                api_wins INTEGER DEFAULT 0,
+                api_losses INTEGER DEFAULT 0,
+                api_bricks INTEGER DEFAULT 0,
+                total_wins INTEGER DEFAULT 0,
+                total_losses INTEGER DEFAULT 0,
+                total_bricks INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, server_id, played_craft, opponent_craft)
+            )
+        ''')
+
         # Try to add bricks column if missing (for upgrades)
         try:
             await conn.execute('ALTER TABLE winrates ADD COLUMN bricks INTEGER DEFAULT 0')
@@ -133,34 +193,40 @@ async def get_current_season(server_id):
 async def archive_current_season(server_id):
     """
     Archives all current winrate data to the archived_winrates table with the current season number,
-    then clears the current winrates table and increments the season.
+    then clears the current match tables (discord_matches, api_matches, combined_winrates) and increments the season.
     Returns the archived season number and count of records archived.
     """
     async with aiosqlite.connect('shadowverse_data.db') as conn:
         current_season = await get_current_season(server_id)
-        
-        # Copy all current winrates to archived_winrates
+
+        # NEW: 3-Table Architecture - Copy combined totals to archived_winrates
         await conn.execute('''
             INSERT INTO archived_winrates (season, user_id, server_id, played_craft, opponent_craft, wins, losses, bricks)
-            SELECT ?, user_id, server_id, played_craft, opponent_craft, wins, losses, bricks
-            FROM winrates
+            SELECT ?, user_id, server_id, played_craft, opponent_craft, total_wins, total_losses, total_bricks
+            FROM combined_winrates
             WHERE server_id = ?
         ''', (current_season, str(server_id)))
-        
+
         # Count archived records
-        async with conn.execute('SELECT COUNT(*) FROM winrates WHERE server_id=?', (str(server_id),)) as cursor:
+        async with conn.execute('SELECT COUNT(*) FROM combined_winrates WHERE server_id=?', (str(server_id),)) as cursor:
             row = await cursor.fetchone()
             archived_count = row[0] if row else 0
-        
-        # Clear current winrates for this server
+
+        # NEW: 3-Table Architecture - Clear all three tables for this server
+        await conn.execute('DELETE FROM discord_matches WHERE server_id=?', (str(server_id),))
+        await conn.execute('DELETE FROM api_matches WHERE server_id=?', (str(server_id),))
+        await conn.execute('DELETE FROM combined_winrates WHERE server_id=?', (str(server_id),))
+
+        # LEGACY: Also clear old tables for backward compatibility
+        # TODO: Remove after migration is complete and verified
         await conn.execute('DELETE FROM winrates WHERE server_id=?', (str(server_id),))
-        
+
         # Increment season
         new_season = current_season + 1
         await conn.execute('UPDATE season_config SET current_season=? WHERE server_id=?', (new_season, str(server_id)))
-        
+
         await conn.commit()
-    
+
     return current_season, archived_count, new_season
 
 async def get_archived_winrate(user_id, server_id, played_craft, season):
@@ -201,12 +267,76 @@ async def get_available_seasons(server_id):
             seasons = [row[0] async for row in cursor]
     return seasons
 
+async def _update_combined_winrates(conn, user_id, server_id, played_craft, opponent_craft,
+                                     win, brick, source, increment=True):
+    """
+    Helper function to update combined_winrates table.
+
+    Updates the appropriate source-specific columns (discord_* or api_*) and total columns.
+
+    :param conn: Active aiosqlite connection
+    :param user_id: Discord user ID
+    :param server_id: Discord server ID
+    :param played_craft: Craft played by user
+    :param opponent_craft: Opponent's craft
+    :param win: True if win, False if loss
+    :param brick: True if bricked
+    :param source: 'discord' or 'api'
+    :param increment: True to add (+1), False to subtract (-1)
+    """
+    # Ensure row exists
+    await conn.execute('''
+        INSERT OR IGNORE INTO combined_winrates (
+            user_id, server_id, played_craft, opponent_craft,
+            discord_wins, discord_losses, discord_bricks,
+            api_wins, api_losses, api_bricks,
+            total_wins, total_losses, total_bricks
+        ) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    ''', (user_id, server_id, played_craft, opponent_craft))
+
+    # Determine which columns to update based on source
+    if source == "discord":
+        win_col = "discord_wins"
+        loss_col = "discord_losses"
+        brick_col = "discord_bricks"
+    elif source == "api":
+        win_col = "api_wins"
+        loss_col = "api_losses"
+        brick_col = "api_bricks"
+    else:
+        raise ValueError(f"Invalid source: {source}. Must be 'discord' or 'api'.")
+
+    delta = 1 if increment else -1
+
+    # Update source-specific win/loss columns and totals
+    if win:
+        await conn.execute(f'''
+            UPDATE combined_winrates
+            SET {win_col} = MAX(0, {win_col} + ?), total_wins = MAX(0, total_wins + ?)
+            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+        ''', (delta, delta, user_id, server_id, played_craft, opponent_craft))
+    else:
+        await conn.execute(f'''
+            UPDATE combined_winrates
+            SET {loss_col} = MAX(0, {loss_col} + ?), total_losses = MAX(0, total_losses + ?)
+            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+        ''', (delta, delta, user_id, server_id, played_craft, opponent_craft))
+
+    # Update brick columns if bricked
+    if brick:
+        await conn.execute(f'''
+            UPDATE combined_winrates
+            SET {brick_col} = MAX(0, {brick_col} + ?), total_bricks = MAX(0, total_bricks + ?)
+            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+        ''', (delta, delta, user_id, server_id, played_craft, opponent_craft))
+
 async def record_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False,
+                       source: str = "discord",
                        timestamp: str = None, player_points: int = None, player_point_type: str = None,
                        player_rank: str = None, player_group: str = None, opponent_points: int = None,
                        opponent_point_type: str = None, opponent_rank: str = None, opponent_group: str = None):
     """
-    Records a match result for a user.
+    Records a match result for a user in the new 3-table architecture.
 
     :param user_id: Discord user ID
     :param server_id: Discord server ID
@@ -214,26 +344,59 @@ async def record_match(user_id: str, server_id: str, played_craft: str, opponent
     :param opponent_craft: Craft played by the opponent
     :param win: True if win, False if loss
     :param brick: True if the match was a brick, False otherwise
-    :param timestamp: ISO format timestamp of the match (optional)
-    :param player_points: Player's points (optional)
-    :param player_point_type: Type of points (e.g., 'RP', 'MP') (optional)
-    :param player_rank: Player's rank (e.g., 'A1', 'Master') (optional)
-    :param player_group: Player's group (e.g., 'Topaz', 'Diamond') (optional)
-    :param opponent_points: Opponent's points (optional)
-    :param opponent_point_type: Opponent's point type (optional)
-    :param opponent_rank: Opponent's rank (optional)
-    :param opponent_group: Opponent's group (optional)
+    :param source: Match source - "discord" or "api" (default: "discord")
+    :param timestamp: ISO format timestamp of the match (optional, required for API)
+    :param player_points: Player's points (optional, API only)
+    :param player_point_type: Type of points (e.g., 'RP', 'MP') (optional, API only)
+    :param player_rank: Player's rank (e.g., 'A1', 'Master') (optional, API only)
+    :param player_group: Player's group (e.g., 'Topaz', 'Diamond') (optional, API only)
+    :param opponent_points: Opponent's points (optional, API only)
+    :param opponent_point_type: Opponent's point type (optional, API only)
+    :param opponent_rank: Opponent's rank (optional, API only)
+    :param opponent_group: Opponent's group (optional, API only)
+    :return: Match ID from the appropriate table
     """
     if played_craft not in CRAFTS or opponent_craft not in CRAFTS:
         raise ValueError("Invalid craft name.")
+
+    if source not in ("discord", "api"):
+        raise ValueError(f"Invalid source: {source}. Must be 'discord' or 'api'.")
+
     async with aiosqlite.connect('shadowverse_data.db') as conn:
-        # Update aggregated winrates table
-        # Ensure row exists
+        # NEW: 3-Table Architecture - Route to appropriate table based on source
+        if source == "discord":
+            # Insert into discord_matches (simple, no metadata)
+            cursor = await conn.execute('''
+                INSERT INTO discord_matches (
+                    user_id, server_id, played_craft, opponent_craft, win, brick
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, server_id, played_craft, opponent_craft, int(win), int(brick)))
+            match_id = cursor.lastrowid
+
+        elif source == "api":
+            # Insert into api_matches (detailed with metadata)
+            cursor = await conn.execute('''
+                INSERT INTO api_matches (
+                    user_id, server_id, played_craft, opponent_craft, win, brick,
+                    timestamp, player_points, player_point_type, player_rank, player_group,
+                    opponent_points, opponent_point_type, opponent_rank, opponent_group
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, server_id, played_craft, opponent_craft, int(win), int(brick),
+                  timestamp, player_points, player_point_type, player_rank, player_group,
+                  opponent_points, opponent_point_type, opponent_rank, opponent_group))
+            match_id = cursor.lastrowid
+
+        # Update combined_winrates table
+        await _update_combined_winrates(conn, user_id, server_id, played_craft, opponent_craft,
+                                        win, brick, source, increment=True)
+
+        # LEGACY: Also update old tables for backward compatibility during migration
+        # TODO: Remove after migration is complete and verified
         await conn.execute('''
             INSERT OR IGNORE INTO winrates (user_id, server_id, played_craft, opponent_craft, wins, losses, bricks)
             VALUES (?, ?, ?, ?, 0, 0, 0)
         ''', (user_id, server_id, played_craft, opponent_craft))
-        # Update win/loss/brick
+
         if win:
             await conn.execute('''
                 UPDATE winrates SET wins = wins + 1
@@ -244,13 +407,14 @@ async def record_match(user_id: str, server_id: str, played_craft: str, opponent
                 UPDATE winrates SET losses = losses + 1
                 WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
             ''', (user_id, server_id, played_craft, opponent_craft))
+
         if brick:
             await conn.execute('''
                 UPDATE winrates SET bricks = bricks + 1
                 WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
             ''', (user_id, server_id, played_craft, opponent_craft))
 
-        # Record detailed match history
+        # LEGACY: Also insert into old matches table
         await conn.execute('''
             INSERT INTO matches (
                 user_id, server_id, played_craft, opponent_craft, win, brick,
@@ -262,6 +426,7 @@ async def record_match(user_id: str, server_id: str, played_craft: str, opponent
               opponent_points, opponent_point_type, opponent_rank, opponent_group))
 
         await conn.commit()
+        return match_id
 
 def parse_sv_input(text):
     parts = text.strip().lower().split()
@@ -350,11 +515,13 @@ async def update_dashboard_message(member, channel):
 async def get_user_played_crafts(user_id, server_id):
     """
     Returns a list of crafts the user has recorded matches for (as played_craft).
+    Reads from combined_winrates table which aggregates both Discord and API matches.
     """
     async with aiosqlite.connect('shadowverse_data.db') as conn:
+        # NEW: 3-Table Architecture - Read from combined_winrates
         async with conn.execute('''
-            SELECT DISTINCT played_craft FROM winrates
-            WHERE user_id=? AND server_id=? AND (wins > 0 OR losses > 0)
+            SELECT DISTINCT played_craft FROM combined_winrates
+            WHERE user_id=? AND server_id=? AND (total_wins > 0 OR total_losses > 0)
         ''', (str(user_id), str(server_id))) as cursor:
             crafts = [row[0] async for row in cursor]
     return crafts
@@ -362,10 +529,12 @@ async def get_user_played_crafts(user_id, server_id):
 async def get_winrate(user_id, server_id, played_craft):
     """
     Returns a dict of win/loss/brick stats for the user's played_craft against each opponent craft.
+    Reads from combined_winrates table which aggregates both Discord and API matches.
     """
     async with aiosqlite.connect('shadowverse_data.db') as conn:
+        # NEW: 3-Table Architecture - Read from combined_winrates
         async with conn.execute('''
-            SELECT opponent_craft, wins, losses, bricks FROM winrates
+            SELECT opponent_craft, total_wins, total_losses, total_bricks FROM combined_winrates
             WHERE user_id=? AND server_id=? AND played_craft=?
         ''', (str(user_id), str(server_id), played_craft)) as cursor:
             results = {craft: {"wins": 0, "losses": 0, "bricks": 0} for craft in CRAFTS}
@@ -618,41 +787,234 @@ class CraftDashboardView(ui.View):
 
 async def remove_match(user_id: str, server_id: str, played_craft: str, opponent_craft: str, win: bool, brick: bool = False):
     """
-    Removes one win/loss/brick record for a user if it exists.
+    Removes one Discord match record for a user if it exists.
+    Only affects discord_matches table (NOT api_matches).
     Returns True if a record was removed, False otherwise.
+
+    This is used by Discord 'r' flag removal (e.g., "dragon forest w r").
     """
     if played_craft not in CRAFTS or opponent_craft not in CRAFTS:
         raise ValueError("Invalid craft name.")
+
     async with aiosqlite.connect('shadowverse_data.db') as conn:
+        # NEW: 3-Table Architecture - Find most recent Discord match
+        async with conn.execute('''
+            SELECT id, brick FROM discord_matches
+            WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=? AND win=?
+            ORDER BY id DESC LIMIT 1
+        ''', (user_id, server_id, played_craft, opponent_craft, int(win))) as cursor:
+            row = await cursor.fetchone()
+
+        if not row:
+            return False
+
+        match_id, match_brick = row
+
+        # Delete from discord_matches
+        await conn.execute('DELETE FROM discord_matches WHERE id=?', (match_id,))
+
+        # Update combined_winrates (decrement Discord stats)
+        await _update_combined_winrates(
+            conn, user_id, server_id, played_craft, opponent_craft,
+            win, bool(match_brick), source="discord", increment=False
+        )
+
+        # LEGACY: Also update old winrates table for backward compatibility
+        # TODO: Remove after migration is complete and verified
         async with conn.execute('''
             SELECT wins, losses, bricks FROM winrates
             WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
         ''', (user_id, server_id, played_craft, opponent_craft)) as cursor:
+            legacy_row = await cursor.fetchone()
+
+        if legacy_row:
+            wins, losses, bricks_count = legacy_row
+            if win and wins > 0:
+                await conn.execute('''
+                    UPDATE winrates SET wins = wins - 1
+                    WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+                ''', (user_id, server_id, played_craft, opponent_craft))
+            elif not win and losses > 0:
+                await conn.execute('''
+                    UPDATE winrates SET losses = losses - 1
+                    WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+                ''', (user_id, server_id, played_craft, opponent_craft))
+            if match_brick and bricks_count > 0:
+                await conn.execute('''
+                    UPDATE winrates SET bricks = bricks - 1
+                    WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
+                ''', (user_id, server_id, played_craft, opponent_craft))
+
+        await conn.commit()
+        return True
+
+async def remove_match_by_id(match_id: int, user_id: str):
+    """
+    Removes an API match by its ID and updates the combined_winrates table accordingly.
+    Only affects api_matches table (NOT discord_matches).
+    Only allows removal if the match belongs to the specified user (security check).
+
+    This is used by the API endpoint for removing matches via DELETE /api/shadowverse/match/{id}.
+
+    :param match_id: The ID of the match to remove
+    :param user_id: The Discord user ID (for ownership verification)
+    :return: Tuple (success: bool, message: str, match_data: dict or None)
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        # NEW: 3-Table Architecture - Query from api_matches only
+        async with conn.execute('''
+            SELECT user_id, server_id, played_craft, opponent_craft, win, brick,
+                   timestamp, player_points, player_point_type, player_rank, player_group,
+                   opponent_points, opponent_point_type, opponent_rank, opponent_group
+            FROM api_matches
+            WHERE id = ?
+        ''', (match_id,)) as cursor:
             row = await cursor.fetchone()
+
         if not row:
-            return False
-        wins, losses, bricks = row
-        updated = False
-        if win and wins > 0:
+            return False, "Match not found", None
+
+        (match_user_id, server_id, played_craft, opponent_craft, win, brick,
+         timestamp, player_points, player_point_type, player_rank, player_group,
+         opponent_points, opponent_point_type, opponent_rank, opponent_group) = row
+
+        # Security check: verify the match belongs to this user
+        if match_user_id != user_id:
+            return False, "You don't have permission to remove this match", None
+
+        # Delete from api_matches
+        await conn.execute('DELETE FROM api_matches WHERE id = ?', (match_id,))
+
+        # Update combined_winrates (decrement API stats)
+        await _update_combined_winrates(
+            conn, match_user_id, server_id, played_craft, opponent_craft,
+            bool(win), bool(brick), source="api", increment=False
+        )
+
+        # LEGACY: Also update old winrates table for backward compatibility
+        # TODO: Remove after migration is complete and verified
+        if win:
             await conn.execute('''
                 UPDATE winrates SET wins = wins - 1
-                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
-            ''', (user_id, server_id, played_craft, opponent_craft))
-            updated = True
-        elif not win and losses > 0:
+                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=? AND wins > 0
+            ''', (match_user_id, server_id, played_craft, opponent_craft))
+        else:
             await conn.execute('''
                 UPDATE winrates SET losses = losses - 1
-                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
-            ''', (user_id, server_id, played_craft, opponent_craft))
-            updated = True
-        if brick and bricks > 0:
+                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=? AND losses > 0
+            ''', (match_user_id, server_id, played_craft, opponent_craft))
+
+        if brick:
             await conn.execute('''
                 UPDATE winrates SET bricks = bricks - 1
-                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=?
-            ''', (user_id, server_id, played_craft, opponent_craft))
-            updated = True
+                WHERE user_id=? AND server_id=? AND played_craft=? AND opponent_craft=? AND bricks > 0
+            ''', (match_user_id, server_id, played_craft, opponent_craft))
+
         await conn.commit()
-        return updated
+
+        match_data = {
+            "id": match_id,
+            "played_craft": played_craft,
+            "opponent_craft": opponent_craft,
+            "win": bool(win),
+            "brick": bool(brick),
+            "timestamp": timestamp,
+            "player_points": player_points,
+            "player_point_type": player_point_type,
+            "player_rank": player_rank,
+            "player_group": player_group,
+            "opponent_points": opponent_points,
+            "opponent_point_type": opponent_point_type,
+            "opponent_rank": opponent_rank,
+            "opponent_group": opponent_group
+        }
+
+        return True, "Match removed successfully", match_data
+
+async def get_recent_matches(user_id: str, server_id: str, limit: int = 10):
+    """
+    Gets the most recent matches for a user from both Discord and API sources.
+    Merges results from discord_matches and api_matches tables.
+
+    :param user_id: Discord user ID
+    :param server_id: Discord server ID
+    :param limit: Maximum number of matches to return (default 10)
+    :return: List of match dictionaries with source indicator
+    """
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        # NEW: 3-Table Architecture - Query from both tables
+
+        # Get Discord matches (simple, no metadata)
+        async with conn.execute('''
+            SELECT id, played_craft, opponent_craft, win, brick, created_at
+            FROM discord_matches
+            WHERE user_id = ? AND server_id = ?
+        ''', (user_id, server_id)) as cursor:
+            discord_matches = []
+            async for row in cursor:
+                discord_matches.append({
+                    "id": row[0],
+                    "source": "discord",
+                    "played_craft": row[1],
+                    "opponent_craft": row[2],
+                    "win": bool(row[3]),
+                    "brick": bool(row[4]),
+                    "timestamp": None,
+                    "player": {
+                        "points": None,
+                        "point_type": None,
+                        "rank": None,
+                        "group": None
+                    },
+                    "opponent": {
+                        "points": None,
+                        "point_type": None,
+                        "rank": None,
+                        "group": None
+                    },
+                    "created_at": row[5]
+                })
+
+        # Get API matches (detailed with metadata)
+        async with conn.execute('''
+            SELECT id, played_craft, opponent_craft, win, brick, timestamp,
+                   player_points, player_point_type, player_rank, player_group,
+                   opponent_points, opponent_point_type, opponent_rank, opponent_group,
+                   created_at
+            FROM api_matches
+            WHERE user_id = ? AND server_id = ?
+        ''', (user_id, server_id)) as cursor:
+            api_matches = []
+            async for row in cursor:
+                api_matches.append({
+                    "id": row[0],
+                    "source": "api",
+                    "played_craft": row[1],
+                    "opponent_craft": row[2],
+                    "win": bool(row[3]),
+                    "brick": bool(row[4]),
+                    "timestamp": row[5],
+                    "player": {
+                        "points": row[6],
+                        "point_type": row[7],
+                        "rank": row[8],
+                        "group": row[9]
+                    },
+                    "opponent": {
+                        "points": row[10],
+                        "point_type": row[11],
+                        "rank": row[12],
+                        "group": row[13]
+                    },
+                    "created_at": row[14]
+                })
+
+        # Merge and sort by ID descending (most recent first)
+        all_matches = discord_matches + api_matches
+        all_matches.sort(key=lambda x: x['id'], reverse=True)
+
+        # Return up to limit matches
+        return all_matches[:limit]
 
 async def shadowverse_on_message(message):
     kanami_emoji = "<:KanamiHeart:1374409597628186624>"
@@ -720,7 +1082,7 @@ async def shadowverse_on_message(message):
                         if parsed:
                             played_craft, enemy_craft, win, brick, remove = parsed
                             try:
-                                await record_match(str(msg.author.id), str(message.guild.id), played_craft, enemy_craft, win, brick)
+                                await record_match(str(msg.author.id), str(message.guild.id), played_craft, enemy_craft, win, brick, source="discord")
                                 report_logged.append(f"[{message.guild.name}] {msg.author.display_name}: {msg.content} (logged)")
                             except Exception as e:
                                 report_skipped.append(f"[{message.guild.name}] {msg.author.display_name}: {msg.content} (record error: {e})")
@@ -850,7 +1212,7 @@ async def shadowverse_on_message(message):
                             await set_dashboard_message_id(server_id, f"streak_{user_id}", streak_msg_id)
                     # Continue with normal winrate logging
                     if not remove:
-                        await record_match(user_id, server_id, played_craft, enemy_craft, win, brick)
+                        await record_match(user_id, server_id, played_craft, enemy_craft, win, brick, source="discord")
                         LOSS_MESSAGES = {
                             "Forestcraft": "SVO Moment 😔",
                             "Swordcraft": "Zirconia on curve be like",

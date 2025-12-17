@@ -11,6 +11,8 @@ from shadowverse_handler import (
     record_match,
     update_dashboard_message,
     get_sv_channel_id,
+    remove_match_by_id,
+    get_recent_matches,
     CRAFTS
 )
 from global_config import DEV_SERVER_ID
@@ -289,8 +291,9 @@ async def handle_log_match(request):
         
         # Log the match to database
         api_logger.info(f"Logging match: user={user_id}, server={server_id} (DEV), played={played_craft}, opponent={opponent_craft}, win={win}, brick={brick}")
-        await record_match(
+        match_id = await record_match(
             user_id, server_id, played_craft, opponent_craft, win, brick,
+            source="api",
             timestamp=timestamp,
             player_points=player_points,
             player_point_type=player_point_type,
@@ -351,6 +354,7 @@ async def handle_log_match(request):
         response_data = {
             "success": True,
             "message": "Match logged successfully and dashboard updated",
+            "match_id": match_id,
             "details": {
                 "user_id": user_id,
                 "server_id": server_id,
@@ -428,17 +432,183 @@ async def handle_validate_key(request):
             "error": error_msg
         }, status=401)
 
+async def handle_remove_match(request):
+    """
+    DELETE /api/shadowverse/match/{match_id}
+
+    Removes a match by its ID. Only the user who created the match can remove it.
+
+    Headers:
+        X-API-Key: your_secret_key
+
+    Path Parameters:
+        match_id: The ID of the match to remove
+
+    Response (JSON):
+    {
+        "success": true,
+        "message": "Match removed successfully",
+        "match": {
+            "id": 123,
+            "played_craft": "Dragoncraft",
+            "opponent_craft": "Forestcraft",
+            "win": true,
+            "brick": false
+        }
+    }
+    """
+    # Validate API key
+    is_valid, error_msg, api_key_name = validate_api_key(request)
+    if not is_valid:
+        api_logger.warning(f"Unauthorized match removal attempt from {request.remote}")
+        return web.json_response(
+            {"success": False, "error": error_msg},
+            status=401
+        )
+
+    # Get user_id from API key mapping
+    user_id = get_user_id_from_api_key(api_key_name)
+    if not user_id:
+        return web.json_response(
+            {"success": False, "error": "API key is not mapped to a user_id"},
+            status=400
+        )
+
+    # Get match_id from path
+    match_id_str = request.match_info.get('match_id')
+    try:
+        match_id = int(match_id_str)
+    except (ValueError, TypeError):
+        return web.json_response(
+            {"success": False, "error": "Invalid match_id. Must be an integer."},
+            status=400
+        )
+
+    # Remove the match
+    try:
+        success, message, match_data = await remove_match_by_id(match_id, user_id)
+
+        if success:
+            # Get the guild and channel for dashboard update
+            if bot_instance:
+                guild = bot_instance.get_guild(DEV_SERVER_ID)
+                if guild:
+                    member = guild.get_member(int(user_id))
+                    if member:
+                        sv_channel_id = await get_sv_channel_id(str(DEV_SERVER_ID))
+                        if sv_channel_id:
+                            channel = guild.get_channel(sv_channel_id)
+                            if channel:
+                                await update_dashboard_message(member, channel)
+                                api_logger.info(f"Dashboard updated after match removal for user {user_id}")
+
+            api_logger.info(f"Match {match_id} removed by user {user_id}")
+            return web.json_response({
+                "success": True,
+                "message": message,
+                "match": match_data
+            }, status=200)
+        else:
+            api_logger.warning(f"Failed to remove match {match_id} for user {user_id}: {message}")
+            return web.json_response({
+                "success": False,
+                "error": message
+            }, status=404 if "not found" in message.lower() else 403)
+
+    except Exception as e:
+        api_logger.error(f"Error removing match {match_id}: {e}", exc_info=True)
+        return web.json_response(
+            {"success": False, "error": f"Internal server error: {str(e)}"},
+            status=500
+        )
+
+async def handle_list_matches(request):
+    """
+    GET /api/shadowverse/matches
+
+    Lists recent matches for the authenticated user.
+
+    Headers:
+        X-API-Key: your_secret_key
+
+    Query Parameters:
+        limit: Maximum number of matches to return (default: 10, max: 50)
+
+    Response (JSON):
+    {
+        "success": true,
+        "matches": [
+            {
+                "id": 123,
+                "played_craft": "Dragoncraft",
+                "opponent_craft": "Forestcraft",
+                "win": true,
+                "brick": false,
+                "timestamp": "2025-12-16T23:22:20.266767",
+                "player": {"points": 45000, "point_type": "RP", "rank": "A1", "group": "Topaz"},
+                "opponent": {"points": 48000, "point_type": "RP", "rank": "A2", "group": "Topaz"},
+                "created_at": "2025-12-16 23:22:20"
+            },
+            ...
+        ]
+    }
+    """
+    # Validate API key
+    is_valid, error_msg, api_key_name = validate_api_key(request)
+    if not is_valid:
+        api_logger.warning(f"Unauthorized match list request from {request.remote}")
+        return web.json_response(
+            {"success": False, "error": error_msg},
+            status=401
+        )
+
+    # Get user_id from API key mapping
+    user_id = get_user_id_from_api_key(api_key_name)
+    if not user_id:
+        return web.json_response(
+            {"success": False, "error": "API key is not mapped to a user_id"},
+            status=400
+        )
+
+    # Get limit from query parameters
+    limit_str = request.rel_url.query.get('limit', '10')
+    try:
+        limit = int(limit_str)
+        limit = max(1, min(limit, 50))  # Clamp between 1 and 50
+    except ValueError:
+        limit = 10
+
+    # Get recent matches
+    try:
+        matches = await get_recent_matches(user_id, str(DEV_SERVER_ID), limit)
+        api_logger.info(f"Returning {len(matches)} matches for user {user_id}")
+
+        return web.json_response({
+            "success": True,
+            "matches": matches,
+            "count": len(matches)
+        }, status=200)
+
+    except Exception as e:
+        api_logger.error(f"Error listing matches for user {user_id}: {e}", exc_info=True)
+        return web.json_response(
+            {"success": False, "error": f"Internal server error: {str(e)}"},
+            status=500
+        )
+
 def create_app():
     """
     Creates and configures the aiohttp web application.
     """
     app = web.Application()
-    
+
     # Add routes
     app.router.add_post('/api/shadowverse/log_match', handle_log_match)
+    app.router.add_delete('/api/shadowverse/match/{match_id}', handle_remove_match)
+    app.router.add_get('/api/shadowverse/matches', handle_list_matches)
     app.router.add_get('/api/health', handle_health_check)
     app.router.add_get('/api/validate_key', handle_validate_key)
-    
+
     return app
 
 async def start_api_server(host='0.0.0.0', port=8080):
@@ -457,9 +627,11 @@ async def start_api_server(host='0.0.0.0', port=8080):
     
     api_logger.info(f"API Server started on http://{host}:{port}")
     api_logger.info(f"Endpoints available:")
-    api_logger.info(f"  POST http://{host}:{port}/api/shadowverse/log_match")
-    api_logger.info(f"  GET  http://{host}:{port}/api/health")
-    api_logger.info(f"  GET  http://{host}:{port}/api/validate_key")
+    api_logger.info(f"  POST   http://{host}:{port}/api/shadowverse/log_match")
+    api_logger.info(f"  DELETE http://{host}:{port}/api/shadowverse/match/{{match_id}}")
+    api_logger.info(f"  GET    http://{host}:{port}/api/shadowverse/matches")
+    api_logger.info(f"  GET    http://{host}:{port}/api/health")
+    api_logger.info(f"  GET    http://{host}:{port}/api/validate_key")
     api_logger.info(f"API keys loaded from {API_KEYS_FILE}")
     
     return runner
