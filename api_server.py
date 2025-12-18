@@ -40,6 +40,7 @@ USER_DESCRIPTION_TO_ID = {
     "Narisurii": "680653908259110914",  # Owner
     "Alfabem": "264758014198808577",
     "Naito": "443416461457883136",
+    "SteveGHShadow": "220457675475910656"
 }
 
 def load_api_keys():
