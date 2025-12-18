@@ -40,6 +40,7 @@ USER_DESCRIPTION_TO_ID = {
     "Narisurii": "0",  # Owner
     "Alfabem": "0",
     "Naito": "0",
+    "SteveGHShadow": "0"
 }
 
 def load_api_keys():
