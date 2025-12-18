@@ -7,6 +7,8 @@ from aiohttp import web
 import aiosqlite
 import json
 import os
+import asyncio
+import discord
 from shadowverse_handler import (
     record_match,
     update_dashboard_message,
@@ -24,6 +26,10 @@ api_logger.setLevel(logging.INFO)
 
 # Bot instance will be set by main.py to avoid circular imports
 bot_instance = None
+
+# Track active API match notifications (temporary messages that auto-delete after 30s)
+# Format: {user_id: {"message": discord.Message, "count": int, "timer": asyncio.Task}}
+active_api_notifications = {}
 
 # Load API keys from environment or config file
 API_KEYS_FILE = "api_keys.json"
@@ -90,6 +96,87 @@ def validate_api_key(request):
         return False, "Invalid API key.", None
 
     return True, None, api_key
+
+async def delete_notification_after_delay(user_id, delay_seconds=30):
+    """
+    Waits for the specified delay, then deletes the notification message
+    and removes it from the active_api_notifications dict.
+    """
+    await asyncio.sleep(delay_seconds)
+
+    # Check if notification still exists (might have been replaced)
+    if user_id in active_api_notifications:
+        notification_data = active_api_notifications[user_id]
+        message = notification_data["message"]
+
+        try:
+            await message.delete()
+            api_logger.info(f"Deleted API notification for user {user_id} after {delay_seconds}s")
+        except discord.NotFound:
+            api_logger.debug(f"Notification message for user {user_id} already deleted")
+        except Exception as e:
+            api_logger.error(f"Failed to delete notification for user {user_id}: {e}")
+
+        # Remove from tracking dict
+        del active_api_notifications[user_id]
+
+async def send_or_update_api_notification(channel, user_id, bot_name):
+    """
+    Sends a new notification or updates an existing one for API match logging.
+
+    - First match: Creates new message "Kanami has received a match from @User"
+    - Subsequent matches: Updates message to show count "Kanami has received 3 matches from @User"
+    - Message auto-deletes after 30 seconds of no new matches
+    """
+    if user_id in active_api_notifications:
+        # Update existing notification
+        notification_data = active_api_notifications[user_id]
+        notification_data["count"] += 1
+        count = notification_data["count"]
+        message = notification_data["message"]
+
+        # Cancel the old timer
+        if notification_data["timer"] and not notification_data["timer"].done():
+            notification_data["timer"].cancel()
+
+        # Update message content
+        match_word = "match" if count == 1 else "matches"
+        new_content = f"{bot_name} has received **{count} {match_word}** from <@{user_id}>"
+
+        try:
+            await message.edit(content=new_content)
+            api_logger.info(f"Updated API notification for user {user_id} (count: {count})")
+        except discord.NotFound:
+            api_logger.warning(f"Notification message for user {user_id} was deleted, creating new one")
+            # Message was deleted, create new one
+            del active_api_notifications[user_id]
+            await send_or_update_api_notification(channel, user_id, bot_name)
+            return
+        except Exception as e:
+            api_logger.error(f"Failed to update notification for user {user_id}: {e}")
+            return
+
+        # Start new timer
+        notification_data["timer"] = asyncio.create_task(delete_notification_after_delay(user_id, 30))
+    else:
+        # Send new notification (first match)
+        content = f"{bot_name} has received a match from <@{user_id}>"
+
+        try:
+            # Use allowed_mentions to make it a silent ping
+            allowed_mentions = discord.AllowedMentions(users=False)
+            message = await channel.send(content, allowed_mentions=allowed_mentions)
+            api_logger.info(f"Sent new API notification for user {user_id}")
+
+            # Track notification
+            timer = asyncio.create_task(delete_notification_after_delay(user_id, 30))
+            active_api_notifications[user_id] = {
+                "message": message,
+                "count": 1,
+                "timer": timer
+            }
+        except Exception as e:
+            api_logger.error(f"Failed to send notification for user {user_id}: {e}")
 
 async def handle_log_match(request):
     """
@@ -349,7 +436,11 @@ async def handle_log_match(request):
         # Update the dashboard
         api_logger.info(f"Updating dashboard for user {user_id}")
         await update_dashboard_message(member, channel)
-        
+
+        # Send or update API match notification
+        bot_name = bot_instance.user.name if bot_instance.user else "Kanami"
+        await send_or_update_api_notification(channel, user_id, bot_name)
+
         # Return success response
         response_data = {
             "success": True,
@@ -376,6 +467,331 @@ async def handle_log_match(request):
         )
     except Exception as e:
         api_logger.error(f"Unexpected error in log_match: {e}", exc_info=True)
+        return web.json_response(
+            {"success": False, "error": "Internal server error. Check bot logs."},
+            status=500
+        )
+
+async def handle_log_batch(request):
+    """
+    POST /api/shadowverse/log_batch
+
+    Logs multiple Shadowverse matches in a single request.
+    Useful for logging a batch of matches after a play session.
+
+    Request Body:
+    {
+        "api_key": "your_secret_key",  // Optional if using X-API-Key header
+        "user_id": "123456789012345678",  // Optional if API key has user mapping
+        "matches": [
+            {
+                // Same format as single match (legacy or detailed)
+                "played_craft": "Dragoncraft",
+                "opponent_craft": "Forestcraft",
+                "win": true,
+                "brick": false
+            },
+            {
+                // Can mix legacy and detailed formats in same batch
+                "timestamp": "2025-12-18T10:30:00Z",
+                "win": false,
+                "brick": true,
+                "player": {
+                    "craft": "Swordcraft",
+                    "points": 45000,
+                    "point_type": "RP",
+                    "rank": "A1",
+                    "group": "Topaz"
+                },
+                "opponent": {
+                    "craft": "Runecraft",
+                    "points": 46000,
+                    "point_type": "RP"
+                }
+            }
+        ]
+    }
+
+    Response:
+    {
+        "success": true,
+        "message": "5 matches logged successfully",
+        "count": 5,
+        "match_ids": [123, 124, 125, 126, 127]
+    }
+    """
+    try:
+        # Validate API key
+        is_valid, error_msg, api_key_name = validate_api_key(request)
+        if not is_valid:
+            api_logger.warning(f"Batch: {error_msg}")
+            return web.json_response(
+                {"success": False, "error": error_msg},
+                status=401
+            )
+
+        # Parse request body
+        try:
+            data = await request.json()
+        except Exception as e:
+            return web.json_response(
+                {"success": False, "error": f"Invalid JSON: {str(e)}"},
+                status=400
+            )
+
+        # Get matches array
+        matches = data.get('matches', [])
+        if not matches:
+            return web.json_response(
+                {"success": False, "error": "No matches provided. Include 'matches' array in request body."},
+                status=400
+            )
+
+        if not isinstance(matches, list):
+            return web.json_response(
+                {"success": False, "error": "'matches' must be an array."},
+                status=400
+            )
+
+        if len(matches) > 100:
+            return web.json_response(
+                {"success": False, "error": "Too many matches. Maximum 100 per batch."},
+                status=400
+            )
+
+        # Get user_id (from request or API key mapping)
+        user_id = data.get('user_id')
+        if not user_id:
+            user_id = get_user_id_from_api_key(api_key_name)
+
+        if not user_id:
+            return web.json_response(
+                {"success": False, "error": "user_id required (provide in body or use API key with user mapping)"},
+                status=400
+            )
+
+        # Server ID is always DEV_SERVER_ID
+        server_id = str(DEV_SERVER_ID)
+
+        api_logger.info(f"Batch request from user {user_id}: {len(matches)} matches")
+
+        # Validate all matches first before recording any
+        validated_matches = []
+        for idx, match in enumerate(matches):
+            # Detect format (legacy vs detailed)
+            has_legacy_format = 'played_craft' in match and 'opponent_craft' in match
+            has_detailed_format = 'player' in match and 'opponent' in match
+
+            if not has_legacy_format and not has_detailed_format:
+                return web.json_response(
+                    {"success": False, "error": f"Match {idx}: Must have either (played_craft, opponent_craft) or (player, opponent)"},
+                    status=400
+                )
+
+            # Parse based on format
+            if has_detailed_format:
+                # Detailed format
+                player = match.get('player', {})
+                opponent = match.get('opponent', {})
+
+                played_craft = player.get('craft')
+                opponent_craft = opponent.get('craft')
+
+                if not played_craft or not opponent_craft:
+                    return web.json_response(
+                        {"success": False, "error": f"Match {idx}: player.craft and opponent.craft are required"},
+                        status=400
+                    )
+
+                # Optional metadata
+                timestamp = match.get('timestamp')
+                player_points = player.get('points')
+                player_point_type = player.get('point_type')
+                player_rank = player.get('rank')
+                player_group = player.get('group')
+                opponent_points = opponent.get('points')
+                opponent_point_type = opponent.get('point_type')
+                opponent_rank = opponent.get('rank')
+                opponent_group = opponent.get('group')
+            else:
+                # Legacy format
+                played_craft = match.get('played_craft')
+                opponent_craft = match.get('opponent_craft')
+                timestamp = None
+                player_points = None
+                player_point_type = None
+                player_rank = None
+                player_group = None
+                opponent_points = None
+                opponent_point_type = None
+                opponent_rank = None
+                opponent_group = None
+
+            # Validate required fields
+            win = match.get('win')
+            if win is None:
+                return web.json_response(
+                    {"success": False, "error": f"Match {idx}: 'win' field is required"},
+                    status=400
+                )
+
+            brick = match.get('brick', False)
+
+            # Validate crafts
+            if played_craft not in CRAFTS:
+                return web.json_response(
+                    {"success": False, "error": f"Match {idx}: Invalid played_craft '{played_craft}'. Must be one of: {', '.join(CRAFTS)}"},
+                    status=400
+                )
+
+            if opponent_craft not in CRAFTS:
+                return web.json_response(
+                    {"success": False, "error": f"Match {idx}: Invalid opponent_craft '{opponent_craft}'. Must be one of: {', '.join(CRAFTS)}"},
+                    status=400
+                )
+
+            # Add to validated list
+            validated_matches.append({
+                'played_craft': played_craft,
+                'opponent_craft': opponent_craft,
+                'win': win,
+                'brick': brick,
+                'timestamp': timestamp,
+                'player_points': player_points,
+                'player_point_type': player_point_type,
+                'player_rank': player_rank,
+                'player_group': player_group,
+                'opponent_points': opponent_points,
+                'opponent_point_type': opponent_point_type,
+                'opponent_rank': opponent_rank,
+                'opponent_group': opponent_group
+            })
+
+        # All matches validated, now record them
+        match_ids = []
+        for match_data in validated_matches:
+            match_id = await record_match(
+                user_id, server_id,
+                match_data['played_craft'],
+                match_data['opponent_craft'],
+                match_data['win'],
+                match_data['brick'],
+                source="api",
+                timestamp=match_data['timestamp'],
+                player_points=match_data['player_points'],
+                player_point_type=match_data['player_point_type'],
+                player_rank=match_data['player_rank'],
+                player_group=match_data['player_group'],
+                opponent_points=match_data['opponent_points'],
+                opponent_point_type=match_data['opponent_point_type'],
+                opponent_rank=match_data['opponent_rank'],
+                opponent_group=match_data['opponent_group']
+            )
+            match_ids.append(match_id)
+
+        # Get guild, channel, and member for dashboard update
+        if not bot_instance:
+            api_logger.error("Bot instance not available")
+            return web.json_response(
+                {"success": False, "error": "Bot not initialized"},
+                status=503
+            )
+
+        guild = bot_instance.get_guild(DEV_SERVER_ID)
+        if not guild:
+            api_logger.error(f"Development server (ID: {DEV_SERVER_ID}) not found")
+            return web.json_response(
+                {"success": False, "error": "Development server not found"},
+                status=404
+            )
+
+        member = guild.get_member(int(user_id))
+        if not member:
+            api_logger.error(f"Member {user_id} not found in development server")
+            return web.json_response(
+                {"success": False, "error": f"User {user_id} not found in development server"},
+                status=404
+            )
+
+        sv_channel_id = await get_sv_channel_id(server_id)
+        if not sv_channel_id:
+            api_logger.error(f"No Shadowverse channel configured for development server")
+            return web.json_response(
+                {"success": False, "error": "No Shadowverse channel configured for development server"},
+                status=404
+            )
+
+        channel = guild.get_channel(sv_channel_id)
+        if not channel:
+            api_logger.error(f"Shadowverse channel {sv_channel_id} not found in development server")
+            return web.json_response(
+                {"success": False, "error": "Shadowverse channel not found"},
+                status=404
+            )
+
+        # Update dashboard once
+        api_logger.info(f"Updating dashboard for user {user_id} (batch: {len(match_ids)} matches)")
+        await update_dashboard_message(member, channel)
+
+        # Send/update notification once with total count
+        bot_name = bot_instance.user.name if bot_instance.user else "Kanami"
+
+        # Update notification count by the batch size
+        if user_id in active_api_notifications:
+            # Increment existing notification by batch size
+            notification_data = active_api_notifications[user_id]
+            notification_data["count"] += len(match_ids)
+            count = notification_data["count"]
+            message = notification_data["message"]
+
+            # Cancel old timer
+            if notification_data["timer"] and not notification_data["timer"].done():
+                notification_data["timer"].cancel()
+
+            # Update message
+            match_word = "match" if count == 1 else "matches"
+            new_content = f"{bot_name} has received **{count} {match_word}** from <@{user_id}>"
+
+            try:
+                await message.edit(content=new_content)
+                api_logger.info(f"Updated API notification for user {user_id} (batch: +{len(match_ids)}, total: {count})")
+            except discord.NotFound:
+                # Message was deleted, create new one
+                del active_api_notifications[user_id]
+                await send_or_update_api_notification(channel, user_id, bot_name)
+                for _ in range(len(match_ids) - 1):  # -1 because first one already sent
+                    await send_or_update_api_notification(channel, user_id, bot_name)
+            except Exception as e:
+                api_logger.error(f"Failed to update notification for user {user_id}: {e}")
+
+            # Start new timer
+            notification_data["timer"] = asyncio.create_task(delete_notification_after_delay(user_id, 30))
+        else:
+            # Send new notification with batch count
+            for _ in range(len(match_ids)):
+                await send_or_update_api_notification(channel, user_id, bot_name)
+
+        # Return success response
+        count = len(match_ids)
+        match_word = "match" if count == 1 else "matches"
+        response_data = {
+            "success": True,
+            "message": f"{count} {match_word} logged successfully and dashboard updated",
+            "count": count,
+            "match_ids": match_ids
+        }
+
+        api_logger.info(f"Successfully logged {count} matches for user {user_id}")
+        return web.json_response(response_data, status=200)
+
+    except ValueError as e:
+        api_logger.error(f"ValueError in log_batch: {e}")
+        return web.json_response(
+            {"success": False, "error": str(e)},
+            status=400
+        )
+    except Exception as e:
+        api_logger.error(f"Unexpected error in log_batch: {e}", exc_info=True)
         return web.json_response(
             {"success": False, "error": "Internal server error. Check bot logs."},
             status=500
@@ -604,6 +1020,7 @@ def create_app():
 
     # Add routes
     app.router.add_post('/api/shadowverse/log_match', handle_log_match)
+    app.router.add_post('/api/shadowverse/log_batch', handle_log_batch)
     app.router.add_delete('/api/shadowverse/match/{match_id}', handle_remove_match)
     app.router.add_get('/api/shadowverse/matches', handle_list_matches)
     app.router.add_get('/api/health', handle_health_check)
