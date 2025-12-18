@@ -22,8 +22,11 @@ from datetime import datetime
 # ============================================================
 
 CONFIG = {
-    # API Server URL (change to your ngrok/Cloudflare URL if needed)
-    "api_url": "http://localhost:8080",
+    # API Server URL
+    # - Local testing: http://localhost:8080
+    # - Cloudflare Tunnel: https://your-subdomain.yourdomain.com
+    # - ngrok: https://xxxxx.ngrok.io
+    "api_url": "https://kanami.khoi-thai.com",  # Change to your external URL
 
     # Your API key from api_keys.json
     # If using key1/key2/key3, user_id will be automatically mapped
@@ -210,8 +213,7 @@ class ShadowverseClient:
 # ============================================================
 
 CRAFTS = [
-    "Forestcraft", "Swordcraft", "Runecraft", "Dragoncraft",
-    "Shadowcraft", "Bloodcraft", "Havencraft", "Portalcraft", "Abysscraft"
+    "Forestcraft", "Swordcraft", "Runecraft", "Dragoncraft", "Havencraft", "Portalcraft", "Abysscraft"
 ]
 
 def get_craft_input(prompt):

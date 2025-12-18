@@ -30,7 +30,22 @@ This bot includes a REST API that allows external applications to log Shadowvers
    ```
 
 4. **Setup Cloudflare Tunnel** (for external access):
-   - See [SYSTEMD_SERVICES.md](SYSTEMD_SERVICES.md) for tunnel setup
+
+   For external access, set up a Cloudflare Tunnel pointing to `localhost:8080`.
+
+   **Working Example**: `https://kanami.yourdomain.com` → `http://localhost:8080`
+
+   **Setup Instructions**: See [docs/CLOUDFLARE_SETUP.md](docs/CLOUDFLARE_SETUP.md) for complete tunnel configuration.
+
+   **Client Configuration**:
+   ```python
+   CONFIG = {
+       "api_url": "https://kanami.yourdomain.com",  # Your cloudflare domain
+       "api_key": "your-api-key"
+   }
+   ```
+
+   **Note**: You can use any subdomain (api.domain.com, kanami.domain.com, etc.) - just ensure cloudflared config.yml matches your chosen hostname.
 
 ### Configuration
 
