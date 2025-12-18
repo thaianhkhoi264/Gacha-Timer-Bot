@@ -15,7 +15,7 @@ Configuration:
 import requests
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ============================================================
 # CONFIGURATION
@@ -118,7 +118,7 @@ class ShadowverseClient:
             (success, response_data)
         """
         data = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "win": win,
             "brick": brick,
             "player": {"craft": played_craft},
@@ -149,6 +149,39 @@ class ShadowverseClient:
             data["opponent"]["group"] = opponent_group
 
         return self._make_request("/api/shadowverse/log_match", data)
+
+    def log_batch(self, matches):
+        """
+        Logs multiple matches in a single request (batch logging).
+
+        Args:
+            matches (list): List of match dictionaries. Each match can use either format:
+                - Legacy format: {"played_craft": "...", "opponent_craft": "...", "win": bool, "brick": bool}
+                - Detailed format: {"timestamp": "...", "win": bool, "brick": bool, "player": {...}, "opponent": {...}}
+
+        Returns:
+            (success, response_data)
+
+        Example:
+            matches = [
+                {"played_craft": "Dragoncraft", "opponent_craft": "Forestcraft", "win": True, "brick": False},
+                {"played_craft": "Swordcraft", "opponent_craft": "Runecraft", "win": False, "brick": True},
+                {
+                    "timestamp": "2025-12-18T10:30:00Z",
+                    "win": True,
+                    "brick": False,
+                    "player": {"craft": "Havencraft", "points": 45000, "rank": "A1"},
+                    "opponent": {"craft": "Portalcraft", "points": 46000}
+                }
+            ]
+            success, response = client.log_batch(matches)
+        """
+        data = {"matches": matches}
+
+        if self.user_id:
+            data["user_id"] = self.user_id
+
+        return self._make_request("/api/shadowverse/log_batch", data)
 
     def check_health(self):
         """Checks if the API server is running."""
@@ -411,6 +444,28 @@ def example_usage():
             print(f"  ID {match['id']}: {match['played_craft']} vs {match['opponent_craft']} - {result}{brick_status}")
     else:
         print(f"Error: {response.get('error')}")
+    print()
+
+    # Example 5: Batch match logging
+    print("Example 5: Batch logging (multiple matches at once)")
+    batch_matches = [
+        {"played_craft": "Dragoncraft", "opponent_craft": "Forestcraft", "win": True, "brick": False},
+        {"played_craft": "Dragoncraft", "opponent_craft": "Swordcraft", "win": True, "brick": False},
+        {"played_craft": "Dragoncraft", "opponent_craft": "Runecraft", "win": False, "brick": True},
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "win": True,
+            "brick": False,
+            "player": {"craft": "Dragoncraft", "points": 45500, "rank": "A1"},
+            "opponent": {"craft": "Havencraft", "points": 44000}
+        }
+    ]
+    success, response = client.log_batch(batch_matches)
+    print(f"Success: {success}")
+    print(f"Response: {response}")
+    if success:
+        print(f"Logged {response.get('count')} matches")
+        print(f"Match IDs: {response.get('match_ids')}")
     print()
 
 # ============================================================
