@@ -7,6 +7,16 @@ import json
 import discord
 import io
 import logging
+import os
+from io import BytesIO
+
+# Try to import PIL for image generation
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    logging.warning("PIL not available, dashboard will use embeds")
 
 CRAFTS = [
     "Forestcraft",
@@ -38,6 +48,369 @@ CRAFT_ALIASES = {
     "haven": "Havencraft", "h": "Havencraft",
     "portal": "Portalcraft", "p": "Portalcraft"
 }
+
+# Color specifications for image generation
+DASHBOARD_COLORS = {
+    "bg_top": (26, 95, 122),        # #1a5f7a - Cyan top
+    "bg_bottom": (13, 47, 63),      # #0d2f3f - Dark blue bottom
+    "gold": (212, 175, 55),         # #d4af37 - Gold border/dividers
+    "white": (255, 255, 255),       # #ffffff - Text
+    "green": (0, 255, 0),           # #00ff00 - Win count
+    "red": (255, 68, 68),           # #ff4444 - Loss count
+    "bar_red": (255, 68, 68),       # #ff4444 - 0-45%
+    "bar_yellow": (255, 170, 0),    # #ffaa00 - 45-55%
+    "bar_green": (0, 255, 0),       # #00ff00 - 55-100%
+}
+
+# Global icon cache for image generation
+_icon_cache = None
+
+class IconCache:
+    """Cache for loaded and resized icons to improve performance."""
+
+    def __init__(self):
+        self.cache = {}
+
+    def get_class_icon(self, craft_name, size=(50, 56)):
+        """Load and resize a class icon."""
+        key = f"class_{craft_name}_{size}"
+        if key not in self.cache:
+            craft_short = craft_name.lower().replace("craft", "")
+            filename = f"class_{craft_short}.png"
+            path = os.path.join("images", "Class", filename)
+
+            try:
+                img = Image.open(path).convert("RGBA")
+                img = img.resize(size, Image.Resampling.LANCZOS)
+                self.cache[key] = img
+            except Exception as e:
+                logging.warning(f"Failed to load icon {path}: {e}")
+                img = Image.new("RGBA", size, (100, 100, 100, 255))
+                self.cache[key] = img
+
+        return self.cache[key]
+
+    def get_brick_icon(self, size=(24, 24)):
+        """Load and resize the brick icon."""
+        key = f"brick_{size}"
+        if key not in self.cache:
+            path = os.path.join("images", "golden_brick.png")
+
+            try:
+                img = Image.open(path).convert("RGBA")
+                img = img.resize(size, Image.Resampling.LANCZOS)
+                self.cache[key] = img
+            except Exception as e:
+                logging.warning(f"Failed to load brick icon {path}: {e}")
+                img = Image.new("RGBA", size, (255, 215, 0, 255))
+                self.cache[key] = img
+
+        return self.cache[key]
+
+
+def load_dashboard_font(size, bold=False):
+    """Load Noto Sans font with fallback to system fonts."""
+    if not PIL_AVAILABLE:
+        return None
+
+    font_name = "NotoSans-VariableFont_wdth,wght.ttf"
+    font_path = os.path.join("fonts", font_name)
+
+    try:
+        return ImageFont.truetype(font_path, size)
+    except Exception:
+        system_fonts = [
+            "C:\\Windows\\Fonts\\arial.ttf",
+            "C:\\Windows\\Fonts\\arialbd.ttf" if bold else "C:\\Windows\\Fonts\\arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ]
+
+        for system_font in system_fonts:
+            try:
+                return ImageFont.truetype(system_font, size)
+            except Exception:
+                continue
+
+        logging.warning("Could not load any scalable font, text will be small")
+        return ImageFont.load_default()
+
+
+def create_gradient(width, height, color_top, color_bottom):
+    """Create a vertical gradient background."""
+    base = Image.new('RGB', (width, height), color_top)
+    draw = ImageDraw.Draw(base)
+
+    for y in range(height):
+        ratio = y / height
+        r = int(color_top[0] * (1 - ratio) + color_bottom[0] * ratio)
+        g = int(color_top[1] * (1 - ratio) + color_bottom[1] * ratio)
+        b = int(color_top[2] * (1 - ratio) + color_bottom[2] * ratio)
+        draw.line([(0, y), (width, y)], fill=(r, g, b))
+
+    return base
+
+
+def draw_octagonal_border(draw, width, height, inset, corner_cut, color, thickness):
+    """Draw an octagonal border with cut corners."""
+    points = [
+        (inset + corner_cut, inset),
+        (width - inset - corner_cut, inset),
+        (width - inset, inset + corner_cut),
+        (width - inset, height - inset - corner_cut),
+        (width - inset - corner_cut, height - inset),
+        (inset + corner_cut, height - inset),
+        (inset, height - inset - corner_cut),
+        (inset, inset + corner_cut),
+    ]
+
+    for i in range(len(points)):
+        start = points[i]
+        end = points[(i + 1) % len(points)]
+        draw.line([start, end], fill=color, width=thickness)
+
+
+def add_stroked_icon(base_img, icon, x, y, outer_black=3, gold=3, inner_black=3):
+    """Add a class icon with a triple-layer stroke/outline effect following the icon's shape."""
+    icon_w, icon_h = icon.size
+
+    total_stroke = outer_black + gold + inner_black
+    padding = total_stroke + 2
+    stroked_w = icon_w + padding * 2
+    stroked_h = icon_h + padding * 2
+
+    stroked = Image.new('RGBA', (stroked_w, stroked_h), (0, 0, 0, 0))
+
+    def get_offsets(radius):
+        offsets = []
+        for dx in range(-radius, radius + 1):
+            for dy in range(-radius, radius + 1):
+                if dx*dx + dy*dy <= radius*radius:
+                    offsets.append((dx, dy))
+        return offsets
+
+    alpha = icon.split()[3]
+
+    # Layer 1: Outer black stroke
+    outer_offsets = get_offsets(total_stroke)
+    for dx, dy in outer_offsets:
+        black_icon = Image.new('RGBA', (icon_w, icon_h), (0, 0, 0, 255))
+        black_icon.putalpha(alpha)
+        stroked.paste(black_icon, (padding + dx, padding + dy), black_icon)
+
+    # Layer 2: Gold stroke
+    gold_offsets = get_offsets(gold + inner_black)
+    for dx, dy in gold_offsets:
+        gold_icon = Image.new('RGBA', (icon_w, icon_h), DASHBOARD_COLORS["gold"] + (255,))
+        gold_icon.putalpha(alpha)
+        stroked.paste(gold_icon, (padding + dx, padding + dy), gold_icon)
+
+    # Layer 3: Inner black stroke
+    inner_offsets = get_offsets(inner_black)
+    for dx, dy in inner_offsets:
+        black_icon = Image.new('RGBA', (icon_w, icon_h), (0, 0, 0, 255))
+        black_icon.putalpha(alpha)
+        stroked.paste(black_icon, (padding + dx, padding + dy), black_icon)
+
+    stroked.paste(icon, (padding, padding), icon)
+    base_img.paste(stroked, (x - padding, y - padding), stroked)
+
+
+def draw_winrate_bar(draw, x, y, width, height, winrate):
+    """Draw a colored win rate bar (clean design without background)."""
+    if winrate < 45:
+        color = DASHBOARD_COLORS["bar_red"]
+    elif winrate < 55:
+        color = DASHBOARD_COLORS["bar_yellow"]
+    else:
+        color = DASHBOARD_COLORS["bar_green"]
+
+    display_winrate = max(winrate, 1.0) if winrate > 0 else 1.0
+    fill_width = int(width * (display_winrate / 100))
+    if fill_width > 0:
+        draw.rectangle([x, y, x + fill_width, y + height], fill=color)
+
+
+def generate_dashboard_image(user_name, played_craft, winrate_dict):
+    """
+    Generate a Shadowverse win rate dashboard image.
+
+    Returns BytesIO object containing PNG image, or None if PIL is not available.
+    """
+    if not PIL_AVAILABLE:
+        return None
+
+    global _icon_cache
+    if _icon_cache is None:
+        _icon_cache = IconCache()
+
+    width, height = 1600, 900
+
+    # Create gradient background
+    img = create_gradient(width, height, DASHBOARD_COLORS["bg_top"], DASHBOARD_COLORS["bg_bottom"])
+    draw = ImageDraw.Draw(img)
+
+    # Draw octagonal border
+    draw_octagonal_border(draw, width, height, inset=10, corner_cut=30, color=DASHBOARD_COLORS["gold"], thickness=3)
+
+    # Load fonts
+    font_header = load_dashboard_font(56, bold=True)
+    font_title = load_dashboard_font(48, bold=True)
+    font_normal = load_dashboard_font(36, bold=False)
+    font_stats = load_dashboard_font(32, bold=False)
+
+    # Calculate totals
+    total_wins = sum(v["wins"] for v in winrate_dict.values())
+    total_losses = sum(v["losses"] for v in winrate_dict.values())
+    total_bricks = sum(v["bricks"] for v in winrate_dict.values())
+    total_games = total_wins + total_losses
+    total_winrate = (total_wins / total_games * 100) if total_games > 0 else 0
+
+    # Layout constants
+    content_x = 60
+    y = 30
+
+    # Draw header: User Name
+    draw.text((content_x, y - 5), user_name, fill=DASHBOARD_COLORS["white"], font=font_header)
+    y += 80
+
+    # Draw title: [icon] Craft Name Win Rate
+    class_icon = _icon_cache.get_class_icon(played_craft, size=(60, 67))
+    title_icon_height = 67
+    add_stroked_icon(img, class_icon, content_x, y)
+
+    title_text = f"{played_craft} Win Rate"
+    title_center = y + title_icon_height // 2
+    bbox = draw.textbbox((0, 0), title_text, font=font_title)
+    text_height = bbox[3] - bbox[1]
+    title_y = title_center - text_height // 2 - 10
+    draw.text((content_x + 80, title_y), title_text, fill=DASHBOARD_COLORS["white"], font=font_title)
+    y += 85
+
+    # Draw first divider
+    divider_left = content_x
+    divider_right = width - 60
+    draw.line([(divider_left, y), (divider_right, y)], fill=DASHBOARD_COLORS["gold"], width=3)
+    y += 30
+
+    # Draw matchup rows
+    bar_width = 650
+    bar_height = 28
+    row_height = 78
+
+    # Draw brick icon header
+    brick_icon = _icon_cache.get_brick_icon(size=(48, 48))
+    brick_column_x = width - 180
+    img.paste(brick_icon, (brick_column_x + 5, y - 90), brick_icon)
+
+    for craft in CRAFTS:
+        stats = winrate_dict.get(craft, {"wins": 0, "losses": 0, "bricks": 0})
+        wins = stats["wins"]
+        losses = stats["losses"]
+        bricks = stats["bricks"]
+        games = wins + losses
+        winrate = (wins / games * 100) if games > 0 else 0
+
+        # Draw class icon with stroke
+        craft_icon = _icon_cache.get_class_icon(craft, size=(50, 56))
+        icon_height = 56
+        add_stroked_icon(img, craft_icon, content_x, y)
+
+        # Calculate vertical center of the row
+        row_center = y + icon_height // 2 - 10
+
+        # Draw craft name
+        craft_x = content_x + 70
+        bbox = draw.textbbox((0, 0), craft, font=font_normal)
+        text_height = bbox[3] - bbox[1]
+        craft_y = row_center - text_height // 2
+        draw.text((craft_x, craft_y), craft, fill=DASHBOARD_COLORS["white"], font=font_normal)
+
+        # Draw win rate bar
+        bar_x = craft_x + 320
+        bar_y = row_center - bar_height // 2 + 12
+        draw_winrate_bar(draw, bar_x, bar_y, bar_width, bar_height, winrate)
+
+        # Draw percentage
+        percent_x = bar_x + bar_width + 20
+        percent_text = f"{winrate:.1f}%"
+        bbox = draw.textbbox((0, 0), percent_text, font=font_stats)
+        text_height = bbox[3] - bbox[1]
+        percent_y = row_center - text_height // 2
+        draw.text((percent_x, percent_y), percent_text, fill=DASHBOARD_COLORS["white"], font=font_stats)
+
+        # Draw win/loss counts
+        wl_x = percent_x + 140
+        win_text = f"{wins}W"
+        loss_text = f"{losses}L"
+        bbox = draw.textbbox((0, 0), win_text, font=font_stats)
+        text_height = bbox[3] - bbox[1]
+        wl_y = row_center - text_height // 2
+        draw.text((wl_x, wl_y), win_text, fill=DASHBOARD_COLORS["green"], font=font_stats)
+        draw.text((wl_x + 85, wl_y), "/", fill=DASHBOARD_COLORS["white"], font=font_stats)
+        draw.text((wl_x + 105, wl_y), loss_text, fill=DASHBOARD_COLORS["red"], font=font_stats)
+
+        # Draw brick count
+        brick_text = str(bricks)
+        bbox = draw.textbbox((0, 0), brick_text, font=font_stats)
+        text_height = bbox[3] - bbox[1]
+        brick_y = row_center - text_height // 2
+        draw.text((brick_column_x + 20, brick_y), brick_text, fill=DASHBOARD_COLORS["white"], font=font_stats)
+
+        y += row_height
+
+    # Draw second divider
+    y += 10
+    draw.line([(divider_left, y), (divider_right, y)], fill=DASHBOARD_COLORS["gold"], width=3)
+    y += 30
+
+    # Draw total row
+    total_row_center = y + 56 // 2 - 10
+
+    # Draw total label
+    total_label = "Total Win Rate"
+    bbox = draw.textbbox((0, 0), total_label, font=font_normal)
+    text_height = bbox[3] - bbox[1]
+    total_label_y = total_row_center - text_height // 2
+    draw.text((content_x, total_label_y), total_label, fill=DASHBOARD_COLORS["white"], font=font_normal)
+
+    # Draw total win rate bar
+    total_bar_x = content_x + 390
+    total_bar_y = total_row_center - bar_height // 2 + 10
+    draw_winrate_bar(draw, total_bar_x, total_bar_y, bar_width, bar_height, total_winrate)
+
+    # Draw total percentage
+    total_percent_x = total_bar_x + bar_width + 20
+    total_percent_text = f"{total_winrate:.1f}%"
+    bbox = draw.textbbox((0, 0), total_percent_text, font=font_stats)
+    text_height = bbox[3] - bbox[1]
+    total_percent_y = total_row_center - text_height // 2
+    draw.text((total_percent_x, total_percent_y), total_percent_text, fill=DASHBOARD_COLORS["white"], font=font_stats)
+
+    # Draw total win/loss counts
+    total_wl_x = total_percent_x + 140
+    total_win_text = f"{total_wins}W"
+    total_loss_text = f"{total_losses}L"
+    bbox = draw.textbbox((0, 0), total_win_text, font=font_stats)
+    text_height = bbox[3] - bbox[1]
+    total_wl_y = total_row_center - text_height // 2
+    draw.text((total_wl_x, total_wl_y), total_win_text, fill=DASHBOARD_COLORS["green"], font=font_stats)
+    draw.text((total_wl_x + 85, total_wl_y), "/", fill=DASHBOARD_COLORS["white"], font=font_stats)
+    draw.text((total_wl_x + 105, total_wl_y), total_loss_text, fill=DASHBOARD_COLORS["red"], font=font_stats)
+
+    # Draw total brick count
+    total_brick_text = str(total_bricks)
+    bbox = draw.textbbox((0, 0), total_brick_text, font=font_stats)
+    text_height = bbox[3] - bbox[1]
+    total_brick_y = total_row_center - text_height // 2
+    draw.text((brick_column_x + 20, total_brick_y), total_brick_text, fill=DASHBOARD_COLORS["white"], font=font_stats)
+
+    # Return BytesIO
+    buffer = BytesIO()
+    img.save(buffer, 'PNG')
+    buffer.seek(0)
+    return buffer
+
 
 async def init_sv_db():
     """
@@ -498,19 +871,39 @@ async def update_dashboard_message(member, channel):
         return
     craft = crafts[0]
     winrate_dict = await get_winrate(str(member.id), str(channel.guild.id), craft)
-    title, desc = craft_winrate_summary(member, craft, winrate_dict)
-    embed = Embed(title=title, description=desc, color=0x3498db)
     view = CraftDashboardView(member, channel.guild.id, crafts)
     msg_id = await get_dashboard_message_id(channel.guild.id, member.id)
-    if msg_id:
-        try:
-            msg = await channel.fetch_message(msg_id)
-            await msg.edit(embed=embed, view=view)
-            return
-        except Exception:
-            pass
-    msg = await channel.send(embed=embed, view=view)
-    await set_dashboard_message_id(channel.guild.id, member.id, msg.id)
+
+    # Try to generate image, fall back to embed if PIL is not available
+    image_buffer = generate_dashboard_image(member.display_name, craft, winrate_dict)
+
+    if image_buffer:
+        # Use image-based dashboard
+        file = discord.File(fp=image_buffer, filename="dashboard.png")
+
+        if msg_id:
+            try:
+                msg = await channel.fetch_message(msg_id)
+                await msg.edit(attachments=[file], view=view)
+                return
+            except Exception:
+                pass
+        msg = await channel.send(file=file, view=view)
+        await set_dashboard_message_id(channel.guild.id, member.id, msg.id)
+    else:
+        # Fall back to embed-based dashboard
+        title, desc = craft_winrate_summary(member, craft, winrate_dict)
+        embed = Embed(title=title, description=desc, color=0x3498db)
+
+        if msg_id:
+            try:
+                msg = await channel.fetch_message(msg_id)
+                await msg.edit(embed=embed, view=view)
+                return
+            except Exception:
+                pass
+        msg = await channel.send(embed=embed, view=view)
+        await set_dashboard_message_id(channel.guild.id, member.id, msg.id)
 
 async def get_user_played_crafts(user_id, server_id):
     """
@@ -714,7 +1107,7 @@ class CraftDashboardView(ui.View):
                     kanami_anger = "<:KanamiAnger:1406653154111524924>"
                     await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                     return
-                
+
                 # Get winrate data based on season
                 if self.season is None:
                     winrate_dict = await get_winrate(str(self.user.id), str(self.server_id), craft)
@@ -723,11 +1116,21 @@ class CraftDashboardView(ui.View):
                 else:
                     winrate_dict = await get_archived_winrate(str(self.user.id), str(self.server_id), craft, self.season)
                     season_text = f" (Season {self.season} - Archived)"
-                
-                title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
-                title += season_text
-                embed = Embed(title=title, description=desc, color=0x3498db)
-                await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page, self.season))
+
+                # Try to generate image, fall back to embed if PIL is not available
+                user_name = self.user.display_name + season_text
+                image_buffer = generate_dashboard_image(user_name, craft, winrate_dict)
+
+                if image_buffer:
+                    # Use image-based dashboard
+                    file = discord.File(fp=image_buffer, filename="dashboard.png")
+                    await interaction.response.edit_message(attachments=[file], view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page, self.season))
+                else:
+                    # Fall back to embed-based dashboard
+                    title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
+                    title += season_text
+                    embed = Embed(title=title, description=desc, color=0x3498db)
+                    await interaction.response.edit_message(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page, self.season))
             except discord.errors.HTTPException as e:
                 if e.status == 429:
                     await interaction.response.send_message("Bot is being rate limited. Please try again in a few seconds.", ephemeral=True)
