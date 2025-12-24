@@ -474,7 +474,17 @@ async def on_ready():
     print("[DEBUG] Initializing Shadowverse DB...")
     await shadowverse_handler.init_sv_db()
     print("[DEBUG] Shadowverse DB initialized.")
-    
+
+    # Refresh all Shadowverse dashboards with new image format
+    print("[DEBUG] Refreshing Shadowverse dashboards...")
+    try:
+        await shadowverse_handler.refresh_all_dashboards()
+        print("[DEBUG] Shadowverse dashboards refreshed.")
+    except Exception as e:
+        print(f"[ERROR] Failed to refresh Shadowverse dashboards: {e}")
+        import traceback
+        traceback.print_exc()
+
     # Initialize Uma Musume background tasks (DB init + initial update + periodic updates)
     print("[DEBUG] Initializing Uma Musume background tasks...")
     try:
