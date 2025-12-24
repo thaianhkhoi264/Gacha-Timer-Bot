@@ -865,6 +865,39 @@ async def get_dashboard_message_id(server_id, user_id):
         return int(row[0])
     return None
 
+async def refresh_all_dashboards():
+    """
+    Refresh all Shadowverse dashboards across all servers.
+    Called on bot startup to update dashboard images.
+    """
+    from bot import bot
+    async with aiosqlite.connect('shadowverse_data.db') as conn:
+        # Get all servers with Shadowverse channels
+        async with conn.execute('SELECT DISTINCT server_id FROM channel_assignment') as cursor:
+            server_ids = [row[0] async for row in cursor]
+
+    for server_id in server_ids:
+        guild = bot.get_guild(int(server_id))
+        if not guild:
+            continue
+
+        # Get the Shadowverse channel
+        sv_channel_id = await get_sv_channel(server_id)
+        if not sv_channel_id:
+            continue
+
+        sv_channel = guild.get_channel(int(sv_channel_id))
+        if not sv_channel:
+            continue
+
+        # Refresh dashboards for all users in this server
+        for member in guild.members:
+            if not member.bot:
+                try:
+                    await update_dashboard_message(member, sv_channel)
+                except Exception as e:
+                    logging.error(f"[Refresh] Error updating dashboard for {member.name} in {guild.name}: {e}")
+
 async def update_dashboard_message(member, channel):
     crafts = await get_user_played_crafts(str(member.id), str(channel.guild.id))
     if not crafts:
@@ -936,6 +969,10 @@ async def get_winrate(user_id, server_id, played_craft):
     return results
 
 def craft_winrate_summary(user, played_craft, winrate_dict):
+    """
+    Legacy embed format - FALLBACK ONLY (used when PIL is not available).
+    New dashboards use image generation instead.
+    """
     total_wins = sum(v["wins"] for v in winrate_dict.values())
     total_losses = sum(v["losses"] for v in winrate_dict.values())
     total_bricks = sum(v["bricks"] for v in winrate_dict.values())
