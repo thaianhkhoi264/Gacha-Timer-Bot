@@ -17,12 +17,27 @@ uma_handler_logger.setLevel(logging.INFO)
 def parse_event_date(date_str):
     """
     Parses a date string like 'Oct 1 – Oct 8, 2025' or '~Oct 1 – Oct 8, 2025'
+    or 'Dec 28, 2025 – Jan 7, 2026' (with years for both dates)
     Returns (start_date, end_date) as datetime objects in UTC, or (None, None) if parsing fails.
     All times are set to 10pm UTC (start) and 9:59pm UTC (end).
     """
     date_str = date_str.strip().lstrip('~').strip()
-    
-    # Try to find a range like 'Oct 1 – Oct 8, 2025'
+
+    # Try format with years for both dates: 'Dec 28, 2025 – Jan 7, 2026'
+    full_range_match = re.search(r'([A-Za-z]+)\s*(\d{1,2}),?\s*(\d{4})\s*–\s*([A-Za-z]+)\s*(\d{1,2}),?\s*(\d{4})', date_str)
+    if full_range_match:
+        start_month, start_day, start_year, end_month, end_day, end_year = full_range_match.groups()
+        try:
+            start_date = datetime.strptime(f"{start_month} {start_day} {start_year} 22:00", "%b %d %Y %H:%M")
+            end_date = datetime.strptime(f"{end_month} {end_day} {end_year} 21:59", "%b %d %Y %H:%M")
+            # Set to UTC timezone
+            start_date = start_date.replace(tzinfo=timezone.utc)
+            end_date = end_date.replace(tzinfo=timezone.utc)
+            return (start_date, end_date)
+        except Exception:
+            pass
+
+    # Try to find a range like 'Oct 1 – Oct 8, 2025' (year only at end)
     range_match = re.search(r'([A-Za-z]+)\s*(\d{1,2})\s*–\s*([A-Za-z]+)\s*(\d{1,2}),?\s*(\d{4})', date_str)
     if range_match:
         start_month, start_day, end_month, end_day, year = range_match.groups()
@@ -77,7 +92,21 @@ async def download_timeline():
         async with async_playwright() as p:
             print("[UMA HANDLER] Launching headless Chromium...")
             browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+
+            # Create context with realistic user agent and cache bypass
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                bypass_csp=True
+            )
+            page = await context.new_page()
+
+            # Disable cache to force fresh data
+            await context.set_extra_http_headers({
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            })
+
             uma_handler_logger.info("Navigating to https://uma.moe/timeline ...")
             print("[UMA HANDLER] Navigating to https://uma.moe/timeline ...")
             await page.goto("https://uma.moe/timeline", timeout=60000)
@@ -120,38 +149,16 @@ async def download_timeline():
             await page.screenshot(path="uma_timeline_initial.png")
             print("[UMA HANDLER] Screenshot saved: uma_timeline_initial.png")
 
-            # === SCROLL RIGHT (to future/newer events) ===
-            print("[UMA HANDLER] Phase 1: Scrolling RIGHT to load future events...")
-            scroll_amount = 400  # Scroll RIGHT
+            # === SCROLL LEFT FIRST (to past/older events) ===
+            print("[UMA HANDLER] Phase 1: Scrolling LEFT to load past events...")
+            scroll_amount = -400  # Scroll LEFT
             max_scrolls = 100
             no_new_events_count = 0
             previous_event_count = len(initial_events)
 
             for i in range(max_scrolls):
                 await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(1.5)  # Wait for lazy loading
-                event_items = await page.query_selector_all('.timeline-item.timeline-event')
-                current_count = len(event_items)
-
-                print(f"[UMA HANDLER] Scroll RIGHT {i+1}: {current_count} events (+{current_count - previous_event_count})")
-
-                if current_count > previous_event_count:
-                    previous_event_count = current_count
-                    no_new_events_count = 0
-                else:
-                    no_new_events_count += 1
-                    if no_new_events_count >= 10:
-                        print(f"[UMA HANDLER] No new events after 10 RIGHT scrolls. Total: {current_count}")
-                        break
-            
-            # === SCROLL LEFT (to past/older events) ===
-            print("[UMA HANDLER] Phase 2: Scrolling LEFT to load past events...")
-            scroll_amount = -400  # Scroll LEFT
-            no_new_events_count = 0
-            
-            for i in range(max_scrolls):
-                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(2.0)  # Increased wait time for lazy loading + DOM updates
                 event_items = await page.query_selector_all('.timeline-item.timeline-event')
                 current_count = len(event_items)
 
@@ -163,8 +170,43 @@ async def download_timeline():
                 else:
                     no_new_events_count += 1
                     if no_new_events_count >= 10:
-                        print(f"[UMA HANDLER] No new events after 10 LEFT scrolls. Final total: {current_count}")
+                        print(f"[UMA HANDLER] No new events after 10 LEFT scrolls. Total: {current_count}")
                         break
+
+            # === THEN SCROLL RIGHT (to future/newer events) ===
+            print("[UMA HANDLER] Phase 2: Scrolling RIGHT to load future events...")
+            scroll_amount = 400  # Scroll RIGHT
+            no_new_events_count = 0
+
+            for i in range(max_scrolls):
+                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
+                await asyncio.sleep(2.0)  # Increased wait time for lazy loading + DOM updates
+                event_items = await page.query_selector_all('.timeline-item.timeline-event')
+                current_count = len(event_items)
+
+                print(f"[UMA HANDLER] Scroll RIGHT {i+1}: {current_count} events (+{current_count - previous_event_count})")
+
+                if current_count > previous_event_count:
+                    previous_event_count = current_count
+                    no_new_events_count = 0
+                else:
+                    no_new_events_count += 1
+                    if no_new_events_count >= 10:
+                        print(f"[UMA HANDLER] No new events after 10 RIGHT scrolls. Final total: {current_count}")
+                        break
+
+            # Wait for any final DOM updates after scrolling
+            print("[UMA HANDLER] Waiting 3 seconds for DOM to stabilize...")
+            await asyncio.sleep(3.0)
+
+            # Wait for network idle to catch any AJAX-loaded date updates
+            print("[UMA HANDLER] Waiting for network idle (AJAX date updates)...")
+            await page.wait_for_load_state("networkidle", timeout=10000)
+            print("[UMA HANDLER] Network idle confirmed")
+
+            # Force re-query to get fresh DOM
+            event_items = await page.query_selector_all('.timeline-item.timeline-event')
+            print(f"[UMA HANDLER] Final event count after stabilization: {len(event_items)}")
 
             # Extract raw events - grab ALL events without filtering
             raw_events = []
@@ -185,9 +227,9 @@ async def download_timeline():
                 full_text = await item.inner_text()
                 lines = [line.strip() for line in full_text.split('\n') if line.strip()]
                 
-                # Debug: Print structure for character/support banners
-                if "+" in full_title and "more" in full_title:
-                    print(f"[UMA DEBUG LINES] {lines}")
+                # Debug: Print structure for character/support banners (commented out due to encoding issues on Windows)
+                # if "+" in full_title and "more" in full_title:
+                #     print(f"[UMA DEBUG LINES] {lines}")
                 
                 # For CHARACTER BANNER or SUPPORT CARD BANNER:
                 # Structure is: [type] [title with +1 more] [date] [name1] [name2] ...
@@ -250,7 +292,14 @@ async def download_timeline():
                 if not date_tag:
                     continue
                 date_str = (await date_tag.inner_text()).strip()
+
                 start_date, end_date = parse_event_date(date_str)
+
+                # Debug: Log parsed dates for Scorpio Cup and Mejiro Dober
+                # (Commented out due to cp932 encoding issues on Windows)
+                # if "scorpio" in full_title.lower() or "mejiro dober" in full_title.lower():
+                #     print(f"[UMA HANDLER DEBUG DATE] Parsed start: {start_date}")
+                #     print(f"[UMA HANDLER DEBUG DATE] Parsed end: {end_date}")
                 
                 # Store ALL events - don't skip any here
                 raw_events.append({
@@ -265,12 +314,13 @@ async def download_timeline():
                     "date_str": date_str
                 })
                 
-                # Debug: Print first few events
-                if len(raw_events) <= 5:
-                    print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Tags: {tags} | Date: {date_str}")
+                # Debug: Print first few events (commented out due to encoding issues on Windows)
+                # if len(raw_events) <= 5:
+                #     print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Tags: {tags} | Date: {date_str}")
 
+            await context.close()
             await browser.close()
-            
+
             uma_handler_logger.info(f"Downloaded {len(raw_events)} raw events from timeline")
             
             # Process and combine events
