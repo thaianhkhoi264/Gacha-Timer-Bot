@@ -661,7 +661,7 @@ async def send_notification(event, timing_type):
         
         role_mention = role.mention
         send_log(event.get('server_id', 'N/A'), f"Found combined role for {profile} {region}: {role_mention}")
-        
+
         # Get the correct time based on region
         unix_time = None
         if region.upper() == "NA":
@@ -670,10 +670,16 @@ async def send_notification(event, timing_type):
             unix_time = event.get('europe_start') if timing_type == "start" else event.get('europe_end')
         elif region.upper() == "ASIA":
             unix_time = event.get('asia_start') if timing_type == "start" else event.get('asia_end')
-        
+
+        # Fallback: use start_date if available, otherwise end_date
         if not unix_time:
-            unix_time = event['start_date'] if timing_type == "start" else event['end_date']
-        
+            unix_time = event.get('start_date') or event.get('end_date')
+
+        # Validation: Log warning if unix_time is still None
+        if unix_time is None:
+            send_log(event.get('server_id', 'N/A'),
+                    f"WARNING: unix_time is None for event '{event.get('title')}' (profile: {profile}, region: {region}, timing_type: {timing_type})")
+
         # Build message: Priority 1 = custom_message, Priority 2 = template, Priority 3 = default
         message = None
         if event.get('custom_message'):
@@ -724,8 +730,14 @@ async def send_notification(event, timing_type):
         else:
             send_log(event.get('server_id', 'N/A'), f"No emoji found for profile {profile}")
 
-        unix_time = event['start_date'] if timing_type == "start" else event['end_date']
-        
+        # Get the appropriate timestamp - use start_date if available, otherwise end_date
+        unix_time = event.get('start_date') or event.get('end_date')
+
+        # Validation: Log warning if unix_time is still None
+        if unix_time is None:
+            send_log(event.get('server_id', 'N/A'),
+                    f"WARNING: unix_time is None for event '{event.get('title')}' (profile: {profile}, timing_type: {timing_type})")
+
         # Build message: Priority 1 = custom_message, Priority 2 = template, Priority 3 = default
         message = None
         if event.get('custom_message'):
@@ -777,13 +789,23 @@ async def load_and_schedule_pending_notifications(bot):
         for row in rows:
             notif_id, category, profile, title, timing_type, notify_unix, event_time_unix, region, \
             custom_message, message_template, phase, character_name = row
-            
+
+            # Map event_time_unix to start_date or end_date based on timing_type
+            # For "end" timing, use end_date. For all others (start, reminder, phase_start, etc.), use start_date
+            start_date = None
+            end_date = None
+            if timing_type == "end":
+                end_date = event_time_unix
+            else:
+                # For start, reminder, phase_start, character_start - all refer to a start time
+                start_date = event_time_unix
+
             event = {
                 'category': category,
                 'profile': profile,
                 'title': title,
-                'start_date': event_time_unix if timing_type == "start" else None,
-                'end_date': event_time_unix if timing_type == "end" else None,
+                'start_date': start_date,
+                'end_date': end_date,
                 'region': region,
                 'custom_message': custom_message,
                 'message_template': message_template,

@@ -672,7 +672,7 @@ async def add_uma_event(ctx, event_data):
             if changed:
                 # Update existing event
                 await conn.execute(
-                    '''UPDATE events 
+                    '''UPDATE events
                        SET start_date = ?, end_date = ?, image = ?, description = ?, user_id = ?
                        WHERE id = ?''',
                     (event_data["start"], event_data["end"], event_data.get("image"),
@@ -682,6 +682,12 @@ async def add_uma_event(ctx, event_data):
                 await conn.commit()
                 uma_logger.info(f"[Add Event] Updated existing event: {event_data['title']}")
                 print(f"[UMA] Updated event: {event_data['title']}")
+
+                # Delete old notifications and reschedule with new dates
+                uma_logger.info(f"[Add Event] Event dates changed - deleting old notifications and rescheduling")
+                print(f"[UMA] Event dates changed - deleting old notifications for: {event_data['title']}")
+                from notification_handler import delete_notifications_for_event
+                await delete_notifications_for_event(event_data['title'], event_data['category'], "UMA")
             else:
                 uma_logger.info(f"[Add Event] Event unchanged, skipping: {event_data['title']}")
                 print(f"[UMA] Event unchanged: {event_data['title']}")
