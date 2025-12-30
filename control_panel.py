@@ -294,29 +294,32 @@ class ConfirmEventButton(discord.ui.Button):
         self.parent_view = parent_view
 
     async def callback(self, interaction: discord.Interaction):
+        # CRITICAL: Defer FIRST, before any validation
+        await interaction.response.defer(ephemeral=True)
+
         import dateparser
-        
+
         # Add timezone to date strings
         start_with_tz = f"{self.parent_view.start} ({self.parent_view.selected_timezone})"
         end_with_tz = f"{self.parent_view.end} ({self.parent_view.selected_timezone})"
-        
+
         # Parse to UNIX timestamps
         start_dt = dateparser.parse(start_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
         end_dt = dateparser.parse(end_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
-        
+
+        # Use followup for validation errors (defer already called)
         if not start_dt or not end_dt:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Failed to parse dates. Please use format: YYYY-MM-DD HH:MM",
                 ephemeral=True
             )
             return
-        
+
         start_unix = int(start_dt.timestamp())
         end_unix = int(end_dt.timestamp())
-        
+
         if self.parent_view.is_edit:
-            # Update existing event
-            await interaction.response.defer(ephemeral=True)
+            # Update existing event (defer already called above)
             await update_event(
                 self.parent_view.profile,
                 self.parent_view.event_id,
@@ -329,7 +332,7 @@ class ConfirmEventButton(discord.ui.Button):
             await update_control_panel_messages(self.parent_view.profile)
             await interaction.followup.send("Event updated successfully!", ephemeral=True)
         else:
-            # Add new event
+            # Add new event (defer already called above)
             event_data = {
                 "title": self.parent_view.title,
                 "category": self.parent_view.selected_category,
@@ -344,7 +347,6 @@ class ConfirmEventButton(discord.ui.Button):
                 async def send(self, msg, **kwargs):
                     await interaction.followup.send(msg, **kwargs)
 
-            await interaction.response.defer(ephemeral=True)
             await PROFILE_CONFIG[self.parent_view.profile]["add_event"](DummyCtx(), event_data)
             await update_control_panel_messages(self.parent_view.profile)
             await interaction.followup.send("Event added successfully!", ephemeral=True)

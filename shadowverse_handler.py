@@ -1140,13 +1140,14 @@ class CraftDashboardView(ui.View):
     def make_craft_callback(self, craft):
         async def callback(interaction: Interaction):
             try:
+                # CRITICAL: Defer FIRST, before any validation or authorization
+                await interaction.response.defer()
+
+                # Check authorization AFTER defer, use followup for errors
                 if interaction.user.id != self.user.id:
                     kanami_anger = "<:KanamiAnger:1406653154111524924>"
-                    await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
+                    await interaction.followup.send(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                     return
-
-                # Defer the interaction to prevent timeout
-                await interaction.response.defer()
 
                 # Get winrate data based on season
                 if self.season is None:
@@ -1190,29 +1191,41 @@ class CraftDashboardView(ui.View):
 
     async def next_page_callback(self, interaction: Interaction):
         try:
+            # Defer first
+            await interaction.response.defer()
+
+            # Check authorization
             if interaction.user.id != self.user.id:
                 kanami_anger = "<:KanamiAnger:1406653154111524924>"
-                await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
+                await interaction.followup.send(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                 return
-            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1, self.season))
+
+            # Edit original response
+            await interaction.edit_original_response(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1, self.season))
         except Exception as e:
             logging.error(f"[CraftDashboardView] Error in next_page_callback: {e}", exc_info=True)
             try:
-                await interaction.response.send_message("An error occurred while changing pages.", ephemeral=True)
+                await interaction.followup.send("An error occurred while changing pages.", ephemeral=True)
             except Exception:
                 pass
 
     async def prev_page_callback(self, interaction: Interaction):
         try:
+            # Defer first
+            await interaction.response.defer()
+
+            # Check authorization
             if interaction.user.id != self.user.id:
                 kanami_anger = "<:KanamiAnger:1406653154111524924>"
-                await interaction.response.send_message(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
+                await interaction.followup.send(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                 return
-            await interaction.response.edit_message(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1, self.season))
+
+            # Edit original response
+            await interaction.edit_original_response(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1, self.season))
         except Exception as e:
             logging.error(f"[CraftDashboardView] Error in prev_page_callback: {e}", exc_info=True)
             try:
-                await interaction.response.send_message("An error occurred while changing pages.", ephemeral=True)
+                await interaction.followup.send("An error occurred while changing pages.", ephemeral=True)
             except Exception:
                 pass
 
