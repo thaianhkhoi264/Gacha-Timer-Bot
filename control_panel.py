@@ -4,6 +4,7 @@ import aiosqlite
 from datetime import datetime
 import pytz
 import asyncio
+import logging
 from global_config import CONTROL_PANEL_CHANNELS, GAME_PROFILES, MAIN_SERVER_ID
 
 # --- Rate Limiting for Control Panel Updates ---
@@ -294,62 +295,89 @@ class ConfirmEventButton(discord.ui.Button):
         self.parent_view = parent_view
 
     async def callback(self, interaction: discord.Interaction):
-        # CRITICAL: Defer FIRST, before any validation
-        await interaction.response.defer(ephemeral=True)
+        try:
+            logging.info(f"[ConfirmEventButton] ENTRY | User: {interaction.user.id} | Interaction: {interaction.id} | Mode: {'edit' if self.parent_view.is_edit else 'add'}")
 
-        import dateparser
+            logging.info(f"[ConfirmEventButton] ATTEMPTING DEFER | Interaction: {interaction.id}")
+            await interaction.response.defer(ephemeral=True)
+            logging.info(f"[ConfirmEventButton] DEFER SUCCESS | Interaction: {interaction.id}")
 
-        # Add timezone to date strings
-        start_with_tz = f"{self.parent_view.start} ({self.parent_view.selected_timezone})"
-        end_with_tz = f"{self.parent_view.end} ({self.parent_view.selected_timezone})"
+            import dateparser
 
-        # Parse to UNIX timestamps
-        start_dt = dateparser.parse(start_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
-        end_dt = dateparser.parse(end_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+            logging.info(f"[ConfirmEventButton] PARSING DATES | Start: {self.parent_view.start} | End: {self.parent_view.end} | TZ: {self.parent_view.selected_timezone}")
+            start_with_tz = f"{self.parent_view.start} ({self.parent_view.selected_timezone})"
+            end_with_tz = f"{self.parent_view.end} ({self.parent_view.selected_timezone})"
 
-        # Use followup for validation errors (defer already called)
-        if not start_dt or not end_dt:
-            await interaction.followup.send(
-                "Failed to parse dates. Please use format: YYYY-MM-DD HH:MM",
-                ephemeral=True
-            )
-            return
+            start_dt = dateparser.parse(start_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
+            end_dt = dateparser.parse(end_with_tz, settings={'RETURN_AS_TIMEZONE_AWARE': True})
 
-        start_unix = int(start_dt.timestamp())
-        end_unix = int(end_dt.timestamp())
+            if not start_dt or not end_dt:
+                logging.warning(f"[ConfirmEventButton] DATE PARSE FAILED | Start parsed: {start_dt is not None} | End parsed: {end_dt is not None} | Interaction: {interaction.id}")
+                await interaction.followup.send(
+                    "Failed to parse dates. Please use format: YYYY-MM-DD HH:MM",
+                    ephemeral=True
+                )
+                return
+            logging.info(f"[ConfirmEventButton] DATES PARSED | Start: {start_dt.timestamp()} | End: {end_dt.timestamp()}")
 
-        if self.parent_view.is_edit:
-            # Update existing event (defer already called above)
-            await update_event(
-                self.parent_view.profile,
-                self.parent_view.event_id,
-                self.parent_view.title,
-                self.parent_view.selected_category,
-                str(start_unix),
-                str(end_unix),
-                self.parent_view.image
-            )
-            await update_control_panel_messages(self.parent_view.profile)
-            await interaction.followup.send("Event updated successfully!", ephemeral=True)
-        else:
-            # Add new event (defer already called above)
-            event_data = {
-                "title": self.parent_view.title,
-                "category": self.parent_view.selected_category,
-                "start": str(start_unix),
-                "end": str(end_unix),
-                "image": self.parent_view.image
-            }
+            start_unix = int(start_dt.timestamp())
+            end_unix = int(end_dt.timestamp())
 
-            class DummyCtx:
-                author = interaction.user
-                guild = interaction.guild
-                async def send(self, msg, **kwargs):
-                    await interaction.followup.send(msg, **kwargs)
+            if self.parent_view.is_edit:
+                logging.info(f"[ConfirmEventButton] UPDATING EVENT | Event ID: {self.parent_view.event_id} | Profile: {self.parent_view.profile}")
+                await update_event(
+                    self.parent_view.profile,
+                    self.parent_view.event_id,
+                    self.parent_view.title,
+                    self.parent_view.selected_category,
+                    str(start_unix),
+                    str(end_unix),
+                    self.parent_view.image
+                )
+                logging.info(f"[ConfirmEventButton] EVENT UPDATED | Interaction: {interaction.id}")
 
-            await PROFILE_CONFIG[self.parent_view.profile]["add_event"](DummyCtx(), event_data)
-            await update_control_panel_messages(self.parent_view.profile)
-            await interaction.followup.send("Event added successfully!", ephemeral=True)
+                logging.info(f"[ConfirmEventButton] UPDATING CONTROL PANEL | Profile: {self.parent_view.profile}")
+                await update_control_panel_messages(self.parent_view.profile)
+                logging.info(f"[ConfirmEventButton] CONTROL PANEL UPDATED | Interaction: {interaction.id}")
+
+                logging.info(f"[ConfirmEventButton] SENDING SUCCESS | Interaction: {interaction.id}")
+                await interaction.followup.send("Event updated successfully!", ephemeral=True)
+                logging.info(f"[ConfirmEventButton] SUCCESS SENT | Interaction: {interaction.id}")
+            else:
+                logging.info(f"[ConfirmEventButton] ADDING EVENT | Profile: {self.parent_view.profile} | Title: {self.parent_view.title}")
+                event_data = {
+                    "title": self.parent_view.title,
+                    "category": self.parent_view.selected_category,
+                    "start": str(start_unix),
+                    "end": str(end_unix),
+                    "image": self.parent_view.image
+                }
+
+                class DummyCtx:
+                    author = interaction.user
+                    guild = interaction.guild
+                    async def send(self, msg, **kwargs):
+                        await interaction.followup.send(msg, **kwargs)
+
+                await PROFILE_CONFIG[self.parent_view.profile]["add_event"](DummyCtx(), event_data)
+                logging.info(f"[ConfirmEventButton] EVENT ADDED | Interaction: {interaction.id}")
+
+                logging.info(f"[ConfirmEventButton] UPDATING CONTROL PANEL | Profile: {self.parent_view.profile}")
+                await update_control_panel_messages(self.parent_view.profile)
+                logging.info(f"[ConfirmEventButton] CONTROL PANEL UPDATED | Interaction: {interaction.id}")
+
+                logging.info(f"[ConfirmEventButton] SENDING SUCCESS | Interaction: {interaction.id}")
+                await interaction.followup.send("Event added successfully!", ephemeral=True)
+                logging.info(f"[ConfirmEventButton] SUCCESS SENT | Interaction: {interaction.id}")
+
+        except discord.errors.InteractionResponded as e:
+            logging.error(f"[ConfirmEventButton] ERROR: Interaction already responded! | {e} | Interaction: {interaction.id}", exc_info=True)
+        except Exception as e:
+            logging.error(f"[ConfirmEventButton] ERROR: {type(e).__name__} | {e} | Interaction: {interaction.id}", exc_info=True)
+            try:
+                await interaction.followup.send("An error occurred while processing the event.", ephemeral=True)
+            except Exception as followup_error:
+                logging.error(f"[ConfirmEventButton] FOLLOWUP FAILED: {followup_error}", exc_info=True)
 
 # --- Remove Event Components ---
 

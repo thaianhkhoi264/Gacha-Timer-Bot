@@ -1140,16 +1140,21 @@ class CraftDashboardView(ui.View):
     def make_craft_callback(self, craft):
         async def callback(interaction: Interaction):
             try:
-                # CRITICAL: Defer FIRST, before any validation or authorization
-                await interaction.response.defer()
+                logging.info(f"[CraftCallback:{craft}] ENTRY | User: {interaction.user.id} | Interaction: {interaction.id}")
 
-                # Check authorization AFTER defer, use followup for errors
+                logging.info(f"[CraftCallback:{craft}] ATTEMPTING DEFER | Interaction: {interaction.id}")
+                await interaction.response.defer()
+                logging.info(f"[CraftCallback:{craft}] DEFER SUCCESS | Interaction: {interaction.id}")
+
+                logging.info(f"[CraftCallback:{craft}] AUTH CHECK | User: {interaction.user.id} | Expected: {self.user.id}")
                 if interaction.user.id != self.user.id:
+                    logging.warning(f"[CraftCallback:{craft}] AUTH FAILED | Interaction: {interaction.id}")
                     kanami_anger = "<:KanamiAnger:1406653154111524924>"
                     await interaction.followup.send(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                     return
+                logging.info(f"[CraftCallback:{craft}] AUTH PASSED | Interaction: {interaction.id}")
 
-                # Get winrate data based on season
+                logging.info(f"[CraftCallback:{craft}] FETCHING DATA | Craft: {craft} | Season: {self.season}")
                 if self.season is None:
                     winrate_dict = await get_winrate(str(self.user.id), str(self.server_id), craft)
                     current_season = await get_current_season(self.server_id)
@@ -1157,77 +1162,103 @@ class CraftDashboardView(ui.View):
                 else:
                     winrate_dict = await get_archived_winrate(str(self.user.id), str(self.server_id), craft, self.season)
                     season_text = f" (Season {self.season} - Archived)"
+                logging.info(f"[CraftCallback:{craft}] DATA FETCHED | Interaction: {interaction.id}")
 
-                # Try to generate image, fall back to embed if PIL is not available
+                logging.info(f"[CraftCallback:{craft}] GENERATING IMAGE | Craft: {craft}")
                 user_name = self.user.display_name + season_text
                 image_buffer = generate_dashboard_image(user_name, craft, winrate_dict)
+                logging.info(f"[CraftCallback:{craft}] IMAGE GENERATED | Has buffer: {image_buffer is not None} | Interaction: {interaction.id}")
 
+                logging.info(f"[CraftCallback:{craft}] SENDING RESPONSE | Has image: {image_buffer is not None} | Interaction: {interaction.id}")
                 if image_buffer:
-                    # Use image-based dashboard
                     file = discord.File(fp=image_buffer, filename="dashboard.png")
                     await interaction.edit_original_response(attachments=[file], view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page, self.season))
                 else:
-                    # Fall back to embed-based dashboard
                     title, desc = craft_winrate_summary(self.user, craft, winrate_dict)
                     title += season_text
                     embed = Embed(title=title, description=desc, color=0x3498db)
                     await interaction.edit_original_response(embed=embed, view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page, self.season))
+                logging.info(f"[CraftCallback:{craft}] RESPONSE SENT SUCCESS | Interaction: {interaction.id}")
+
+            except discord.errors.InteractionResponded as e:
+                logging.error(f"[CraftCallback:{craft}] ERROR: Interaction already responded! | {e} | Interaction: {interaction.id}", exc_info=True)
             except discord.errors.HTTPException as e:
+                logging.error(f"[CraftCallback:{craft}] HTTP ERROR: {e.status} | {e.text} | Interaction: {interaction.id}", exc_info=True)
                 if e.status == 429:
-                    await interaction.followup.send("Bot is being rate limited. Please try again in a few seconds.", ephemeral=True)
+                    try:
+                        await interaction.followup.send("Bot is being rate limited. Please try again in a few seconds.", ephemeral=True)
+                    except Exception as followup_error:
+                        logging.error(f"[CraftCallback:{craft}] FOLLOWUP FAILED: {followup_error}", exc_info=True)
                 else:
-                    logging.error(f"[CraftDashboardView] Error in craft callback for {craft}: {e}", exc_info=True)
                     try:
                         await interaction.followup.send("An error occurred while updating the dashboard.", ephemeral=True)
-                    except Exception:
-                        pass
+                    except Exception as followup_error:
+                        logging.error(f"[CraftCallback:{craft}] FOLLOWUP FAILED: {followup_error}", exc_info=True)
             except Exception as e:
-                logging.error(f"[CraftDashboardView] Error in craft callback for {craft}: {e}", exc_info=True)
+                logging.error(f"[CraftCallback:{craft}] ERROR: {type(e).__name__} | {e} | Interaction: {interaction.id}", exc_info=True)
                 try:
                     await interaction.followup.send("An error occurred while updating the dashboard.", ephemeral=True)
-                except Exception:
-                    pass
+                except Exception as followup_error:
+                    logging.error(f"[CraftCallback:{craft}] FOLLOWUP FAILED: {followup_error}", exc_info=True)
         return callback
 
     async def next_page_callback(self, interaction: Interaction):
         try:
-            # Defer first
-            await interaction.response.defer()
+            logging.info(f"[NextPageCallback] ENTRY | User: {interaction.user.id} | Interaction: {interaction.id} | Current page: {self.page}")
 
-            # Check authorization
+            logging.info(f"[NextPageCallback] ATTEMPTING DEFER | Interaction: {interaction.id}")
+            await interaction.response.defer()
+            logging.info(f"[NextPageCallback] DEFER SUCCESS | Interaction: {interaction.id}")
+
+            logging.info(f"[NextPageCallback] AUTH CHECK | User: {interaction.user.id} | Expected: {self.user.id}")
             if interaction.user.id != self.user.id:
+                logging.warning(f"[NextPageCallback] AUTH FAILED | Interaction: {interaction.id}")
                 kanami_anger = "<:KanamiAnger:1406653154111524924>"
                 await interaction.followup.send(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                 return
+            logging.info(f"[NextPageCallback] AUTH PASSED | Interaction: {interaction.id}")
 
-            # Edit original response
+            logging.info(f"[NextPageCallback] SENDING RESPONSE | New page: {self.page + 1} | Interaction: {interaction.id}")
             await interaction.edit_original_response(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page + 1, self.season))
+            logging.info(f"[NextPageCallback] RESPONSE SENT SUCCESS | Interaction: {interaction.id}")
+
+        except discord.errors.InteractionResponded as e:
+            logging.error(f"[NextPageCallback] ERROR: Interaction already responded! | {e} | Interaction: {interaction.id}", exc_info=True)
         except Exception as e:
-            logging.error(f"[CraftDashboardView] Error in next_page_callback: {e}", exc_info=True)
+            logging.error(f"[NextPageCallback] ERROR: {type(e).__name__} | {e} | Interaction: {interaction.id}", exc_info=True)
             try:
                 await interaction.followup.send("An error occurred while changing pages.", ephemeral=True)
-            except Exception:
-                pass
+            except Exception as followup_error:
+                logging.error(f"[NextPageCallback] FOLLOWUP FAILED: {followup_error}", exc_info=True)
 
     async def prev_page_callback(self, interaction: Interaction):
         try:
-            # Defer first
-            await interaction.response.defer()
+            logging.info(f"[PrevPageCallback] ENTRY | User: {interaction.user.id} | Interaction: {interaction.id} | Current page: {self.page}")
 
-            # Check authorization
+            logging.info(f"[PrevPageCallback] ATTEMPTING DEFER | Interaction: {interaction.id}")
+            await interaction.response.defer()
+            logging.info(f"[PrevPageCallback] DEFER SUCCESS | Interaction: {interaction.id}")
+
+            logging.info(f"[PrevPageCallback] AUTH CHECK | User: {interaction.user.id} | Expected: {self.user.id}")
             if interaction.user.id != self.user.id:
+                logging.warning(f"[PrevPageCallback] AUTH FAILED | Interaction: {interaction.id}")
                 kanami_anger = "<:KanamiAnger:1406653154111524924>"
                 await interaction.followup.send(f"This is not your dashboard! {kanami_anger}", ephemeral=True)
                 return
+            logging.info(f"[PrevPageCallback] AUTH PASSED | Interaction: {interaction.id}")
 
-            # Edit original response
+            logging.info(f"[PrevPageCallback] SENDING RESPONSE | New page: {self.page - 1} | Interaction: {interaction.id}")
             await interaction.edit_original_response(view=CraftDashboardView(self.user, self.server_id, self.crafts, self.page - 1, self.season))
+            logging.info(f"[PrevPageCallback] RESPONSE SENT SUCCESS | Interaction: {interaction.id}")
+
+        except discord.errors.InteractionResponded as e:
+            logging.error(f"[PrevPageCallback] ERROR: Interaction already responded! | {e} | Interaction: {interaction.id}", exc_info=True)
         except Exception as e:
-            logging.error(f"[CraftDashboardView] Error in prev_page_callback: {e}", exc_info=True)
+            logging.error(f"[PrevPageCallback] ERROR: {type(e).__name__} | {e} | Interaction: {interaction.id}", exc_info=True)
             try:
                 await interaction.followup.send("An error occurred while changing pages.", ephemeral=True)
-            except Exception:
-                pass
+            except Exception as followup_error:
+                logging.error(f"[PrevPageCallback] FOLLOWUP FAILED: {followup_error}", exc_info=True)
 
     async def on_error(self, interaction: Interaction, error: Exception, item, /):
         # Log the error with details
