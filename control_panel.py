@@ -316,6 +316,7 @@ class ConfirmEventButton(discord.ui.Button):
         
         if self.parent_view.is_edit:
             # Update existing event
+            await interaction.response.defer(ephemeral=True)
             await update_event(
                 self.parent_view.profile,
                 self.parent_view.event_id,
@@ -325,7 +326,8 @@ class ConfirmEventButton(discord.ui.Button):
                 str(end_unix),
                 self.parent_view.image
             )
-            await interaction.response.send_message("Event updated successfully!", ephemeral=True)
+            await update_control_panel_messages(self.parent_view.profile)
+            await interaction.followup.send("Event updated successfully!", ephemeral=True)
         else:
             # Add new event
             event_data = {
@@ -335,18 +337,17 @@ class ConfirmEventButton(discord.ui.Button):
                 "end": str(end_unix),
                 "image": self.parent_view.image
             }
-            
+
             class DummyCtx:
                 author = interaction.user
                 guild = interaction.guild
                 async def send(self, msg, **kwargs):
                     await interaction.followup.send(msg, **kwargs)
-            
+
             await interaction.response.defer(ephemeral=True)
             await PROFILE_CONFIG[self.parent_view.profile]["add_event"](DummyCtx(), event_data)
+            await update_control_panel_messages(self.parent_view.profile)
             await interaction.followup.send("Event added successfully!", ephemeral=True)
-        
-        await update_control_panel_messages(self.parent_view.profile)
 
 # --- Remove Event Components ---
 
@@ -388,9 +389,10 @@ class RemoveEventConfirmView(discord.ui.View):
 
     @discord.ui.button(label="Confirm Remove", style=discord.ButtonStyle.red, custom_id="remove_event_confirm")
     async def remove_event_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         await remove_event_by_id(self.profile, self.event_id)
-        await interaction.response.send_message(f"Event **{self.event_title}** removed successfully!", ephemeral=True)
         await update_control_panel_messages(self.profile)
+        await interaction.followup.send(f"Event **{self.event_title}** removed successfully!", ephemeral=True)
 
 class RemoveEventView(discord.ui.View):
     def __init__(self, profile, events):
@@ -541,9 +543,11 @@ class EditMessageModal(discord.ui.Modal):
         self.add_item(self.custom_message_input)
     
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
         # Get custom message (or None if empty)
         custom_message = self.custom_message_input.value.strip() if self.custom_message_input.value else None
-        
+
         # Update database
         async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
             await conn.execute(
@@ -551,21 +555,21 @@ class EditMessageModal(discord.ui.Modal):
                 (custom_message, self.notif_id)
             )
             await conn.commit()
-        
+
+        # Refresh control panel
+        await update_control_panel_messages(self.profile)
+
         # Send confirmation
         if custom_message:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"✅ Custom message saved!\n\n**Preview:** {custom_message[:100]}{'...' if len(custom_message) > 100 else ''}",
                 ephemeral=True
             )
         else:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "✅ Custom message cleared. Template message will be used.",
                 ephemeral=True
             )
-        
-        # Refresh control panel
-        await update_control_panel_messages(self.profile)
 
 class PendingNotifActionView(discord.ui.View):
     def __init__(self, profile, event, notif_id):
@@ -590,15 +594,17 @@ class PendingNotifActionView(discord.ui.View):
 
     @discord.ui.button(label="Remove Selected", style=discord.ButtonStyle.red, custom_id="remove_pending_confirm")
     async def remove_pending_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         await remove_pending_notification(self.notif_id)
-        await interaction.response.send_message("Pending notification removed!", ephemeral=True)
         await update_control_panel_messages(self.profile)
+        await interaction.followup.send("Pending notification removed!", ephemeral=True)
 
     @discord.ui.button(label="Refresh All", style=discord.ButtonStyle.blurple, custom_id="refresh_pending_confirm")
     async def refresh_pending_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         await refresh_pending_notifications_for_event(self.profile, self.event["id"])
-        await interaction.response.send_message("Pending notifications refreshed!", ephemeral=True)
         await update_control_panel_messages(self.profile)
+        await interaction.followup.send("Pending notifications refreshed!", ephemeral=True)
 
 class PendingNotifView(discord.ui.View):
     def __init__(self, profile, event, notifs):
