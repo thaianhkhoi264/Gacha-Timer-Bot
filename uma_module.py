@@ -147,6 +147,10 @@ def get_image_hash(urls):
     combined = "|".join(sorted(urls))  # Sort to ensure consistent order
     return hashlib.md5(combined.encode()).hexdigest()[:12]
 
+def is_url(path):
+    """Check if path is a URL or local file path."""
+    return path and (path.startswith('http://') or path.startswith('https://'))
+
 def combine_images_vertically(img_url1, img_url2):
     """
     Downloads two images and combines them vertically.
@@ -168,13 +172,25 @@ def combine_images_vertically(img_url1, img_url2):
         if os.path.exists(filepath):
             uma_logger.info(f"[Image] Using cached combined image: {filepath}")
             return filepath
-        
-        # Download images
-        response1 = requests.get(img_url1)
-        response2 = requests.get(img_url2)
-        
-        img1 = Image.open(BytesIO(response1.content)).convert('RGBA')
-        img2 = Image.open(BytesIO(response2.content)).convert('RGBA')
+
+        # Load images (either download from URL or open local file if it exists)
+        if is_url(img_url1):
+            response1 = requests.get(img_url1)
+            img1 = Image.open(BytesIO(response1.content)).convert('RGBA')
+        elif os.path.exists(img_url1):
+            img1 = Image.open(img_url1).convert('RGBA')
+        else:
+            uma_logger.warning(f"[Image] Local file not found, skipping: {img_url1}")
+            return img_url2  # Return second image as fallback
+
+        if is_url(img_url2):
+            response2 = requests.get(img_url2)
+            img2 = Image.open(BytesIO(response2.content)).convert('RGBA')
+        elif os.path.exists(img_url2):
+            img2 = Image.open(img_url2).convert('RGBA')
+        else:
+            uma_logger.warning(f"[Image] Local file not found, skipping: {img_url2}")
+            return img_url1  # Return first image as fallback
         
         # Get dimensions
         width = max(img1.width, img2.width)
@@ -221,16 +237,24 @@ def combine_images_horizontally(img_urls):
         if os.path.exists(filepath):
             uma_logger.info(f"[Image] Using cached horizontal combined image: {filepath}")
             return filepath
-        
-        # Download all images
+
+        # Load all images (either download from URL or open local file if it exists)
         images = []
         for url in img_urls:
             try:
-                response = requests.get(url)
-                img = Image.open(BytesIO(response.content)).convert('RGBA')
-                images.append(img)
+                if is_url(url):
+                    response = requests.get(url)
+                    img = Image.open(BytesIO(response.content)).convert('RGBA')
+                    images.append(img)
+                elif os.path.exists(url):
+                    img = Image.open(url).convert('RGBA')
+                    images.append(img)
+                else:
+                    # Skip non-existent local files
+                    uma_logger.warning(f"[Image] Local file not found, skipping: {url}")
+                    continue
             except Exception as e:
-                uma_logger.warning(f"[Image] Failed to download {url}: {e}")
+                uma_logger.warning(f"[Image] Failed to load {url}: {e}")
         
         if not images:
             return img_urls[0]  # Fallback to first URL
