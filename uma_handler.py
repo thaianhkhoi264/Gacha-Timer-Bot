@@ -112,25 +112,25 @@ async def download_timeline():
             await page.goto("https://uma.moe/timeline", timeout=60000)
             await page.wait_for_load_state("networkidle")
 
-            # Check for and close Christmas popup if it exists
+            # Check for and close update popup if it exists
             try:
-                print("[UMA HANDLER] Checking for Christmas popup...")
-                popup = await page.query_selector('.christmas-popup-dialog')
+                print("[UMA HANDLER] Checking for update popup...")
+                popup = await page.query_selector('.update-popup-container')
                 if popup:
-                    print("[UMA HANDLER] Christmas popup detected, closing...")
-                    # Try to find and click the close button
-                    close_button = await page.query_selector('.christmas-popup-dialog button[mat-dialog-close], .christmas-popup-dialog .close-button, .christmas-popup-dialog [aria-label="Close"]')
+                    print("[UMA HANDLER] Update popup detected, closing...")
+                    # Try to find and click the action button
+                    close_button = await page.query_selector('.popup-actions button, .popup-actions [role="button"]')
                     if close_button:
                         await close_button.click()
                         await asyncio.sleep(0.5)
-                        print("[UMA HANDLER] Christmas popup closed via button")
+                        print("[UMA HANDLER] Update popup closed via button")
                     else:
-                        # If no close button, try pressing Escape
+                        # If no action button, try pressing Escape
                         await page.keyboard.press('Escape')
                         await asyncio.sleep(0.5)
-                        print("[UMA HANDLER] Christmas popup closed via Escape key")
+                        print("[UMA HANDLER] Update popup closed via Escape key")
                 else:
-                    print("[UMA HANDLER] No Christmas popup detected")
+                    print("[UMA HANDLER] No update popup detected")
             except Exception as e:
                 print(f"[UMA HANDLER] Error handling popup (non-critical): {e}")
 
@@ -325,8 +325,33 @@ async def download_timeline():
             
             # Process and combine events
             processed_events = await process_events(raw_events)
-            
-            uma_handler_logger.info(f"Processed {len(processed_events)} events from {len(raw_events)} raw events!")
+
+            # Filter out events that have already ended
+            # This prevents adding expired events to the database
+            now = int(datetime.now(timezone.utc).timestamp())
+            filtered_events = []
+            filtered_count = 0
+
+            for event in processed_events:
+                event_end = event.get("end")
+                if event_end and event_end < now:
+                    # Event has already ended, skip it
+                    filtered_count += 1
+                    event_title = event.get("title", "Unknown")
+                    end_dt = datetime.fromtimestamp(event_end, tz=timezone.utc)
+                    print(f"[UMA HANDLER] FILTERED (already ended): '{event_title}' ended at {end_dt}")
+                    uma_handler_logger.info(f"[Parse Filter] Skipped ended event: {event_title} (ended {end_dt})")
+                else:
+                    # Event is still ongoing or upcoming, keep it
+                    filtered_events.append(event)
+
+            if filtered_count > 0:
+                print(f"[UMA HANDLER] Filtered out {filtered_count} events that already ended")
+                uma_handler_logger.info(f"[Parse Filter] Filtered {filtered_count} ended events from {len(processed_events)} total")
+
+            processed_events = filtered_events  # Replace with filtered list
+
+            uma_handler_logger.info(f"Processed {len(processed_events)} events from {len(raw_events)} raw events (after filtering)!")
             
             if len(processed_events) == 0:
                 uma_handler_logger.warning("No events were processed! Check if timeline structure has changed.")
