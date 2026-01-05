@@ -151,14 +151,14 @@ async def download_timeline():
 
             # === SCROLL LEFT FIRST (to past/older events) ===
             print("[UMA HANDLER] Phase 1: Scrolling LEFT to load past events...")
-            scroll_amount = -400  # Scroll LEFT
-            max_scrolls = 100
+            scroll_amount = -600  # Scroll LEFT (increased from 400)
+            max_scrolls = 150     # Increased from 100
             no_new_events_count = 0
             previous_event_count = len(initial_events)
 
             for i in range(max_scrolls):
                 await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(2.0)  # Increased wait time for lazy loading + DOM updates
+                await asyncio.sleep(3.0)  # Increased wait time for lazy loading + DOM updates
                 event_items = await page.query_selector_all('.timeline-item.timeline-event')
                 current_count = len(event_items)
 
@@ -175,12 +175,12 @@ async def download_timeline():
 
             # === THEN SCROLL RIGHT (to future/newer events) ===
             print("[UMA HANDLER] Phase 2: Scrolling RIGHT to load future events...")
-            scroll_amount = 400  # Scroll RIGHT
+            scroll_amount = 600  # Scroll RIGHT (increased from 400)
             no_new_events_count = 0
 
             for i in range(max_scrolls):
                 await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(2.0)  # Increased wait time for lazy loading + DOM updates
+                await asyncio.sleep(3.0)  # Increased wait time for lazy loading + DOM updates
                 event_items = await page.query_selector_all('.timeline-item.timeline-event')
                 current_count = len(event_items)
 
@@ -196,8 +196,8 @@ async def download_timeline():
                         break
 
             # Wait for any final DOM updates after scrolling
-            print("[UMA HANDLER] Waiting 3 seconds for DOM to stabilize...")
-            await asyncio.sleep(3.0)
+            print("[UMA HANDLER] Waiting 5 seconds for DOM to stabilize...")
+            await asyncio.sleep(5.0)
 
             # Wait for network idle to catch any AJAX-loaded date updates
             print("[UMA HANDLER] Waiting for network idle (AJAX date updates)...")
@@ -322,7 +322,14 @@ async def download_timeline():
             await browser.close()
 
             uma_handler_logger.info(f"Downloaded {len(raw_events)} raw events from timeline")
-            
+
+            # Debug: Log ALL raw event dates to verify we're capturing future events
+            print(f"[UMA HANDLER DEBUG] Showing ALL {len(raw_events)} raw event dates:")
+            for i, event in enumerate(raw_events):
+                date_str = event.get("date_str", "NO DATE")
+                title = event.get("full_title", "NO TITLE")[:40]
+                print(f"  [{i+1}] {title}... | Date: {date_str}")
+
             # Process and combine events
             processed_events = await process_events(raw_events)
 
