@@ -186,7 +186,9 @@ async def download_timeline():
             # === THEN SCROLL RIGHT (to future/newer events) ===
             print("[UMA HANDLER] Phase 2: Scrolling RIGHT to load future events...")
             scroll_amount = 600  # Scroll RIGHT (increased from 400)
+            max_scrolls = 200  # Max iterations for RIGHT scroll
             no_new_events_count = 0
+            previous_event_count = current_count
 
             for i in range(max_scrolls):
                 await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
