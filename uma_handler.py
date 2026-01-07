@@ -149,29 +149,39 @@ async def download_timeline():
             await page.screenshot(path="uma_timeline_initial.png")
             print("[UMA HANDLER] Screenshot saved: uma_timeline_initial.png")
 
-            # === SCROLL LEFT FIRST (to past/older events) ===
-            print("[UMA HANDLER] Phase 1: Scrolling LEFT to load past events...")
-            scroll_amount = -600  # Scroll LEFT (increased from 400)
-            max_scrolls = 150     # Increased from 100
-            no_new_events_count = 0
-            previous_event_count = len(initial_events)
+            # === SCROLL LEFT FIRST (to find past events as reference) ===
+            print("[UMA HANDLER] Phase 1: Scrolling LEFT to find past events...")
+            scroll_amount = -600
+            max_left_scrolls = 10  # Only need a few scrolls to find past events
+            found_past_event = False
 
-            for i in range(max_scrolls):
+            for i in range(max_left_scrolls):
                 await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(3.0)  # Increased wait time for lazy loading + DOM updates
+                await asyncio.sleep(2.0)  # Shorter wait since we're just checking dates
                 event_items = await page.query_selector_all('.timeline-item.timeline-event')
-                current_count = len(event_items)
 
-                print(f"[UMA HANDLER] Scroll LEFT {i+1}: {current_count} events (+{current_count - previous_event_count})")
+                # Check if any visible events have ended (quick date check)
+                # We just need to find ONE past event to establish our position
+                for item in event_items[:5]:  # Check first 5 events only
+                    date_tag = await item.query_selector('.event-date')
+                    if date_tag:
+                        date_str = (await date_tag.inner_text()).strip()
+                        # Quick check: if date contains a past month/year, we found a past event
+                        # Events ending in Nov/Dec 2025 or earlier are in the past (today is Jan 2026)
+                        if '2025' in date_str and any(month in date_str for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']):
+                            found_past_event = True
+                            print(f"[UMA HANDLER] LEFT scroll {i+1}: Found past event reference (2025), stopping LEFT scroll")
+                            break
 
-                if current_count > previous_event_count:
-                    previous_event_count = current_count
-                    no_new_events_count = 0
-                else:
-                    no_new_events_count += 1
-                    if no_new_events_count >= 10:
-                        print(f"[UMA HANDLER] No new events after 10 LEFT scrolls. Total: {current_count}")
-                        break
+                if found_past_event:
+                    break
+
+                print(f"[UMA HANDLER] Scroll LEFT {i+1}: {len(event_items)} events visible, looking for past events...")
+
+            if not found_past_event:
+                print(f"[UMA HANDLER] LEFT scroll complete: No past events found (all events might be future)")
+
+            current_count = len(event_items)
 
             # === THEN SCROLL RIGHT (to future/newer events) ===
             print("[UMA HANDLER] Phase 2: Scrolling RIGHT to load future events...")
@@ -191,8 +201,8 @@ async def download_timeline():
                     no_new_events_count = 0
                 else:
                     no_new_events_count += 1
-                    if no_new_events_count >= 10:
-                        print(f"[UMA HANDLER] No new events after 10 RIGHT scrolls. Final total: {current_count}")
+                    if no_new_events_count >= 20:
+                        print(f"[UMA HANDLER] No new events after 20 RIGHT scrolls. Final total: {current_count}")
                         break
 
             # Wait for any final DOM updates after scrolling
