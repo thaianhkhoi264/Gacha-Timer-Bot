@@ -385,21 +385,27 @@ async def download_timeline():
 def extract_banner_id_from_image_url(img_url):
     """
     Extract banner ID from uma.moe image URLs.
-    
+
     Args:
         img_url: Image URL like "https://uma.moe/assets/images/character/banner/2021_30048.png"
-    
+
     Returns:
         str: Banner ID (e.g., "30048") or None if not found
     """
     if not img_url:
+        uma_handler_logger.debug(f"[Banner ID Extract] No image URL provided")
         return None
-    
+
+    uma_handler_logger.debug(f"[Banner ID Extract] Processing: {img_url}")
+
     # Pattern: 2021_XXXXX.png where XXXXX is the banner ID
     match = re.search(r'2021_(\d+)\.png', img_url)
     if match:
-        return match.group(1)
-    
+        banner_id = match.group(1)
+        uma_handler_logger.info(f"[Banner ID Extract] ✓ Extracted banner_id={banner_id}")
+        return banner_id
+
+    uma_handler_logger.warning(f"[Banner ID Extract] ✗ No match in URL: {img_url}")
     return None
 
 def extract_character_ids_from_legend_images(image_urls):
@@ -489,29 +495,33 @@ async def enrich_with_gametora_data(char_names, support_names, img_url):
     """
     Enrich character and support names with GameTora data (clickable links).
     Also check if GameTora has a better banner image.
-    
+
     Args:
         char_names: Plain text character names from uma.moe (e.g., "Name1 & Name2")
         support_names: Plain text support names from uma.moe
         img_url: Current image URL from uma.moe
-    
+
     Returns:
         tuple: (enriched_char_text, enriched_support_text, best_image_url)
     """
+    uma_handler_logger.debug(f"[Enrich] Starting enrichment for image: {img_url}")
+
     # Extract banner ID from image URL
     banner_id = extract_banner_id_from_image_url(img_url)
-    
+
     if not banner_id:
         # No banner ID found, return original data
+        uma_handler_logger.debug(f"[Enrich] No banner ID extracted, skipping enrichment")
         return char_names, support_names, img_url
-    
+
     # Query GameTora database
     gametora_data = await get_gametora_banner_data(banner_id)
-    
+
     if not gametora_data:
         # No GameTora data available, return original
+        uma_handler_logger.warning(f"[Enrich] No GameTora data for banner {banner_id}, using original data")
         return char_names, support_names, img_url
-    
+
     # Build enriched character names with links
     enriched_chars = char_names  # Default to original
     gametora_chars = gametora_data.get("characters", [])
@@ -521,8 +531,8 @@ async def enrich_with_gametora_data(char_names, support_names, img_url):
             full_link = f"https://gametora.com{link}"
             char_links.append(f"[{name}]({full_link})")
         enriched_chars = ", ".join(char_links)
-        uma_handler_logger.debug(f"[GameTora] Enriched characters: {enriched_chars[:100]}")
-    
+        uma_handler_logger.info(f"[Enrich] Enriched {len(gametora_chars)} character names")
+
     # Build enriched support names with links
     enriched_supports = support_names  # Default to original
     gametora_supports = gametora_data.get("supports", [])
@@ -532,8 +542,8 @@ async def enrich_with_gametora_data(char_names, support_names, img_url):
             full_link = f"https://gametora.com{link}"
             support_links.append(f"[{name}]({full_link})")
         enriched_supports = ", ".join(support_links)
-        uma_handler_logger.debug(f"[GameTora] Enriched supports: {enriched_supports[:100]}")
-    
+        uma_handler_logger.info(f"[Enrich] Enriched {len(gametora_supports)} support names")
+
     # Check if GameTora has a banner image
     best_image = img_url  # Default to uma.moe image
     banner_image = gametora_data.get("banner_image")
@@ -542,8 +552,12 @@ async def enrich_with_gametora_data(char_names, support_names, img_url):
         gametora_img_path = os.path.join(GAMETORA_IMAGES_PATH, banner_image)
         if os.path.exists(gametora_img_path):
             best_image = gametora_img_path
-            uma_handler_logger.debug(f"[GameTora] Using GameTora image: {gametora_img_path}")
-    
+            uma_handler_logger.info(f"[Enrich] ✓ Using EN image: {banner_image}")
+        else:
+            uma_handler_logger.warning(f"[Enrich] ✗ EN image file not found: {gametora_img_path}")
+    else:
+        uma_handler_logger.debug(f"[Enrich] No EN image in database for banner {banner_id}")
+
     return enriched_chars, enriched_supports, best_image
 
 async def process_events(raw_events):
@@ -655,7 +669,7 @@ async def process_events(raw_events):
                 if not char_names:
                     char_names = "Character Banner"
                 print(f"[UMA HANDLER] No tags found, using parsed name: {char_names}")
-            
+
             # Look for matching Support banner (search backward and forward)
             support_names = ""
             support_img = None
@@ -679,50 +693,41 @@ async def process_events(raw_events):
                         support_img = next_event["image_url"]
                         skip_indices.add(j)
                         break
-            
-            # Enrich character names with GameTora data (using character banner image)
-            enriched_chars, _, gametora_char_img = await enrich_with_gametora_data(
+
+            # ===== NEW ORDER: ENRICH FIRST, THEN COMBINE =====
+
+            # Step 1: Enrich character banner image (gets EN if available, JP as fallback)
+            enriched_chars, _, enriched_char_img = await enrich_with_gametora_data(
                 char_names, "", img_url
             )
-            
-            # Enrich support names with GameTora data (using support banner image if available)
+            uma_handler_logger.info(f"[Process] Character enrichment complete: {enriched_char_img[:50]}...")
+
+            # Step 2: Enrich support banner image (gets EN if available, JP as fallback)
             enriched_supports = support_names  # Default to original
-            gametora_support_img = None
+            enriched_support_img = None
             if support_names and support_img:
-                _, enriched_supports, gametora_support_img = await enrich_with_gametora_data(
+                _, enriched_supports, enriched_support_img = await enrich_with_gametora_data(
                     "", support_names, support_img
                 )
-                print(f"[UMA HANDLER] Enriched support cards: {enriched_supports[:80]}...")
-            
-            # Now handle image selection:
-            # Priority 1: GameTora images (if found for both char and support)
-            # Priority 2: Combined uma.moe images (character + support vertically)
-            # Priority 3: Original uma.moe image
-            final_img = img_url
-            
-            if gametora_char_img != img_url and gametora_support_img and gametora_support_img != support_img:
-                # Both GameTora images exist, combine them
+                uma_handler_logger.info(f"[Process] Support enrichment complete: {enriched_support_img[:50] if enriched_support_img else 'None'}...")
+
+            # Step 3: THEN combine enriched images (EN if available, JP as fallback)
+            # At this point, enriched_char_img and enriched_support_img are the BEST available images
+            # (EN from GameTora if exists, otherwise original JP from uma.moe)
+            final_img = enriched_char_img
+            if enriched_support_img:
                 from uma_module import combine_images_vertically
-                combined_path = combine_images_vertically(gametora_char_img, gametora_support_img)
+                combined_path = combine_images_vertically(enriched_char_img, enriched_support_img)
                 if combined_path:
                     final_img = combined_path
-                    print(f"[UMA HANDLER] Using combined GameTora images: {combined_path}")
-            elif gametora_char_img != img_url:
-                # Only character GameTora image exists
-                final_img = gametora_char_img
-                print(f"[UMA HANDLER] Using GameTora character image: {gametora_char_img}")
-            elif img_url and support_img:
-                # No GameTora images, combine uma.moe images
-                from uma_module import combine_images_vertically
-                combined_path = combine_images_vertically(img_url, support_img)
-                if combined_path:
-                    final_img = combined_path
-                    print(f"[UMA HANDLER] Using combined uma.moe images: {combined_path}")
-            
+                    uma_handler_logger.info(f"[Process] ✓ Combined enriched images: {combined_path}")
+                else:
+                    uma_handler_logger.warning(f"[Process] ✗ Image combination failed, using character image only")
+
             # Create combined event
             title = f"{char_names} Banner"  # Keep original names in title
             event_desc = f"**Characters:** {enriched_chars}\n**Support Cards:** {enriched_supports}" if enriched_supports else f"**Characters:** {enriched_chars}"
-            
+
             print(f"[UMA HANDLER] Created banner - Chars: {enriched_chars[:60]}...")
             print(f"[UMA HANDLER] Supports: {enriched_supports[:60] if enriched_supports else 'None'}...")
             
@@ -1073,10 +1078,10 @@ async def get_website_banner_ids(page, server: str = "JP"):
 async def get_gametora_banner_data(banner_id: str):
     """
     Query GameTora database for banner data including character/support card names and links.
-    
+
     Args:
         banner_id: The banner ID to look up (e.g., "30048")
-    
+
     Returns:
         dict: {
             "characters": [(name, link), ...],
@@ -1085,11 +1090,14 @@ async def get_gametora_banner_data(banner_id: str):
         }
         Returns empty dict if database doesn't exist or banner not found.
     """
+    uma_handler_logger.info(f"[GameTora] Looking up banner_id={banner_id}")
+
     # Check if database exists
     if not os.path.exists(GAMETORA_DB_PATH):
-        uma_handler_logger.debug(f"[GameTora] Database not found, skipping enrichment")
+        uma_handler_logger.warning(f"[GameTora] ✗ DATABASE NOT FOUND: {GAMETORA_DB_PATH}")
+        uma_handler_logger.warning(f"[GameTora] Run !uma_gametora_refresh to populate database")
         return {}
-    
+
     try:
         async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
             # Get characters for this banner
@@ -1102,7 +1110,7 @@ async def get_gametora_banner_data(banner_id: str):
             """, (banner_id,)) as cursor:
                 rows = await cursor.fetchall()
                 characters = [(name, link) for name, link in rows]
-            
+
             # Get support cards for this banner
             supports = []
             async with conn.execute("""
@@ -1113,7 +1121,7 @@ async def get_gametora_banner_data(banner_id: str):
             """, (banner_id,)) as cursor:
                 rows = await cursor.fetchall()
                 supports = [(name, link) for name, link in rows]
-            
+
             # Get banner image if available
             banner_image = None
             async with conn.execute("""
@@ -1124,20 +1132,24 @@ async def get_gametora_banner_data(banner_id: str):
                 row = await cursor.fetchone()
                 if row:
                     banner_image = row[0]
-            
-            uma_handler_logger.debug(
-                f"[GameTora] Banner {banner_id}: {len(characters)} chars, "
-                f"{len(supports)} supports, image: {banner_image}"
+
+            # Log results with clear status indicators
+            uma_handler_logger.info(
+                f"[GameTora] Banner {banner_id}: "
+                f"{len(characters)} chars, {len(supports)} supports, "
+                f"image={'✓ ' + banner_image if banner_image else '✗ None'}"
             )
-            
+
             return {
                 "characters": characters,
                 "supports": supports,
                 "banner_image": banner_image
             }
-    
+
     except Exception as e:
         uma_handler_logger.error(f"[GameTora] Error querying banner {banner_id}: {e}")
+        import traceback
+        uma_handler_logger.error(traceback.format_exc())
         return {}
 
 async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries: int = 3):

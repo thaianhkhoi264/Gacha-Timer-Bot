@@ -19,3 +19,4 @@ start_bot.sh
 .claude/settings.local.json
 nul
 docs/
+.*/
