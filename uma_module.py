@@ -528,7 +528,7 @@ async def uma_update_timers(_guild=None, force_update=False):
         return
     
     now = int(datetime.now(timezone.utc).timestamp())
-    one_month_later = now + (90 * 24 * 60 * 60)  # 90 days (3 months)
+    one_month_later = now + (30 * 24 * 60 * 60)  # 30 days (1 month)
     one_month_earlier = now - (30 * 24 * 60 * 60)  # 30 days in the past
     
     ongoing_channel = main_guild.get_channel(ONGOING_EVENTS_CHANNELS["UMA"])
@@ -605,10 +605,10 @@ async def uma_update_timers(_guild=None, force_update=False):
                 uma_logger.info(f"[Update Timers] Deleted ended event: {event['title']}")
                 continue
             
-            # Skip upcoming events more than 3 months away (but keep ongoing events regardless of start date)
+            # Skip upcoming events more than 1 month away (but keep ongoing events regardless of start date)
             if event["start"] > one_month_later and event["end"] > one_month_later:
                 skipped_count += 1
-                print(f"[UMA] SKIPPED (>3 months away): '{event['title']}' starts at {start_dt}")
+                print(f"[UMA] SKIPPED (>1 month away): '{event['title']}' starts at {start_dt}")
                 continue
 
             # Ongoing events (includes events that started in the past but haven't ended)
@@ -624,7 +624,7 @@ async def uma_update_timers(_guild=None, force_update=False):
                     uma_logger.info(f"[Update Timers] Posted ongoing event: {event['title']}")
                     print(f"[UMA] Posted to ongoing channel: {event['title']}")
 
-            # Upcoming events (within 3 months)
+            # Upcoming events (within 1 month)
             elif event["start"] > now and event["start"] <= one_month_later:
                 print(f"[UMA] Event '{event['title']}' is UPCOMING (start: {event['start']}, now: {now})")
                 if upcoming_channel:
