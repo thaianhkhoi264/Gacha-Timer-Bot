@@ -183,66 +183,21 @@ async def download_timeline():
 
             current_count = len(event_items)
 
-            # === THEN SCROLL RIGHT (to future/newer events) ===
-            print("[UMA HANDLER] Phase 2: Scrolling RIGHT to load future events...")
-            scroll_amount = 600  # Scroll RIGHT (increased from 400)
-            max_scrolls = 200  # Max iterations for RIGHT scroll
-            no_new_events_count = 0
-            previous_event_count = current_count
-
-            for i in range(max_scrolls):
-                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(3.0)  # Increased wait time for lazy loading + DOM updates
-                event_items = await page.query_selector_all('.timeline-item.timeline-event')
-                current_count = len(event_items)
-
-                print(f"[UMA HANDLER] Scroll RIGHT {i+1}: {current_count} events (+{current_count - previous_event_count})")
-
-                if current_count > previous_event_count:
-                    previous_event_count = current_count
-                    no_new_events_count = 0
-                else:
-                    no_new_events_count += 1
-                    if no_new_events_count >= 20:
-                        print(f"[UMA HANDLER] No new events after 20 RIGHT scrolls. Final total: {current_count}")
-                        break
-
-            # Wait for any final DOM updates after scrolling
-            print("[UMA HANDLER] Waiting 5 seconds for DOM to stabilize...")
-            await asyncio.sleep(5.0)
-
-            # Wait for network idle to catch any AJAX-loaded date updates
-            print("[UMA HANDLER] Waiting for network idle (AJAX date updates)...")
-            await page.wait_for_load_state("networkidle", timeout=10000)
-            print("[UMA HANDLER] Network idle confirmed")
-
-            # Force re-query to get fresh DOM
-            event_items = await page.query_selector_all('.timeline-item.timeline-event')
-            print(f"[UMA HANDLER] Final event count after stabilization: {len(event_items)}")
-
-            # Extract raw events - grab ALL events without filtering
-            raw_events = []
-            event_items = await page.query_selector_all('.timeline-item.timeline-event')
-            
-            print(f"[UMA HANDLER] Extracting {len(event_items)} events from timeline...")
-            
-            for item in event_items:
+            # === HELPER FUNCTION: Extract single event from DOM element ===
+            async def extract_single_event(item):
+                """Extract event data from a single timeline item DOM element."""
                 # Extract event title
                 title_tag = await item.query_selector('.event-title')
                 if not title_tag:
-                    continue
+                    return None
                 full_title = (await title_tag.inner_text()).strip()
-                
+
                 # Extract character/event tags from text content
                 # Character names appear on separate lines after the event type and date
                 tags = []
                 full_text = await item.inner_text()
                 lines = [line.strip() for line in full_text.split('\n') if line.strip()]
-                
-                # Debug: Print structure for character/support banners (commented out due to encoding issues on Windows)
-                # if "+" in full_title and "more" in full_title:
-                #     print(f"[UMA DEBUG LINES] {lines}")
-                
+
                 # For CHARACTER BANNER or SUPPORT CARD BANNER:
                 # Structure is: [type] [title with +1 more] [date] [name1] [name2] ...
                 if "CHARACTER BANNER" in full_text or "SUPPORT CARD BANNER" in full_text:
@@ -252,7 +207,7 @@ async def download_timeline():
                         if "–" in line and "202" in line:
                             date_idx = i
                             break
-                    
+
                     if date_idx is not None:
                         # Character names are on lines after the date
                         # Collect lines that look like character names (not too long, not special keywords)
@@ -265,25 +220,19 @@ async def download_timeline():
                             if name in ["CHARACTERS:", "SUPPORT CARDS:", "CHARACTER BANNER", "SUPPORT CARD BANNER"]:
                                 continue
                             tags.append(name)
-                        
-                        print(f"[UMA DEBUG EXTRACTION] Found {len(tags)} names after date line {date_idx}: {tags}")
-                
-                # Debug: Show what we extracted
-                print(f"[UMA HANDLER DEBUG] Title: {full_title[:60]}... | Tags: {tags}")
-                
+
                 # Extract event description/subtitle
                 description = ""
                 desc_tag = await item.query_selector('.event-description')
                 if desc_tag:
                     description = (await desc_tag.inner_text()).strip()
-                
+
                 # Extract ALL event images (Legend Race can have 3-4 character images)
                 img_urls = []
-                
+
                 # Get ALL img tags within this event item
                 all_imgs = await item.query_selector_all('img')
-                print(f"[UMA HANDLER DEBUG] Event '{full_title[:40]}...' has {len(all_imgs)} total img tags")
-                
+
                 for img_tag in all_imgs:
                     img_src = await img_tag.get_attribute("src")
                     if img_src:
@@ -292,29 +241,20 @@ async def download_timeline():
                         if any(pattern in img_src for pattern in ['chara_stand_', '2021_', '2022_', '2023_', '2024_', '2025_', 'img_bnr_', '/story/', '/paid/', '/support/']):
                             if full_url not in img_urls:  # Avoid duplicates
                                 img_urls.append(full_url)
-                                print(f"[UMA HANDLER DEBUG]   - Added image: {img_src.split('/')[-1]}")
-                
-                print(f"[UMA HANDLER DEBUG] Final: {len(img_urls)} images for '{full_title[:40]}...'")
-                
+
                 # Primary image URL (first one, for backwards compatibility)
                 img_url = img_urls[0] if img_urls else None
-                
+
                 # Extract event date
                 date_tag = await item.query_selector('.event-date')
                 if not date_tag:
-                    continue
+                    return None
                 date_str = (await date_tag.inner_text()).strip()
 
                 start_date, end_date = parse_event_date(date_str)
 
-                # Debug: Log parsed dates for Scorpio Cup and Mejiro Dober
-                # (Commented out due to cp932 encoding issues on Windows)
-                # if "scorpio" in full_title.lower() or "mejiro dober" in full_title.lower():
-                #     print(f"[UMA HANDLER DEBUG DATE] Parsed start: {start_date}")
-                #     print(f"[UMA HANDLER DEBUG DATE] Parsed end: {end_date}")
-                
-                # Store ALL events - don't skip any here
-                raw_events.append({
+                # Return event data
+                return {
                     "full_title": full_title,
                     "full_text": full_text,  # Store full text for event type detection
                     "tags": tags,
@@ -324,11 +264,83 @@ async def download_timeline():
                     "start_date": start_date,
                     "end_date": end_date,
                     "date_str": date_str
-                })
-                
-                # Debug: Print first few events (commented out due to encoding issues on Windows)
-                # if len(raw_events) <= 5:
-                #     print(f"[UMA HANDLER] Event {len(raw_events)}: {full_title[:50]}... | Tags: {tags} | Date: {date_str}")
+                }
+
+            # === Helper function to build proper title for logging ===
+            def build_proper_title(event_data):
+                """Build proper combined title like 'Oguri Cap & Biwa Hayahide Banner'."""
+                full_title = event_data.get("full_title", "")
+                tags = event_data.get("tags", [])
+                full_text = event_data.get("full_text", "")
+
+                # If title has "+ X more" and we have character names, build combined title
+                if "+" in full_title and "more" in full_title and tags:
+                    # Determine event type
+                    if "CHARACTER BANNER" in full_text:
+                        event_type = "Banner"
+                    elif "SUPPORT CARD BANNER" in full_text:
+                        event_type = "Support Banner"
+                    else:
+                        event_type = "Event"
+
+                    # Combine character names
+                    if len(tags) >= 2:
+                        return f"{tags[0]} & {tags[1]} {event_type}"
+                    elif len(tags) == 1:
+                        return f"{tags[0]} {event_type}"
+
+                # Otherwise, use the original title
+                return full_title
+
+            # === THEN SCROLL RIGHT (to future/newer events) ===
+            print("[UMA HANDLER] Phase 2: Scrolling RIGHT to load future events and extracting during scroll...")
+            scroll_amount = 600  # Scroll RIGHT (increased from 400)
+            max_scrolls = 200  # Max iterations for RIGHT scroll
+            no_new_events_count = 0
+
+            # Track unique events by (start_date, title) to avoid duplicates
+            seen_events = set()
+            raw_events = []
+
+            for i in range(max_scrolls):
+                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
+                await asyncio.sleep(3.0)  # Wait for lazy loading + DOM updates
+
+                # Extract events from current visible DOM
+                event_items = await page.query_selector_all('.timeline-item.timeline-event')
+
+                new_count = 0
+                for item in event_items:
+                    event_data = await extract_single_event(item)
+                    if not event_data:
+                        continue
+
+                    # Create unique key (start_date, title)
+                    event_key = (event_data['start_date'], event_data['full_title'])
+
+                    # Check if this is a new unique event
+                    if event_key not in seen_events:
+                        seen_events.add(event_key)
+                        raw_events.append(event_data)
+                        new_count += 1
+
+                        # Log with PROPER title (e.g., "Oguri Cap & Biwa Hayahide Banner")
+                        proper_title = build_proper_title(event_data)
+                        date_str = event_data.get('date_str', 'NO DATE')
+                        print(f"[UMA SCROLL] Found new event: {proper_title} (date: {date_str})")
+
+                # Update counter
+                if new_count > 0:
+                    print(f"[UMA HANDLER] Scroll RIGHT {i+1}: Found {new_count} new events (total unique: {len(seen_events)})")
+                    no_new_events_count = 0
+                else:
+                    no_new_events_count += 1
+                    print(f"[UMA HANDLER] Scroll RIGHT {i+1}: No new events (total unique: {len(seen_events)})")
+                    if no_new_events_count >= 30:
+                        print(f"[UMA HANDLER] No new events after 30 RIGHT scrolls. Total unique events: {len(seen_events)}")
+                        break
+
+            print(f"[UMA HANDLER] Scrolling complete. Captured {len(raw_events)} unique events.")
 
             await context.close()
             await browser.close()
@@ -398,8 +410,8 @@ def extract_banner_id_from_image_url(img_url):
 
     uma_handler_logger.debug(f"[Banner ID Extract] Processing: {img_url}")
 
-    # Pattern: 2021_XXXXX.png where XXXXX is the banner ID
-    match = re.search(r'2021_(\d+)\.png', img_url)
+    # Pattern: 202X_XXXXX.png where X is any digit (2020-2029) and XXXXX is the banner ID
+    match = re.search(r'202\d_(\d+)\.png', img_url)
     if match:
         banner_id = match.group(1)
         uma_handler_logger.info(f"[Banner ID Extract] ✓ Extracted banner_id={banner_id}")
