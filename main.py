@@ -14,7 +14,7 @@ from tweet_listener import tweet_listener_on_message
 from global_config import *
 
 from arknights_module import *
-import reminder_module
+# import reminder_module
 import control_panel
 import uma_module
 import api_server  # Import API server
@@ -442,8 +442,8 @@ async def on_ready():
 
     # Create background tasks FIRST (so they start immediately)
     print("[DEBUG] Creating background tasks...")
-    asyncio.create_task(reminder_module.daily_reminder_task())
-    print("[DEBUG] Reminder task created.")
+    # asyncio.create_task(reminder_module.daily_reminder_task())
+    # print("[DEBUG] Reminder task created.")
     asyncio.create_task(notification_loop())
     print("[DEBUG] Notification loop task created.")
     # asyncio.create_task(send_daily_report())
