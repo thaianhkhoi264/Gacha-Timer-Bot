@@ -337,7 +337,8 @@ class ConfirmEventButton(discord.ui.Button):
                 logging.info(f"[ConfirmEventButton] EVENT UPDATED | Interaction: {interaction.id}")
 
                 logging.info(f"[ConfirmEventButton] UPDATING CONTROL PANEL | Profile: {self.parent_view.profile}")
-                await update_control_panel_messages(self.parent_view.profile)
+                # OPTIMIZED: Only update panels affected by this single event
+                await update_single_event_panels(self.parent_view.profile, self.parent_view.event_id)
                 logging.info(f"[ConfirmEventButton] CONTROL PANEL UPDATED | Interaction: {interaction.id}")
 
                 logging.info(f"[ConfirmEventButton] SENDING SUCCESS | Interaction: {interaction.id}")
@@ -363,7 +364,23 @@ class ConfirmEventButton(discord.ui.Button):
                 logging.info(f"[ConfirmEventButton] EVENT ADDED | Interaction: {interaction.id}")
 
                 logging.info(f"[ConfirmEventButton] UPDATING CONTROL PANEL | Profile: {self.parent_view.profile}")
-                await update_control_panel_messages(self.parent_view.profile)
+                # OPTIMIZED: Only update dropdown panels and create notification panel for new event
+                events = await get_events(self.parent_view.profile)
+                await update_dropdown_panels(self.parent_view.profile, events)
+
+                # Query for the new event ID and create notification panel
+                from global_config import PROFILE_CONFIG as PC
+                event_db_path = PC[self.parent_view.profile]["DB_PATH"]
+                async with aiosqlite.connect(event_db_path) as conn:
+                    async with conn.execute(
+                        "SELECT id FROM events WHERE title=? AND category=? ORDER BY id DESC LIMIT 1",
+                        (self.parent_view.title, self.parent_view.selected_category)
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                        if row:
+                            new_event_id = row[0]
+                            await update_single_notification_panel(self.parent_view.profile, new_event_id)
+
                 logging.info(f"[ConfirmEventButton] CONTROL PANEL UPDATED | Interaction: {interaction.id}")
 
                 logging.info(f"[ConfirmEventButton] SENDING SUCCESS | Interaction: {interaction.id}")
@@ -421,7 +438,28 @@ class RemoveEventConfirmView(discord.ui.View):
     async def remove_event_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         await remove_event_by_id(self.profile, self.event_id)
-        await update_control_panel_messages(self.profile)
+
+        # OPTIMIZED: Only update dropdown panels and delete notification panel
+        events = await get_events(self.profile)
+        await update_dropdown_panels(self.profile, events)
+
+        # Delete notification panel if it exists
+        if self.profile in CONTROL_PANEL_MESSAGE_IDS:
+            if self.event_id in CONTROL_PANEL_MESSAGE_IDS[self.profile].get("notifs", {}):
+                try:
+                    channel_id = CONTROL_PANEL_CHANNELS.get(self.profile)
+                    guild = bot.get_guild(MAIN_SERVER_ID)
+                    channel = guild.get_channel(channel_id) if guild else None
+                    if channel:
+                        msg_id = CONTROL_PANEL_MESSAGE_IDS[self.profile]["notifs"][self.event_id]
+                        msg = await channel.fetch_message(msg_id)
+                        await msg.delete()
+                        await delete_control_panel_message_id(self.profile, "notif", self.event_id)
+                        del CONTROL_PANEL_MESSAGE_IDS[self.profile]["notifs"][self.event_id]
+                        print(f"[ControlPanel] Deleted notification panel for removed event {self.event_id}")
+                except Exception as e:
+                    print(f"[ControlPanel] Error deleting notification panel: {e}")
+
         await interaction.followup.send(f"Event **{self.event_title}** removed successfully!", ephemeral=True)
 
 class RemoveEventView(discord.ui.View):
@@ -586,8 +624,28 @@ class EditMessageModal(discord.ui.Modal):
             )
             await conn.commit()
 
-        # Refresh control panel
-        await update_control_panel_messages(self.profile)
+        # OPTIMIZED: Get event_id from notification, then only update that event's panel
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT profile, title, category FROM pending_notifications WHERE id=?",
+                (self.notif_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    notif_profile, notif_title, notif_category = row
+                    # Get event_id from event database
+                    from global_config import PROFILE_CONFIG
+                    event_db_path = PROFILE_CONFIG[notif_profile]["DB_PATH"]
+                    async with aiosqlite.connect(event_db_path) as event_conn:
+                        async with event_conn.execute(
+                            "SELECT id FROM events WHERE title=? AND category=?",
+                            (notif_title, notif_category)
+                        ) as event_cursor:
+                            event_row = await event_cursor.fetchone()
+                            if event_row:
+                                event_id = event_row[0]
+                                # Only update this event's notification panel instead of all panels
+                                await update_single_notification_panel(self.profile, event_id)
 
         # Send confirmation
         if custom_message:
@@ -626,14 +684,16 @@ class PendingNotifActionView(discord.ui.View):
     async def remove_pending_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         await remove_pending_notification(self.notif_id)
-        await update_control_panel_messages(self.profile)
+        # OPTIMIZED: Only update this event's notification panel instead of all panels
+        await update_single_notification_panel(self.profile, self.event["id"])
         await interaction.followup.send("Pending notification removed!", ephemeral=True)
 
     @discord.ui.button(label="Refresh All", style=discord.ButtonStyle.blurple, custom_id="refresh_pending_confirm")
     async def refresh_pending_confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         await refresh_pending_notifications_for_event(self.profile, self.event["id"])
-        await update_control_panel_messages(self.profile)
+        # OPTIMIZED: Only update this event's notification panel instead of all panels
+        await update_single_notification_panel(self.profile, self.event["id"])
         await interaction.followup.send("Pending notifications refreshed!", ephemeral=True)
 
 class PendingNotifView(discord.ui.View):
@@ -743,30 +803,60 @@ async def update_single_event_panels(profile, event_id):
     """
     Updates only the panels affected by a single event:
     - Remove Event dropdown
-    - Edit Event dropdown  
+    - Edit Event dropdown
     - Pending Notifications for that specific event
-    
+
     This is much more efficient than updating the entire control panel.
     """
     print(f"[ControlPanel] Updating panels for single event (profile: {profile}, event_id: {event_id})")
-    
+
+    # Fetch events once and reuse for both dropdown updates
+    events = await get_events(profile)
+
+    # Update dropdown panels (Remove + Edit)
+    await update_dropdown_panels(profile, events)
+
+    # Update notification panel for this specific event
+    await update_single_notification_panel(profile, event_id)
+
+    print(f"[ControlPanel] Finished updating panels for event {event_id}")
+
+async def update_dropdown_panels(profile, events=None):
+    """
+    Updates only the Remove and Edit event dropdown panels.
+    Does NOT update the Add panel (it never changes) or notification panels.
+
+    This is more efficient than update_control_panel_messages() when you only
+    need to refresh the event list dropdowns (e.g., after adding/removing an event).
+
+    Args:
+        profile: Profile identifier (e.g., "AK", "UMA")
+        events: Optional pre-fetched event list (avoids duplicate DB query)
+
+    Returns:
+        bool: True if successful, False if channel not found
+    """
+    print(f"[ControlPanel] Updating dropdown panels for profile: {profile}")
+
     channel_id = CONTROL_PANEL_CHANNELS.get(profile)
     if not channel_id:
         print(f"[ControlPanel] No channel ID found for profile {profile}.")
-        return
-    
+        return False
+
     guild = bot.get_guild(MAIN_SERVER_ID)
     channel = guild.get_channel(channel_id) if guild else None
     if not channel:
         print(f"[ControlPanel] Channel {channel_id} not found.")
-        return
-    
+        return False
+
     # Initialize if needed
     if profile not in CONTROL_PANEL_MESSAGE_IDS:
         CONTROL_PANEL_MESSAGE_IDS[profile] = {"add": None, "remove": None, "edit": None, "notifs": {}}
-    
-    events = await get_events(profile)
-    
+
+    # Fetch events if not provided
+    if events is None:
+        events = await get_events(profile)
+
     # Update Remove Event Panel
     try:
         remove_view = RemoveEventView(profile, events)
@@ -779,12 +869,12 @@ async def update_single_event_panels(profile, event_id):
                 print(f"[ControlPanel] Remove Event message not found, skipping update")
             except discord.HTTPException as e:
                 if e.code == 30046:  # Too many edits
-                    print(f"[ControlPanel] Rate limited on Remove Event panel, will update later")
+                    print(f"[ControlPanel] Rate limited on Remove Event panel")
                 else:
                     raise
     except Exception as e:
         print(f"[ControlPanel] Error updating Remove Event panel: {e}")
-    
+
     # Update Edit Event Panel
     try:
         edit_view = EditEventView(profile, events)
@@ -797,58 +887,105 @@ async def update_single_event_panels(profile, event_id):
                 print(f"[ControlPanel] Edit Event message not found, skipping update")
             except discord.HTTPException as e:
                 if e.code == 30046:  # Too many edits
-                    print(f"[ControlPanel] Rate limited on Edit Event panel, will update later")
+                    print(f"[ControlPanel] Rate limited on Edit Event panel")
                 else:
                     raise
     except Exception as e:
         print(f"[ControlPanel] Error updating Edit Event panel: {e}")
-    
-    # Update Pending Notification for this specific event
+
+    print(f"[ControlPanel] Finished updating dropdown panels for {profile}")
+    return True
+
+async def update_single_notification_panel(profile, event_id):
+    """
+    Updates only the notification panel for a specific event.
+    Creates/updates/deletes the panel as needed based on notification count.
+
+    This is the most efficient update when only one event's notifications changed
+    (e.g., editing a notification message, removing a notification, or refreshing).
+
+    Args:
+        profile: Profile identifier (e.g., "AK", "UMA")
+        event_id: Specific event ID to update
+
+    Returns:
+        bool: True if successful, False if channel/event not found
+    """
+    print(f"[ControlPanel] Updating notification panel for event {event_id} (profile: {profile})")
+
+    channel_id = CONTROL_PANEL_CHANNELS.get(profile)
+    if not channel_id:
+        print(f"[ControlPanel] No channel ID found for profile {profile}.")
+        return False
+
+    guild = bot.get_guild(MAIN_SERVER_ID)
+    channel = guild.get_channel(channel_id) if guild else None
+    if not channel:
+        print(f"[ControlPanel] Channel {channel_id} not found.")
+        return False
+
+    # Initialize if needed
+    if profile not in CONTROL_PANEL_MESSAGE_IDS:
+        CONTROL_PANEL_MESSAGE_IDS[profile] = {"add": None, "remove": None, "edit": None, "notifs": {}}
+
+    # Get event details
+    event = await get_event_by_id(profile, event_id)
+    if not event:
+        print(f"[ControlPanel] Event {event_id} not found.")
+        return False
+
+    # Get pending notifications
+    notifs = await get_pending_notifications_for_event(profile, event_id)
+    print(f"[ControlPanel] Event '{event['title']}' has {len(notifs)} pending notifications.")
+
     try:
-        event = await get_event_by_id(profile, event_id)
-        if event:
-            notifs = await get_pending_notifications_for_event(profile, event_id)
-            print(f"[ControlPanel] Event '{event['title']}' has {len(notifs)} pending notifications.")
-            
-            if notifs:
-                # Create or update notification panel
-                notif_view = PendingNotifView(profile, notifs, event)
-                content = f"**Pending Notifications for {event['title']}**"
-                
-                if event_id in CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"]:
-                    try:
-                        msg_id = CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
-                        msg = await channel.fetch_message(msg_id)
-                        await msg.edit(content=content, view=notif_view)
-                        print(f"[ControlPanel] Updated notification panel for event {event_id}")
-                    except discord.NotFound:
-                        # Message deleted, create new one
-                        msg = await channel.send(content, view=notif_view)
-                        CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id] = msg.id
-                        await save_control_panel_message_id(profile, "notif", event_id, msg.id)
-                        print(f"[ControlPanel] Created new notification panel for event {event_id}")
-                else:
-                    # Create new notification panel
+        if notifs:
+            # Create or update notification panel
+            notif_view = PendingNotifView(profile, event, notifs)  # CORRECT parameter order
+            content = f"**Pending Notifications for {event['title']}**"
+
+            if event_id in CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"]:
+                # Update existing panel
+                try:
+                    msg_id = CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
+                    msg = await channel.fetch_message(msg_id)
+                    await msg.edit(content=content, view=notif_view)
+                    print(f"[ControlPanel] Updated notification panel for event {event_id}")
+                except discord.NotFound:
+                    # Message deleted, create new one
                     msg = await channel.send(content, view=notif_view)
                     CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id] = msg.id
-                    await save_control_panel_message_id(profile, "notif", event_id, msg.id)
-                    print(f"[ControlPanel] Created notification panel for event {event_id}")
+                    await save_control_panel_message_id(profile, "notif", msg.id, event_id)
+                    print(f"[ControlPanel] Created new notification panel for event {event_id}")
+                except discord.HTTPException as e:
+                    if e.code == 30046:  # Too many edits
+                        print(f"[ControlPanel] Rate limited on notification panel for event {event_id}")
+                    else:
+                        raise
             else:
-                # No notifications, delete panel if it exists
-                if event_id in CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"]:
-                    try:
-                        msg_id = CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
-                        msg = await channel.fetch_message(msg_id)
-                        await msg.delete()
-                        await delete_control_panel_message_id(profile, "notif", event_id)
-                        del CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
-                        print(f"[ControlPanel] Deleted notification panel (no notifications)")
-                    except Exception as e:
-                        print(f"[ControlPanel] Error deleting empty notification panel: {e}")
+                # Create new notification panel
+                msg = await channel.send(content, view=notif_view)
+                CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id] = msg.id
+                await save_control_panel_message_id(profile, "notif", msg.id, event_id)
+                print(f"[ControlPanel] Created notification panel for event {event_id}")
+        else:
+            # No notifications, delete panel if it exists
+            if event_id in CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"]:
+                try:
+                    msg_id = CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
+                    msg = await channel.fetch_message(msg_id)
+                    await msg.delete()
+                    await delete_control_panel_message_id(profile, "notif", event_id)
+                    del CONTROL_PANEL_MESSAGE_IDS[profile]["notifs"][event_id]
+                    print(f"[ControlPanel] Deleted notification panel (no notifications)")
+                except Exception as e:
+                    print(f"[ControlPanel] Error deleting empty notification panel: {e}")
     except Exception as e:
         print(f"[ControlPanel] Error updating notification panel: {e}")
-    
-    print(f"[ControlPanel] Finished updating panels for event {event_id}")
+        return False
+
+    print(f"[ControlPanel] Finished updating notification panel for event {event_id}")
+    return True
 
 async def update_control_panel_messages(profile):
     """
