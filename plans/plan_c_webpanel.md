@@ -71,7 +71,6 @@ deployed to Cloudflare Pages.
 
 ### Phase 1 — Extract business logic to `event_manager.py`
 
-- [ ] **Create `event_manager.py`**
 - [x] **Create `event_manager.py`**
 
   Move these functions verbatim from `control_panel.py` (they have no Discord UI dependency):
@@ -106,38 +105,26 @@ deployed to Cloudflare Pages.
   def set_bot(bot): global _bot; _bot = bot
   ```
 
-- [ ] **Update `control_panel.py`** to import from `event_manager` instead of defining those
+- [x] **Update `control_panel.py`** to import from `event_manager` instead of defining those
   functions inline. This keeps the Discord panel working while the new API is being built.
   Confirm bot still starts cleanly.
+  *Done: control_panel.py imports from event_manager.*
 
 ---
 
 ### Phase 2 — Add API routes to `api_server.py`
 
-- [ ] **Add `aiohttp-cors` to `requirements.txt`**
-  ```
-  aiohttp-cors
-  ```
-  Run `pip install aiohttp-cors` on the Pi.
+- [x] **Add `aiohttp-cors` to `requirements.txt`**
+  *Done: `aiohttp-cors` is in requirements.txt.*
 
-- [ ] **Configure CORS in `api_server.py`**
-  In `create_app()`, wrap the app with cors:
-  ```python
-  import aiohttp_cors
-  cors = aiohttp_cors.setup(app, defaults={
-      "https://your-pages-domain.pages.dev": aiohttp_cors.ResourceOptions(
-          allow_credentials=False,
-          expose_headers="*",
-          allow_headers=("X-API-Key", "Content-Type"),
-          allow_methods=["GET", "POST", "PUT", "DELETE"],
-      )
-  })
-  for route in list(app.router.routes()):
-      cors.add(route)
-  ```
-  Replace `your-pages-domain.pages.dev` with the actual Cloudflare Pages domain.
+- [x] **Configure CORS in `api_server.py`**
+  *Done: CORS configured with wildcard origin (will be narrowed to the specific Cloudflare Pages
+  domain once it is known). Uses `allow_credentials=True` — fine since auth uses `X-API-Key`
+  header, not cookies. Origin is echoed back by aiohttp_cors (not literal `*`).*
+  *Also done: `event_manager.set_bot(bot)` is now called from `main.py` alongside
+  `api_server.bot_instance = bot` so that `remove_event_by_id` can delete Discord embeds.*
 
-- [ ] **Add event routes**
+- [x] **Add event routes**
 
   ```python
   # GET /api/events/{profile}
@@ -165,33 +152,14 @@ deployed to Cloudflare Pages.
   async def handle_remove_event(request): ...
   ```
 
-- [ ] **Add notification routes**
+- [x] **Add notification routes**
+  *Done: handle_list_notifications, handle_remove_notification, handle_refresh_notifications.*
 
-  ```python
-  # GET /api/events/{profile}/{event_id}/notifications
-  async def handle_list_notifications(request): ...
+- [x] **Add dashboard refresh route**
+  *Done: handle_refresh_dashboard.*
 
-  # DELETE /api/notifications/{notif_id}
-  async def handle_remove_notification(request): ...
-
-  # POST /api/events/{profile}/{event_id}/notifications/refresh
-  async def handle_refresh_notifications(request): ...
-  ```
-
-- [ ] **Add dashboard refresh route**
-
-  ```python
-  # POST /api/dashboard/{profile}/refresh
-  async def handle_refresh_dashboard(request):
-      profile = request.match_info["profile"].upper()
-      await PROFILE_CONFIG[profile]["update_timers"]()
-      return web.json_response({"success": True})
-  ```
-
-- [ ] **Register all routes** in `create_app()` and confirm with a test curl:
-  ```bash
-  curl -H "X-API-Key: YOUR_KEY" https://your-domain.com/api/events/UMA
-  ```
+- [x] **Register all routes** in `create_app()` and confirm with a test curl:
+  *Done: all routes registered. Test curl pending until deployed to Pi.*
 
 ---
 

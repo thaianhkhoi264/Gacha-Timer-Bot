@@ -17,7 +17,8 @@ from shadowverse_handler import (
     get_recent_matches,
     CRAFTS
 )
-from global_config import DEV_SERVER_ID
+from global_config import DEV_SERVER_ID, OWNER_USER_ID
+import event_manager
 import logging
 
 # Configure logging
@@ -26,6 +27,13 @@ api_logger.setLevel(logging.INFO)
 
 # Bot instance will be set by main.py to avoid circular imports
 bot_instance = None
+
+# Try to import aiohttp_cors (Plan C requirement)
+try:
+    import aiohttp_cors
+except ImportError:
+    aiohttp_cors = None
+    api_logger.warning("aiohttp-cors not installed. CORS will be disabled.")
 
 # Track active API match notifications (temporary messages that auto-delete after 30s)
 # Format: {user_id: {"message": discord.Message, "count": int, "timer": asyncio.Task}}
@@ -1013,11 +1021,217 @@ async def handle_list_matches(request):
             status=500
         )
 
+# --- Plan C: Event Management Routes ---
+
+async def handle_list_events(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+    
+    try:
+        events = await event_manager.get_events(profile)
+        return web.json_response({"success": True, "events": events})
+    except Exception as e:
+        api_logger.error(f"Error listing events: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_get_event(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        event = await event_manager.get_event_by_id(profile, int(event_id))
+        if not event:
+            return web.json_response({"success": False, "error": "Event not found"}, status=404)
+        return web.json_response({"success": True, "event": event})
+    except ValueError:
+        return web.json_response({"success": False, "error": "Invalid event ID"}, status=400)
+    except Exception as e:
+        api_logger.error(f"Error getting event: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_add_event(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        data = await request.json()
+        # Validate required fields
+        required = ["title", "category", "start_unix", "end_unix"]
+        if not all(k in data for k in required):
+             return web.json_response({"success": False, "error": "Missing fields"}, status=400)
+
+        # Construct event_data for add_event
+        event_data = {
+            "title": data["title"],
+            "category": data["category"],
+            "start": str(data["start_unix"]),
+            "end": str(data["end_unix"]),
+            "image": data.get("image"),
+            "description": data.get("description", "")
+        }
+
+        # Create a dummy context for add_event (it expects ctx.author.id)
+        class DummyCtx:
+            class Author:
+                id = str(OWNER_USER_ID)
+            author = Author()
+            async def send(self, msg, **kwargs):
+                pass # Suppress output
+
+        await event_manager.PROFILE_CONFIG[profile]["add_event"](DummyCtx(), event_data)
+        return web.json_response({"success": True, "message": "Event added"})
+    except Exception as e:
+        api_logger.error(f"Error adding event: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_update_event(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        data = await request.json()
+        await event_manager.update_event(
+            profile, 
+            int(event_id), 
+            data["title"], 
+            data["category"], 
+            str(data["start_unix"]), 
+            str(data["end_unix"]), 
+            data.get("image")
+        )
+        return web.json_response({"success": True, "message": "Event updated"})
+    except Exception as e:
+        api_logger.error(f"Error updating event: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_remove_event(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        success = await event_manager.remove_event_by_id(profile, int(event_id))
+        if success:
+            return web.json_response({"success": True, "message": "Event removed"})
+        else:
+            return web.json_response({"success": False, "error": "Event not found"}, status=404)
+    except Exception as e:
+        api_logger.error(f"Error removing event: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_list_notifications(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        notifs = await event_manager.get_pending_notifications_for_event(profile, int(event_id))
+        return web.json_response({"success": True, "notifications": notifs})
+    except Exception as e:
+        api_logger.error(f"Error listing notifications: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_remove_notification(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    notif_id = request.match_info["notif_id"]
+    try:
+        await event_manager.remove_pending_notification(int(notif_id))
+        return web.json_response({"success": True, "message": "Notification removed"})
+    except Exception as e:
+        api_logger.error(f"Error removing notification: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_refresh_notifications(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        await event_manager.refresh_pending_notifications_for_event(profile, int(event_id))
+        return web.json_response({"success": True, "message": "Notifications refreshed"})
+    except Exception as e:
+        api_logger.error(f"Error refreshing notifications: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_refresh_dashboard(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        await event_manager.PROFILE_CONFIG[profile]["update_timers"]()
+        return web.json_response({"success": True, "message": "Dashboard refreshed"})
+    except Exception as e:
+        api_logger.error(f"Error refreshing dashboard: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
 def create_app():
     """
     Creates and configures the aiohttp web application.
     """
     app = web.Application()
+
+    # Configure CORS if available
+    if aiohttp_cors:
+        cors = aiohttp_cors.setup(app, defaults={
+            "*": aiohttp_cors.ResourceOptions(
+                allow_credentials=True,
+                expose_headers="*",
+                allow_headers="*",
+                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            )
+        })
+    else:
+        cors = None
 
     # Add routes
     app.router.add_post('/api/shadowverse/log_match', handle_log_match)
@@ -1026,6 +1240,24 @@ def create_app():
     app.router.add_get('/api/shadowverse/matches', handle_list_matches)
     app.router.add_get('/api/health', handle_health_check)
     app.router.add_get('/api/validate_key', handle_validate_key)
+    
+    # Plan C Routes
+    app.router.add_get('/api/events/{profile}', handle_list_events)
+    app.router.add_get('/api/events/{profile}/{event_id}', handle_get_event)
+    app.router.add_post('/api/events/{profile}', handle_add_event)
+    app.router.add_put('/api/events/{profile}/{event_id}', handle_update_event)
+    app.router.add_delete('/api/events/{profile}/{event_id}', handle_remove_event)
+    
+    app.router.add_get('/api/events/{profile}/{event_id}/notifications', handle_list_notifications)
+    app.router.add_delete('/api/notifications/{notif_id}', handle_remove_notification)
+    app.router.add_post('/api/events/{profile}/{event_id}/notifications/refresh', handle_refresh_notifications)
+    
+    app.router.add_post('/api/dashboard/{profile}/refresh', handle_refresh_dashboard)
+
+    # Add CORS to all routes
+    if cors:
+        for route in list(app.router.routes()):
+            cors.add(route)
 
     return app
 
