@@ -11,17 +11,6 @@ from datetime import datetime, timezone, timedelta
 from global_config import ONGOING_EVENTS_CHANNELS, UPCOMING_EVENTS_CHANNELS, OWNER_USER_ID, MAIN_SERVER_ID
 import logging
 
-# Test PIL import early to catch errors
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-except ImportError as e:
-    print(f"[WARNING] PIL (Pillow) not available: {e}")
-    PIL_AVAILABLE = False
-
-import aiohttp
-from io import BytesIO
-
 # Create logger for Uma Musume
 uma_logger = logging.getLogger("uma_musume")
 uma_logger.setLevel(logging.INFO)
@@ -137,162 +126,6 @@ async def init_uma_db():
         ''')
         await conn.commit()
         uma_logger.info(f"[DB Init] Database initialized successfully at: {UMA_DB_PATH}")
-
-def get_image_hash(urls):
-    """
-    Generate a consistent hash from image URLs to ensure same images always get same filename.
-    This prevents image mismatches after database resets.
-    """
-    import hashlib
-    combined = "|".join(sorted(urls))  # Sort to ensure consistent order
-    return hashlib.md5(combined.encode()).hexdigest()[:12]
-
-def is_url(path):
-    """Check if path is a URL or local file path."""
-    return path and (path.startswith('http://') or path.startswith('https://'))
-
-async def combine_images_vertically(img_url1, img_url2):
-    """
-    Downloads two images and combines them vertically.
-    Returns the path to the saved combined image.
-    Uses content-based filename to ensure consistency after DB resets.
-    """
-    if not PIL_AVAILABLE:
-        uma_logger.warning("[Image] PIL not available, cannot combine images")
-        return img_url1  # Return first image URL as fallback
-    
-    try:
-        # Generate consistent filename based on input URLs
-        img_hash = get_image_hash([img_url1, img_url2])
-        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
-        filename = f"combined_v_{img_hash}.png"
-        filepath = os.path.join("data", "combined_images", filename)
-        
-        # If already exists, return existing file
-        if os.path.exists(filepath):
-            uma_logger.info(f"[Image] Using cached combined image: {filepath}")
-            return filepath
-
-        # Load images (either download from URL or open local file if it exists)
-        if is_url(img_url1):
-            async with aiohttp.ClientSession() as session:
-                async with session.get(img_url1) as resp:
-                    if resp.status != 200:
-                        return img_url2
-                    img1 = Image.open(BytesIO(await resp.read())).convert('RGBA')
-        elif os.path.exists(img_url1):
-            img1 = Image.open(img_url1).convert('RGBA')
-        else:
-            uma_logger.warning(f"[Image] Local file not found, skipping: {img_url1}")
-            return img_url2  # Return second image as fallback
-
-        if is_url(img_url2):
-            async with aiohttp.ClientSession() as session:
-                async with session.get(img_url2) as resp:
-                    if resp.status != 200:
-                        return img_url1
-                    img2 = Image.open(BytesIO(await resp.read())).convert('RGBA')
-        elif os.path.exists(img_url2):
-            img2 = Image.open(img_url2).convert('RGBA')
-        else:
-            uma_logger.warning(f"[Image] Local file not found, skipping: {img_url2}")
-            return img_url1  # Return first image as fallback
-        
-        # Get dimensions
-        width = max(img1.width, img2.width)
-        height = img1.height + img2.height
-        
-        # Create new image with transparency
-        combined = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        combined.paste(img1, (0, 0), img1 if img1.mode == 'RGBA' else None)
-        combined.paste(img2, (0, img1.height), img2 if img2.mode == 'RGBA' else None)
-        
-        # Save combined image
-        combined.save(filepath, 'PNG')
-        uma_logger.info(f"[Image] Combined images vertically saved to: {filepath}")
-        
-        return filepath
-    except Exception as e:
-        uma_logger.error(f"Failed to combine images vertically: {e}")
-        return None
-
-async def combine_images_horizontally(img_urls):
-    """
-    Downloads multiple images and combines them horizontally.
-    Used for Legend Race character images.
-    Returns the path to the saved combined image.
-    """
-    if not PIL_AVAILABLE:
-        uma_logger.warning("[Image] PIL not available, cannot combine images")
-        return img_urls[0] if img_urls else None
-    
-    if not img_urls:
-        return None
-    
-    if len(img_urls) == 1:
-        return img_urls[0]  # Single image, just return URL
-    
-    try:
-        # Generate consistent filename based on input URLs
-        img_hash = get_image_hash(img_urls)
-        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
-        filename = f"combined_h_{img_hash}.png"
-        filepath = os.path.join("data", "combined_images", filename)
-        
-        # If already exists, return existing file
-        if os.path.exists(filepath):
-            uma_logger.info(f"[Image] Using cached horizontal combined image: {filepath}")
-            return filepath
-
-        # Load all images (either download from URL or open local file if it exists)
-        images = []
-        async with aiohttp.ClientSession() as session:
-            for url in img_urls:
-                try:
-                    if is_url(url):
-                        async with session.get(url) as resp:
-                            if resp.status == 200:
-                                img = Image.open(BytesIO(await resp.read())).convert('RGBA')
-                                images.append(img)
-                    elif os.path.exists(url):
-                        img = Image.open(url).convert('RGBA')
-                        images.append(img)
-                    else:
-                        # Skip non-existent local files
-                        uma_logger.warning(f"[Image] Local file not found, skipping: {url}")
-                        continue
-                except Exception as e:
-                    uma_logger.warning(f"[Image] Failed to load {url}: {e}")
-        
-        if not images:
-            return img_urls[0]  # Fallback to first URL
-        
-        if len(images) == 1:
-            return img_urls[0]  # Only one image downloaded successfully
-        
-        # Calculate total dimensions
-        total_width = sum(img.width for img in images)
-        max_height = max(img.height for img in images)
-        
-        # Create new image with transparency
-        combined = Image.new('RGBA', (total_width, max_height), (0, 0, 0, 0))
-        
-        # Paste images side by side
-        x_offset = 0
-        for img in images:
-            # Center vertically if heights differ
-            y_offset = (max_height - img.height) // 2
-            combined.paste(img, (x_offset, y_offset), img if img.mode == 'RGBA' else None)
-            x_offset += img.width
-        
-        # Save combined image
-        combined.save(filepath, 'PNG')
-        uma_logger.info(f"[Image] Combined {len(images)} images horizontally saved to: {filepath}")
-        
-        return filepath
-    except Exception as e:
-        uma_logger.error(f"Failed to combine images horizontally: {e}")
-        return img_urls[0] if img_urls else None
 
 async def post_event_embed(channel, event):
     """Posts an embed for the Uma Musume event."""
@@ -770,11 +603,10 @@ async def uma_force_refresh(ctx):
     await ctx.send("🔄 Force refreshing Uma Musume events...")
     print("[UMA] Force refresh triggered by user command")
     
-    # Import and run the update
-    from uma_handler import update_uma_events
+    from uma_handler import scrape_and_save_events
     try:
-        await update_uma_events()
-        
+        await scrape_and_save_events()
+
         # Force refresh all embeds with new colors/titles
         print("[UMA] Force updating all event embeds...")
         await uma_update_timers(force_update=True)
@@ -1148,8 +980,9 @@ async def uma_update(ctx):
     await ctx.send("🔄 Updating Uma Musume events from timeline... This may take a few minutes.")
     
     try:
-        from uma_handler import update_uma_events
-        await update_uma_events()
+        from uma_handler import scrape_and_save_events
+        await scrape_and_save_events()
+        await uma_update_timers()
         await ctx.send("✅ Uma Musume events updated! Use `!uma_refresh force` to update all embeds with new colors/titles.")
     except Exception as e:
         uma_logger.error(f"Failed to update Uma Musume events: {e}")
@@ -1166,8 +999,9 @@ async def periodic_uma_update():
             await asyncio.sleep(259200)
             
             uma_logger.info("[Periodic Update] Starting scheduled Uma Musume event update...")
-            from uma_handler import update_uma_events
-            await update_uma_events()
+            from uma_handler import scrape_and_save_events
+            await scrape_and_save_events()
+            await uma_update_timers()
             uma_logger.info("[Periodic Update] Scheduled update completed successfully.")
             
         except asyncio.CancelledError:
@@ -1176,6 +1010,38 @@ async def periodic_uma_update():
         except Exception as e:
             uma_logger.error(f"[Periodic Update] Failed to update Uma Musume events: {e}")
             # Continue despite errors
+
+SCRAPER_LAST_RUN_FILE = os.path.join("data", "scraper_last_run.txt")
+
+async def scraper_file_watcher():
+    """
+    Background task: polls data/scraper_last_run.txt every 60 seconds.
+    When the timestamp changes (i.e. uma_scraper.py ran successfully),
+    refreshes the Discord event dashboards without re-scraping.
+    """
+    last_seen = None
+    uma_logger.info("[FileWatcher] Scraper file watcher started.")
+    while True:
+        try:
+            await asyncio.sleep(60)
+            if not os.path.exists(SCRAPER_LAST_RUN_FILE):
+                continue
+            with open(SCRAPER_LAST_RUN_FILE, "r", encoding="utf-8") as f:
+                timestamp = f.read().strip()
+            if timestamp != last_seen:
+                last_seen = timestamp
+                uma_logger.info(f"[FileWatcher] Detected new scraper run ({timestamp}), refreshing dashboards...")
+                try:
+                    await uma_update_timers()
+                    uma_logger.info("[FileWatcher] Dashboard refresh complete.")
+                except Exception as e:
+                    uma_logger.error(f"[FileWatcher] Dashboard refresh failed: {e}")
+        except asyncio.CancelledError:
+            uma_logger.info("[FileWatcher] Scraper file watcher cancelled.")
+            break
+        except Exception as e:
+            uma_logger.error(f"[FileWatcher] Error: {e}")
+
 
 async def start_uma_background_tasks():
     """Starts background tasks for Uma Musume (initial update + periodic updates)."""
@@ -1192,8 +1058,9 @@ async def start_uma_background_tasks():
         try:
             uma_logger.info("[Startup] Running initial Uma Musume event update...")
             print("[UMA STARTUP] Running initial event update (this may take 2-3 minutes)...")
-            from uma_handler import update_uma_events
-            await update_uma_events()
+            from uma_handler import scrape_and_save_events
+            await scrape_and_save_events()
+            await uma_update_timers()
             uma_logger.info("[Startup] Initial update completed successfully.")
             print("[UMA STARTUP] Initial update completed successfully!")
         except Exception as e:
@@ -1208,6 +1075,11 @@ async def start_uma_background_tasks():
             UMA_UPDATE_TASK = asyncio.create_task(periodic_uma_update())
             uma_logger.info("[Startup] Periodic update task scheduled (every 3 days).")
             print("[UMA STARTUP] Periodic update task scheduled (every 3 days).")
+
+        # Start scraper file watcher (detects when uma_scraper.py has run)
+        asyncio.create_task(scraper_file_watcher())
+        uma_logger.info("[Startup] Scraper file watcher task started.")
+        print("[UMA STARTUP] Scraper file watcher started.")
     
     except Exception as e:
         uma_logger.error(f"[Startup] CRITICAL ERROR in start_uma_background_tasks: {e}")
@@ -1748,165 +1620,5 @@ async def uma_dump_db(ctx):
         import traceback
         error_msg = f"❌ Dump failed: {e}\n```{traceback.format_exc()[:1500]}```"
         await ctx.send(error_msg)
-
-
-# ============================================================================
-# UMA-SPECIFIC PARSING FUNCTIONS
-# ============================================================================
-
-def parse_champions_meeting_phases(event_description, event_start, event_end):
-    """
-    Calculate Champions Meeting phase times based on event end time.
-
-    Phases are calculated BACKWARDS from event end with standard durations:
-    - Finals: Last 1 day (ends when event ends)
-    - Final Registration: 1 day before Finals
-    - Round 2: 2 days before Final Registration
-    - Round 1: 2 days before Round 2
-    - League Selection: Remaining time from event start
-
-    Example: 10-day event (Dec 8-18)
-    - League Selection: Dec 8-12 (4 days)
-    - Round 1: Dec 12-14 (2 days)
-    - Round 2: Dec 14-16 (2 days)
-    - Final Registration: Dec 16-17 (1 day)
-    - Finals: Dec 17-18 (1 day)
-
-    Returns:
-        List of dicts: [{name, start_time, duration_days}, ...]
-    """
-    import re
-    phases = []
-
-    # Standard Champions Meeting phase durations (working backwards from end)
-    # These are the standard durations used in every Champions Meeting
-    phase_definitions = [
-        ("Finals", 1),              # Last 1 day
-        ("Final Registration", 1),   # 1 day before Finals
-        ("Round 2", 2),             # 2 days before Final Registration
-        ("Round 1", 2),             # 2 days before Round 2
-        ("League Selection", None)   # Remaining time from start
-    ]
-
-    # Try to parse custom durations from description if available
-    # (for future-proofing in case description format changes)
-    duration_map = {}
-    if event_description:
-        lines = event_description.split('\n')
-        for line in lines:
-            # Match patterns like "Round 1: ... (2 days)" or "**Round 1:** ... (2 days)"
-            if "Round 1" in line:
-                duration_match = re.search(r'\((\d+)\s+days?\)', line)
-                if duration_match:
-                    duration_map["Round 1"] = int(duration_match.group(1))
-            elif "Round 2" in line:
-                duration_match = re.search(r'\((\d+)\s+days?\)', line)
-                if duration_match:
-                    duration_map["Round 2"] = int(duration_match.group(1))
-
-    # Calculate backwards from event end
-    # Finals ENDS at event_end, so we start from there
-    current_end = event_end
-
-    for phase_name, default_duration in phase_definitions:
-        if phase_name == "League Selection":
-            # Remaining time from event start to current position
-            duration_seconds = current_end - event_start
-            phase_start = event_start
-        else:
-            # Get duration (from parsed data or use standard duration)
-            duration_days = duration_map.get(phase_name, default_duration)
-            duration_seconds = duration_days * 86400
-            phase_start = current_end - duration_seconds
-
-        phases.insert(0, {  # Insert at beginning to maintain chronological order
-            "name": phase_name,
-            "start_time": phase_start,
-            "duration_days": duration_seconds // 86400
-        })
-
-        # Move end time backwards for next phase
-        current_end = phase_start
-
-    return phases
-
-def parse_legend_race_characters(event_description, event_start, event_end):
-    """
-    Calculate Legend Race character times based on event timing.
-    
-    Characters are divided evenly across the event duration, each getting 3 days.
-    Calculated FORWARDS from event start (character 1 starts when event starts).
-    
-    Example: 9-day event with 3 characters
-    - Day 1-3: Character 1
-    - Day 4-6: Character 2
-    - Day 7-9: Character 3
-    
-    Returns:
-        List of dicts: [{name, start_time, end_time, duration_days}, ...]
-    """
-    import re
-    characters = []
-    lines = event_description.split('\n')
-    character_duration = 3 * 86400  # 3 days in seconds
-    
-    # Try to find character names in various formats
-    character_names = []
-    
-    # Format 1: Lines starting with "- " (simple format)
-    for line in lines:
-        line = line.strip()
-        if line.startswith('-') and '(' in line:
-            # Extract character name (before parentheses)
-            char_name = line[1:line.index('(')].strip()
-            if char_name:
-                character_names.append(char_name)
-    
-    # Format 2: Markdown links [Name](URL)
-    if not character_names:
-        # Look for **Characters:** line followed by markdown links
-        in_character_section = False
-        for line in lines:
-            if '**Characters:**' in line or '**characters:**' in line.lower():
-                in_character_section = True
-                # Extract from same line
-                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
-                character_names.extend(markdown_links)
-            elif in_character_section and '[' in line:
-                # Continue extracting from following lines
-                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
-                character_names.extend(markdown_links)
-            elif in_character_section and line and not line.startswith('**'):
-                # Stop if we hit a new section
-                break
-    
-    # Format 3: Comma-separated list
-    if not character_names:
-        for line in lines:
-            if 'characters:' in line.lower():
-                # Try to extract comma-separated names
-                parts = line.split(':', 1)
-                if len(parts) > 1:
-                    names = parts[1].split(',')
-                    character_names.extend([n.strip() for n in names if n.strip()])
-    
-    # Build character list with timing - FORWARDS from event start
-    # Character 1 starts when event starts
-    current_start = event_start
-    
-    for char_name in character_names:
-        if char_name:
-            char_end = current_start + character_duration
-            characters.append({
-                "name": char_name,
-                "start_time": current_start,
-                "end_time": char_end,
-                "duration_days": 3
-            })
-            current_start = char_end  # Next character starts when previous ends
-    
-    return characters
-
-
 print("[INIT] uma_module.py fully loaded - all commands registered")
 print("=" * 60)
