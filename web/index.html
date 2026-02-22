@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bot Control Panel</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
+
+    /* ── Setup screen ── */
+    #setup {
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; gap: 1rem; padding: 2rem;
+    }
+    #setup h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    #setup label { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: #aaa; }
+    #setup input { padding: 0.5rem 0.75rem; background: #16213e; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; font-size: 1rem; }
+    #setup .btn-connect { padding: 0.5rem 1.5rem; background: #0f3460; border: none; border-radius: 4px; color: #e0e0e0; cursor: pointer; font-size: 1rem; }
+    #setup .btn-connect:hover { background: #1a5276; }
+    #setup .err { color: #e74c3c; font-size: 0.85rem; min-height: 1.2em; }
+
+    /* ── App layout ── */
+    #app { display: none; flex-direction: column; min-height: 100vh; }
+    header { background: #0f3460; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 1.1rem; }
+    header button { background: transparent; border: 1px solid #666; padding: 0.25rem 0.75rem; border-radius: 4px; color: #aaa; cursor: pointer; font-size: 0.8rem; }
+    header button:hover { border-color: #e0e0e0; color: #e0e0e0; }
+
+    /* ── Profile tabs ── */
+    nav { background: #16213e; display: flex; border-bottom: 1px solid #333; }
+    nav button { padding: 0.7rem 1.5rem; background: transparent; border: none; border-bottom: 2px solid transparent; color: #aaa; cursor: pointer; font-size: 0.9rem; }
+    nav button.active { color: #e0e0e0; border-bottom-color: #e94560; }
+    nav button:hover:not(.active) { color: #ccc; background: #1e2a45; }
+
+    /* ── Main content ── */
+    main { padding: 1.5rem; flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; }
+
+    /* ── Toolbar ── */
+    .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+
+    /* ── Buttons ── */
+    .btn { padding: 0.35rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+    .btn:hover { filter: brightness(1.15); }
+    .btn-primary { background: #0f3460; color: #e0e0e0; }
+    .btn-danger  { background: #7b241c; color: #e0e0e0; }
+    .btn-amber   { background: #6e4c0a; color: #e0e0e0; }
+    .btn-teal    { background: #0e6655; color: #e0e0e0; }
+    .btn-grey    { background: #2e2e3e; color: #ccc; }
+    .btn-sm { padding: 0.2rem 0.5rem; font-size: 0.78rem; }
+
+    /* ── Form card ── */
+    .form-card { background: #16213e; border: 1px solid #333; border-radius: 6px; padding: 1.25rem; margin-bottom: 1.25rem; }
+    .form-card h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin-bottom: 1rem; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .form-group { display: flex; flex-direction: column; gap: 0.25rem; }
+    .form-group.full { grid-column: 1 / -1; }
+    .form-group label { font-size: 0.78rem; color: #888; }
+    .form-group input, .form-group select {
+      padding: 0.4rem 0.6rem; background: #0d1b2a; border: 1px solid #333;
+      border-radius: 4px; color: #e0e0e0; font-size: 0.875rem;
+    }
+    .form-group input:focus { outline: none; border-color: #2471a3; }
+    .form-actions { display: flex; gap: 0.5rem; margin-top: 0.9rem; }
+
+    /* ── Events table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.45rem 0.75rem; color: #888; font-weight: 500; border-bottom: 1px solid #333; }
+    td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #222; vertical-align: middle; }
+    tr:hover td { background: #1e2a45; }
+    tr.selected td { background: #0c2340; }
+    .actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+
+    /* ── Notifications panel ── */
+    #notifs-section {
+      margin-top: 1.5rem; background: #16213e; border: 1px solid #2c4a6e;
+      border-radius: 6px; padding: 1.25rem;
+    }
+    #notifs-section h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin-bottom: 0.75rem; }
+    .notif-footer { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
+
+    /* ── States ── */
+    .empty   { padding: 2rem; text-align: center; color: #555; font-size: 0.85rem; }
+    .loading { color: #555; font-size: 0.85rem; padding: 1.5rem 0; text-align: center; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 1.25rem; right: 1.25rem;
+      padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.85rem;
+      opacity: 0; pointer-events: none; transition: opacity 0.25s;
+    }
+    #toast.show  { opacity: 1; }
+    #toast.ok    { background: #1e8449; color: #fff; }
+    #toast.error { background: #7b241c; color: #fff; }
+  </style>
+</head>
+<body>
+
+<!-- ── Setup Screen ─────────────────────────────────────────────────── -->
+<div id="setup">
+  <h1>Bot Control Panel</h1>
+  <label>
+    API URL
+    <input type="text" id="cfgUrl" placeholder="https://your-api.example.com" autocomplete="off">
+  </label>
+  <label>
+    API Key
+    <input type="password" id="cfgKey" autocomplete="off">
+  </label>
+  <button class="btn-connect" onclick="saveConfig()">Connect</button>
+  <div id="setupErr" class="err"></div>
+</div>
+
+<!-- ── Main App ─────────────────────────────────────────────────────── -->
+<div id="app">
+  <header>
+    <h1>Bot Control Panel</h1>
+    <button onclick="logout()">Change Config</button>
+  </header>
+
+  <nav id="profileTabs"></nav>
+
+  <main>
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="showAddForm()">+ Add Event</button>
+      <button class="btn btn-amber"   onclick="refreshDashboard()">↻ Refresh Dashboard</button>
+    </div>
+
+    <!-- Add / Edit form -->
+    <div id="event-form" class="form-card" style="display:none">
+      <h3 id="form-title">Add Event</h3>
+      <input type="hidden" id="editId">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Title</label>
+          <input type="text" id="fTitle" placeholder="Event title">
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <input type="text" id="fCategory" placeholder="e.g. Banner, Event, Login Bonus">
+        </div>
+        <div class="form-group">
+          <label>Image URL (optional)</label>
+          <input type="text" id="fImage" placeholder="https://...">
+        </div>
+        <div class="form-group">
+          <label>Start (UTC)</label>
+          <input type="datetime-local" id="fStart">
+        </div>
+        <div class="form-group">
+          <label>End (UTC)</label>
+          <input type="datetime-local" id="fEnd">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="submitForm()">Save</button>
+        <button class="btn btn-grey"    onclick="hideForm()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Events list -->
+    <div id="events-list"><div class="loading">Loading…</div></div>
+
+    <!-- Notifications panel -->
+    <div id="notifs-section" style="display:none">
+      <h2>Pending Notifications — <span id="notif-event-name" style="color:#ccc;text-transform:none;font-size:0.9rem;letter-spacing:0"></span></h2>
+      <div id="notifs-list"><div class="loading">Loading…</div></div>
+      <div class="notif-footer">
+        <button class="btn btn-teal btn-sm"  onclick="refreshNotifications()">↻ Regenerate All</button>
+        <button class="btn btn-grey btn-sm"  onclick="closeNotifs()">Close</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
