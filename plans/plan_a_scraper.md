@@ -53,7 +53,7 @@ Both links in that chain must be broken for the standalone scraper to work.
 - [x] **Auto-Refresh**: When `data/scraper_last_run.txt` timestamp changes, the watcher calls `uma_update_timers()` to refresh Discord embeds.
 
 ### Phase 4: Deployment
-- [ ] **Setup Cron**: Add the cron job on the Raspberry Pi.
+- [x] **Setup Cron**: Add the cron job on the Raspberry Pi.
   ```
   0 */4 * * * cd /path/to/bot && /path/to/venv/bin/python uma_scraper.py
   ```
