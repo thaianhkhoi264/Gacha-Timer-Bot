@@ -1,11 +1,11 @@
 // ── Configuration ────────────────────────────────────────────────────────────
 
+const API_URL = 'https://kanami.khoi-thai.com';  // API URL
 const PROFILES = ['UMA', 'AK'];
 
 // ── State ────────────────────────────────────────────────────────────────────
 
 const state = {
-  apiUrl: '',
   apiKey: '',
   profile: 'UMA',
   events: [],
@@ -15,10 +15,8 @@ const state = {
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
 window.addEventListener('DOMContentLoaded', () => {
-  const url = localStorage.getItem('apiUrl');
   const key = localStorage.getItem('apiKey');
-  if (url && key) {
-    state.apiUrl = url;
+  if (key) {
     state.apiKey = key;
     showApp();
   } else {
@@ -29,15 +27,14 @@ window.addEventListener('DOMContentLoaded', () => {
 // ── Setup / Config ────────────────────────────────────────────────────────────
 
 async function saveConfig() {
-  const url = document.getElementById('cfgUrl').value.trim().replace(/\/$/, '');
   const key = document.getElementById('cfgKey').value.trim();
   const errEl = document.getElementById('setupErr');
   errEl.textContent = '';
 
-  if (!url || !key) { errEl.textContent = 'Both fields are required.'; return; }
+  if (!key) { errEl.textContent = 'API key is required.'; return; }
 
   try {
-    const res = await fetch(`${url}/api/validate_key`, { headers: { 'X-API-Key': key } });
+    const res = await fetch(`${API_URL}/api/validate_key`, { headers: { 'X-API-Key': key } });
     const data = await res.json();
     if (!data.valid) { errEl.textContent = 'API key rejected: ' + (data.error || 'invalid'); return; }
   } catch (e) {
@@ -45,20 +42,16 @@ async function saveConfig() {
     return;
   }
 
-  localStorage.setItem('apiUrl', url);
   localStorage.setItem('apiKey', key);
-  state.apiUrl = url;
   state.apiKey = key;
   document.getElementById('setup').style.display = 'none';
   showApp();
 }
 
 function logout() {
-  localStorage.removeItem('apiUrl');
   localStorage.removeItem('apiKey');
   document.getElementById('app').style.display = 'none';
   document.getElementById('setup').style.display = 'flex';
-  document.getElementById('cfgUrl').value = '';
   document.getElementById('cfgKey').value = '';
   document.getElementById('setupErr').textContent = '';
 }
@@ -103,7 +96,7 @@ async function api(method, path, body) {
     headers: { 'X-API-Key': state.apiKey, 'Content-Type': 'application/json' },
   };
   if (body !== undefined) opts.body = JSON.stringify(body);
-  const res = await fetch(`${state.apiUrl}${path}`, opts);
+  const res = await fetch(`${API_URL}${path}`, opts);
   return res.json();
 }
 
