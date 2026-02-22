@@ -647,16 +647,6 @@ async def uma_update_timers(_guild=None, force_update=False):
         
         uma_logger.info(f"[Update Timers] Summary - Ongoing: {ongoing_count}, Upcoming: {upcoming_count}, Deleted: {deleted_count}, Skipped (>1mo): {skipped_count}")
     
-    # Update control panel if events were deleted
-    if deleted_count > 0:
-        uma_logger.info("[uma_update_timers] Events were deleted, updating control panel...")
-        try:
-            from control_panel import update_control_panel_messages
-            await update_control_panel_messages("UMA")
-            uma_logger.info("[uma_update_timers] Control panel updated.")
-        except Exception as e:
-            uma_logger.error(f"[uma_update_timers] Failed to update control panel: {e}")
-
 async def add_uma_event(ctx, event_data):
     """Adds or updates an Uma Musume event in the database (only if changed)."""
     uma_logger.info(f"[Add Event] Processing event: {event_data.get('title', 'Unknown')}")
@@ -751,14 +741,6 @@ async def add_uma_event(ctx, event_data):
     if notif_count > 0:
         print(f"[UMA] Notifications already exist for: {event_data['title']} ({notif_count} notifications), skipping schedule")
         uma_logger.info(f"[Add Event] Skipping notification schedule - already exists ({notif_count} notifications)")
-        # Update control panel to reflect any event changes (targeted update only)
-        uma_logger.info(f"[add_uma_event] Updating control panel panels for event {event_id}...")
-        try:
-            from control_panel import update_single_event_panels
-            await update_single_event_panels("UMA", event_id)
-            uma_logger.info(f"[add_uma_event] Control panel panels updated for event {event_id}.")
-        except Exception as e:
-            uma_logger.error(f"[add_uma_event] Failed to update control panel: {e}")
         return
     
     # Schedule notifications (for new or updated events)
@@ -779,16 +761,6 @@ async def add_uma_event(ctx, event_data):
         print(f"[UMA] ERROR scheduling notifications: {e}")
         uma_logger.error(f"Failed to schedule notifications for {event_data['title']}: {e}")
     
-    # Update control panel to show new event in Remove/Edit/Notif panels
-    # Only update the specific panels affected by this event (much faster!)
-    uma_logger.info(f"[add_uma_event] Updating control panel panels for event {event_id}...")
-    try:
-        from control_panel import update_single_event_panels
-        await update_single_event_panels("UMA", event_id)
-        uma_logger.info(f"[add_uma_event] Control panel panels updated for event {event_id}.")
-    except Exception as e:
-        uma_logger.error(f"[add_uma_event] Failed to update control panel: {e}")
-
 print("[INIT] Functions defined, now registering bot commands...")
 
 @commands.has_permissions(manage_guild=True)
@@ -1014,14 +986,6 @@ async def uma_remove(ctx, *, title: str):
     await uma_update_timers()
     uma_logger.info("[uma_remove] Dashboard refresh completed.")
     
-    # Update control panel to remove event from lists
-    uma_logger.info("[uma_remove] Updating control panel after removing event...")
-    try:
-        from control_panel import update_control_panel_messages
-        await update_control_panel_messages("UMA")
-        uma_logger.info("[uma_remove] Control panel updated.")
-    except Exception as e:
-        uma_logger.error(f"[uma_remove] Failed to update control panel: {e}")
     await uma_update_timers()
 
 print("[INIT] uma_remove command registered")
@@ -1138,15 +1102,6 @@ async def uma_edit(ctx, title: str, item: str, *, value: str):
     await uma_update_timers()
     uma_logger.info("[uma_edit] Dashboard refresh completed.")
     
-    # Update control panel to reflect edits (targeted update only)
-    uma_logger.info(f"[uma_edit] Updating control panel panels for event {event_id}...")
-    try:
-        from control_panel import update_single_event_panels
-        await update_single_event_panels("UMA", event_id)
-        uma_logger.info(f"[uma_edit] Control panel panels updated for event {event_id}.")
-    except Exception as e:
-        uma_logger.error(f"[uma_edit] Failed to update control panel: {e}")
-
 print("[INIT] uma_edit command registered")
 print("[INIT] Defining uma_force_refresh command...")
 

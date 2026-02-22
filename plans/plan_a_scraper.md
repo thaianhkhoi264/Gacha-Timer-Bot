@@ -1,7 +1,7 @@
 # Plan A: External Scraper App (uma_scraper.py)
 
-> **Prerequisite:** Execute **Plan C (Web Control Panel)** first.
-> This removes `control_panel.py`, simplifying the dependency graph.
+> **Prerequisite:** **Plan C (Web Control Panel)** is complete (Backend).
+> `control_panel.py` logic has been moved to `event_manager.py`, clearing the way for this plan.
 
 ## Goal
 Move the heavy Playwright scraping logic out of the Discord bot process into a standalone script (`uma_scraper.py`) that runs periodically via Cron.
