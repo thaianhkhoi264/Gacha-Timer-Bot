@@ -72,6 +72,7 @@ deployed to Cloudflare Pages.
 ### Phase 1 — Extract business logic to `event_manager.py`
 
 - [ ] **Create `event_manager.py`**
+- [x] **Create `event_manager.py`**
 
   Move these functions verbatim from `control_panel.py` (they have no Discord UI dependency):
 
