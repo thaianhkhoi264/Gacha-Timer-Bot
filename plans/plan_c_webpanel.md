@@ -165,27 +165,11 @@ deployed to Cloudflare Pages.
 
 ### Phase 3 — Build Cloudflare Pages frontend
 
-- [ ] **Create `web/` folder** in the repo with `index.html` and `app.js`
-
-  `index.html` structure:
-  ```html
-  <div id="setup">           <!-- API key prompt, shown on first visit -->
-  <div id="app">             <!-- Main panel, hidden until key is set -->
-    <nav>                    <!-- Profile tabs: AK | UMA | ... -->
-    <section id="events">    <!-- Event list with Add/Edit/Remove -->
-    <section id="notifs">    <!-- Pending notifications for selected event -->
-  ```
-
-  `app.js` responsibilities:
-  - On load: check `localStorage.apiKey` → show setup or app
-  - `loadEvents(profile)` → `GET /api/events/{profile}` → render list
-  - `addEvent(profile, formData)` → `POST /api/events/{profile}`
-  - `editEvent(profile, eventId, formData)` → `PUT /api/events/{profile}/{eventId}`
-  - `removeEvent(profile, eventId)` → `DELETE /api/events/{profile}/{eventId}`
-  - `loadNotifications(profile, eventId)` → `GET /api/events/{profile}/{eventId}/notifications`
-  - `removeNotification(notifId)` → `DELETE /api/notifications/{notifId}`
-  - `refreshNotifications(profile, eventId)` → `POST .../notifications/refresh`
-  - `refreshDashboard(profile)` → `POST /api/dashboard/{profile}/refresh`
+- [x] **Create `web/` folder** in the repo with `index.html` and `app.js`
+  *Done: `web/index.html` (dark-theme HTML + CSS) and `web/app.js` (vanilla JS) created.*
+  *Setup screen stores both API URL and API key in localStorage. Profile tabs for UMA and AK.*
+  *All CRUD operations, notification management, and dashboard refresh are implemented.*
+  *Dates handled as unix timestamps (UTC); datetime-local inputs labeled "(UTC)" to avoid confusion.*
 
 - [ ] **Connect to Cloudflare Pages** (one-time setup)
   1. Cloudflare Dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**
