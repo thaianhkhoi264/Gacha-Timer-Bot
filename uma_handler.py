@@ -1,6 +1,6 @@
 import asyncio
 import os
-import requests
+import aiohttp
 import json
 import re
 from urllib.parse import urljoin, urlparse
@@ -110,7 +110,9 @@ async def download_timeline():
             uma_handler_logger.info("Navigating to https://uma.moe/timeline ...")
             print("[UMA HANDLER] Navigating to https://uma.moe/timeline ...")
             await page.goto("https://uma.moe/timeline", timeout=60000)
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_load_state("load")
+            # Wait for Angular to finish rendering (site has background polling so networkidle never fires)
+            await asyncio.sleep(5)
 
             # Check for and close update popup if it exists
             try:
@@ -166,11 +168,11 @@ async def download_timeline():
                     date_tag = await item.query_selector('.event-date')
                     if date_tag:
                         date_str = (await date_tag.inner_text()).strip()
-                        # Quick check: if date contains a past month/year, we found a past event
-                        # Events ending in Nov/Dec 2025 or earlier are in the past (today is Jan 2026)
-                        if '2025' in date_str and any(month in date_str for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']):
+                        # Check if this event has already ended (end date is in the past)
+                        _, end_dt = parse_event_date(date_str)
+                        if end_dt and end_dt < datetime.now(timezone.utc):
                             found_past_event = True
-                            print(f"[UMA HANDLER] LEFT scroll {i+1}: Found past event reference (2025), stopping LEFT scroll")
+                            print(f"[UMA HANDLER] LEFT scroll {i+1}: Found past event reference, stopping LEFT scroll")
                             break
 
                 if found_past_event:
@@ -200,7 +202,8 @@ async def download_timeline():
 
                 # For CHARACTER BANNER or SUPPORT CARD BANNER:
                 # Structure is: [type] [title with +1 more] [date] [name1] [name2] ...
-                if "CHARACTER BANNER" in full_text or "SUPPORT CARD BANNER" in full_text:
+                full_text_upper = full_text.upper()
+                if "CHARACTER BANNER" in full_text_upper or "SUPPORT CARD BANNER" in full_text_upper:
                     # Find the date line (contains " – " and year)
                     date_idx = None
                     for i, line in enumerate(lines):
@@ -238,7 +241,7 @@ async def download_timeline():
                     if img_src:
                         full_url = urljoin(BASE_URL, img_src)
                         # Add all relevant game images (banner IDs, character images)
-                        if any(pattern in img_src for pattern in ['chara_stand_', '2021_', '2022_', '2023_', '2024_', '2025_', 'img_bnr_', '/story/', '/paid/', '/support/']):
+                        if any(pattern in img_src for pattern in ['chara_stand_', '2021_', '2022_', '2023_', '2024_', '2025_', '2026_', 'img_bnr_', '/story/', '/paid/', '/support/']):
                             if full_url not in img_urls:  # Avoid duplicates
                                 img_urls.append(full_url)
 
@@ -729,7 +732,7 @@ async def process_events(raw_events):
             final_img = enriched_char_img
             if enriched_support_img:
                 from uma_module import combine_images_vertically
-                combined_path = combine_images_vertically(enriched_char_img, enriched_support_img)
+                combined_path = await combine_images_vertically(enriched_char_img, enriched_support_img)
                 if combined_path:
                     final_img = combined_path
                     uma_handler_logger.info(f"[Process] ✓ Combined enriched images: {combined_path}")
@@ -771,7 +774,7 @@ async def process_events(raw_events):
             combined_img = img_url
             if img_url and paired_img:
                 from uma_module import combine_images_vertically
-                combined_path = combine_images_vertically(img_url, paired_img)
+                combined_path = await combine_images_vertically(img_url, paired_img)
                 if combined_path:
                     combined_img = combined_path
             
@@ -846,7 +849,7 @@ async def process_events(raw_events):
             combined_img = img_url
             if len(legend_images) > 1:
                 from uma_module import combine_images_horizontally
-                combined_path = combine_images_horizontally(legend_images)
+                combined_path = await combine_images_horizontally(legend_images)
                 if combined_path:
                     combined_img = combined_path
                     print(f"[UMA HANDLER] Combined {len(legend_images)} Legend Race images into: {combined_path}")
@@ -1745,6 +1748,7 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                 images_saved = 0
                 
                 async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
+                  async with aiohttp.ClientSession() as session:
                     for container in banner_containers:
                         try:
                             # Get banner image
@@ -1795,24 +1799,24 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                                     # Check website image size to see if it's different
                                     try:
                                         # HEAD request to get content-length without downloading full image
-                                        head_response = requests.head(full_img_url, timeout=10)
-                                        if head_response.status_code == 200 and 'content-length' in head_response.headers:
-                                            website_size = int(head_response.headers['content-length'])
+                                        async with session.head(full_img_url, timeout=10) as head_response:
+                                            if head_response.status == 200 and 'content-length' in head_response.headers:
+                                                website_size = int(head_response.headers['content-length'])
                                             
-                                            if website_size != file_size:
-                                                should_download = True
-                                                reason = f"size_mismatch (local: {file_size} bytes, website: {website_size} bytes)"
-                                        else:
-                                            # If HEAD fails, try GET to check size
-                                            uma_handler_logger.debug(f"[GameTora] HEAD request failed for {banner_id}, will check during download")
+                                                if website_size != file_size:
+                                                    should_download = True
+                                                    reason = f"size_mismatch (local: {file_size} bytes, website: {website_size} bytes)"
+                                            else:
+                                                # If HEAD fails, try GET to check size
+                                                uma_handler_logger.debug(f"[GameTora] HEAD request failed for {banner_id}, will check during download")
                                     except Exception as size_check_err:
                                         uma_handler_logger.debug(f"[GameTora] Size check failed for {banner_id}: {size_check_err}")
                             
                             if should_download:
                                 try:
-                                    response = requests.get(full_img_url, timeout=30)
-                                    if response.status_code == 200:
-                                        new_content = response.content
+                                    async with session.get(full_img_url, timeout=30) as response:
+                                      if response.status == 200:
+                                        new_content = await response.read()
                                         website_size = len(new_content)
                                         
                                         # Check if content is actually different
@@ -1843,8 +1847,8 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                                             f.write(new_content)
                                         
                                         images_saved += 1
-                                    else:
-                                        uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: HTTP {response.status_code}")
+                                      else:
+                                        uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: HTTP {response.status}")
                                         continue
                                 except Exception as dl_err:
                                     uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: {dl_err}")
