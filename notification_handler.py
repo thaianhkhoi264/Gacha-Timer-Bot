@@ -285,9 +285,8 @@ async def schedule_champions_meeting_notifications(event):
     Schedule notifications for Champions Meeting event.
     Creates 7 notifications: 1 reminder + 5 phases + 1 end
     """
-    # Import here to avoid circular dependency
-    from uma_module import parse_champions_meeting_phases
-    
+    from uma_handler import parse_champions_meeting_phases
+
     send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduling notifications for: {event['title']}")
     
     # Parse phases from description
@@ -357,9 +356,8 @@ async def schedule_legend_race_notifications(event):
     Schedule notifications for Legend Race event.
     Creates N+2 notifications: 1 reminder + N characters + 1 end
     """
-    # Import here to avoid circular dependency
-    from uma_module import parse_legend_race_characters
-    
+    from uma_handler import parse_legend_race_characters
+
     send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduling notifications for: {event['title']}")
     
     # Parse characters from description
@@ -502,6 +500,73 @@ async def schedule_notifications_for_event(event):
         await conn.commit()
     guild = bot.get_guild(MAIN_SERVER_ID)
     await update_pending_notifications_embed_for_profile(guild, event['profile'])
+
+async def schedule_notifications_db_only(event):
+    """
+    Like schedule_notifications_for_event but with no Discord calls.
+    Safe to call from standalone scripts (uma_scraper.py) that have no
+    connected bot instance.  The pending-notifications embed is NOT updated
+    here; the bot will refresh it on its next notification_loop cycle.
+    """
+    title_lower = event.get('title', '').lower()
+
+    if 'champions meeting' in title_lower or event.get('category') == 'Champions Meeting':
+        success = await schedule_champions_meeting_notifications(event)
+        if success:
+            return
+        send_log(MAIN_SERVER_ID, "[Champions Meeting] Using generic scheduling as fallback")
+
+    if 'legend race' in title_lower or event.get('category') == 'Legend Race':
+        success = await schedule_legend_race_notifications(event)
+        if success:
+            return
+        send_log(MAIN_SERVER_ID, "[Legend Race] Using generic scheduling as fallback")
+
+    timings = get_notification_timings(event['category'], event.get('profile'))
+    send_log(MAIN_SERVER_ID, f"[DB-only] Using timings for event: {timings}")
+
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        HYV_PROFILES = {"HSR", "ZZZ"}
+        if event['profile'].upper() in HYV_PROFILES:
+            regions = ["NA", "EU", "ASIA"]
+            for region in regions:
+                for timing_type, timing_minutes in timings:
+                    if region == "NA":
+                        event_time_unix = safe_int(event.get('america_start'), event.get('start_date')) if timing_type == "start" else safe_int(event.get('america_end'), event.get('end_date'))
+                    elif region == "EU":
+                        event_time_unix = safe_int(event.get('europe_start'), event.get('start_date')) if timing_type == "start" else safe_int(event.get('europe_end'), event.get('end_date'))
+                    elif region == "ASIA":
+                        event_time_unix = safe_int(event.get('asia_start'), event.get('start_date')) if timing_type == "start" else safe_int(event.get('asia_end'), event.get('end_date'))
+                    else:
+                        event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
+                    notify_unix = event_time_unix - timing_minutes * 60
+                    if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+                        async with conn.execute(
+                            "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=? AND region=?",
+                            (event['category'], event['profile'], event['title'], timing_type, notify_unix, region)
+                        ) as check_cursor:
+                            exists = await check_cursor.fetchone()
+                        if not exists:
+                            await conn.execute(
+                                "INSERT INTO pending_notifications (category, profile, title, timing_type, notify_unix, event_time_unix, sent, region) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                                (event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix, region)
+                            )
+        else:
+            for timing_type, timing_minutes in timings:
+                event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
+                notify_unix = event_time_unix - timing_minutes * 60
+                if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+                    async with conn.execute(
+                        "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                        (event['category'], event['profile'], event['title'], timing_type, notify_unix)
+                    ) as check_cursor:
+                        exists = await check_cursor.fetchone()
+                    if not exists:
+                        await conn.execute(
+                            "INSERT INTO pending_notifications (category, profile, title, timing_type, notify_unix, event_time_unix, sent) VALUES (?, ?, ?, ?, ?, ?, 0)",
+                            (event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix)
+                        )
+        await conn.commit()
 
 async def delete_notifications_for_event(title, category, profile):
     """

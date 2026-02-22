@@ -39,33 +39,21 @@ Both links in that chain must be broken for the standalone scraper to work.
 ## Implementation Steps
 
 ### Phase 1: Untangle Files (Refactoring)
-- [ ] **Move Image Logic**: Move `combine_images_vertically` and `combine_images_horizontally` from `uma_module.py` to `uma_handler.py`.
-- [ ] **Move DB Logic**: Move `add_uma_event` from `uma_module.py` to `uma_handler.py`.
-    - *Change*: Update `add_uma_event` signature to accept `user_id` (string) instead of `ctx` (Discord object).
-    - Remove the `DummyCtx` workaround inside `update_uma_events()` in `uma_handler.py`.
-    - *Update*: If `event_manager.py` (from Plan C) imports `add_uma_event`, update that import to point to `uma_handler.py`.
-- [ ] **Remove Circular Import**: Remove `from uma_module import ...` inside `uma_handler.py`.
-    - `uma_handler.py` should become a "pure" library (no `discord` or `bot` imports).
-- [ ] **Split Notification Scheduling**: In `notification_handler.py`, create `schedule_notifications_db_only(event)`:
-    - Pure DB writes to `pending_notifications` — no `bot.get_guild()` calls.
-    - Use role IDs from `global_config.ROLE_IDS` directly instead of resolving via guild.
-    - Update `add_uma_event()` (now in `uma_handler.py`) to call `schedule_notifications_db_only()` instead of `schedule_notifications_for_event()`.
-    - Keep `schedule_notifications_for_event()` unchanged for any remaining bot-side callers.
-- [ ] **Split Update Logic**:
-    - Rename `update_uma_events` in `uma_handler.py` to `scrape_and_save_events`.
-    - Remove the call to `uma_update_timers` (dashboard refresh) from inside it.
-    - The Bot (`uma_module`) will call `scrape_and_save_events` then `uma_update_timers` manually for force refreshes.
+- [x] **Move Image Logic**: Moved `get_image_hash`, `is_url`, `combine_images_vertically`, `combine_images_horizontally` from `uma_module.py` to `uma_handler.py`. Removed PIL/aiohttp/BytesIO imports from `uma_module.py`. Also moved `parse_champions_meeting_phases` and `parse_legend_race_characters` (pure math, no discord) to `uma_handler.py` — needed by `schedule_notifications_db_only`.
+- [x] **Move DB Logic**: Moved `add_uma_event` to `uma_handler.py`. Signature is now `add_uma_event(event_data, user_id="0")`. DummyCtx removed from `uma_handler.py`. Updated `notification_handler.py` parse imports to point to `uma_handler`.
+- [x] **Remove Circular Import**: All `from uma_module import ...` calls removed from `uma_handler.py`. `uma_handler.py` is now discord-free.
+- [x] **Split Notification Scheduling**: Added `schedule_notifications_db_only(event)` to `notification_handler.py`. Calls the existing specialized scheduling functions (which are already pure DB) and does generic scheduling without `bot.get_guild()` or embed refresh. `add_uma_event` in `uma_handler.py` calls this instead of `schedule_notifications_for_event`.
+- [x] **Split Update Logic**: Renamed `update_uma_events` → `scrape_and_save_events`. Removed `uma_update_timers()` from inside it. All callers in `uma_module.py` now call `scrape_and_save_events()` + `uma_update_timers()` explicitly.
 
 ### Phase 2: Create Scraper Script
-- [ ] **Create `uma_scraper.py`**:
-    - Imports `uma_handler`.
-    - Calls `scrape_and_save_events()`.
-    - On success, writes the current timestamp to `data/scraper_last_run.txt`.
-    - Handles logging to a file (`logs/scraper.log`).
+- [x] **Create `uma_scraper.py`**: Imports `uma_handler`, calls `scrape_and_save_events()`, writes UTC timestamp to `data/scraper_last_run.txt`, logs to `logs/scraper.log`.
 
 ### Phase 3: Bot Integration
-- [ ] **File Watcher**: Add a background task in `main.py` (or `uma_module.py`) that checks `data/scraper_last_run.txt` every 60 seconds.
-- [ ] **Auto-Refresh**: When the timestamp changes, the bot runs `uma_update_timers()` to update Discord embeds.
+- [x] **File Watcher**: Added `scraper_file_watcher()` coroutine to `uma_module.py`. Started as a background task from `start_uma_background_tasks()`.
+- [x] **Auto-Refresh**: When `data/scraper_last_run.txt` timestamp changes, the watcher calls `uma_update_timers()` to refresh Discord embeds.
 
 ### Phase 4: Deployment
 - [ ] **Setup Cron**: Add the cron job on the Raspberry Pi.
+  ```
+  0 */4 * * * cd /path/to/bot && /path/to/venv/bin/python uma_scraper.py
+  ```

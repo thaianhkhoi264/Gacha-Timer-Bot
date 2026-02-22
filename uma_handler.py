@@ -3,10 +3,19 @@ import os
 import aiohttp
 import json
 import re
+import hashlib
+import aiosqlite
 from urllib.parse import urljoin, urlparse
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from playwright.async_api import async_playwright
 import logging
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 BASE_URL = "https://uma.moe/"
 
@@ -731,7 +740,6 @@ async def process_events(raw_events):
             # (EN from GameTora if exists, otherwise original JP from uma.moe)
             final_img = enriched_char_img
             if enriched_support_img:
-                from uma_module import combine_images_vertically
                 combined_path = await combine_images_vertically(enriched_char_img, enriched_support_img)
                 if combined_path:
                     final_img = combined_path
@@ -773,7 +781,6 @@ async def process_events(raw_events):
             # Combine images if paired
             combined_img = img_url
             if img_url and paired_img:
-                from uma_module import combine_images_vertically
                 combined_path = await combine_images_vertically(img_url, paired_img)
                 if combined_path:
                     combined_img = combined_path
@@ -848,7 +855,6 @@ async def process_events(raw_events):
             # Combine images horizontally if multiple
             combined_img = img_url
             if len(legend_images) > 1:
-                from uma_module import combine_images_horizontally
                 combined_path = await combine_images_horizontally(legend_images)
                 if combined_path:
                     combined_img = combined_path
@@ -921,64 +927,347 @@ async def process_events(raw_events):
     
     return processed
 
-async def update_uma_events():
+
+# ==================== IMAGE UTILITIES ====================
+
+UMA_DB_PATH = os.path.join("data", "uma_musume_data.db")
+
+def get_image_hash(urls):
+    """Generate a consistent hash from image URLs."""
+    combined = "|".join(sorted(urls))
+    return hashlib.md5(combined.encode()).hexdigest()[:12]
+
+def is_url(path):
+    """Check if path is a URL or local file path."""
+    return path and (path.startswith('http://') or path.startswith('https://'))
+
+async def combine_images_vertically(img_url1, img_url2):
+    """Downloads two images and combines them vertically."""
+    if not PIL_AVAILABLE:
+        uma_handler_logger.warning("[Image] PIL not available, cannot combine images")
+        return img_url1
+
+    try:
+        img_hash = get_image_hash([img_url1, img_url2])
+        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
+        filename = f"combined_v_{img_hash}.png"
+        filepath = os.path.join("data", "combined_images", filename)
+
+        if os.path.exists(filepath):
+            uma_handler_logger.info(f"[Image] Using cached combined image: {filepath}")
+            return filepath
+
+        if is_url(img_url1):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(img_url1) as resp:
+                    if resp.status != 200:
+                        return img_url2
+                    img1 = Image.open(BytesIO(await resp.read())).convert('RGBA')
+        elif os.path.exists(img_url1):
+            img1 = Image.open(img_url1).convert('RGBA')
+        else:
+            uma_handler_logger.warning(f"[Image] Local file not found, skipping: {img_url1}")
+            return img_url2
+
+        if is_url(img_url2):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(img_url2) as resp:
+                    if resp.status != 200:
+                        return img_url1
+                    img2 = Image.open(BytesIO(await resp.read())).convert('RGBA')
+        elif os.path.exists(img_url2):
+            img2 = Image.open(img_url2).convert('RGBA')
+        else:
+            uma_handler_logger.warning(f"[Image] Local file not found, skipping: {img_url2}")
+            return img_url1
+
+        width = max(img1.width, img2.width)
+        height = img1.height + img2.height
+        combined = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        combined.paste(img1, (0, 0), img1 if img1.mode == 'RGBA' else None)
+        combined.paste(img2, (0, img1.height), img2 if img2.mode == 'RGBA' else None)
+        combined.save(filepath, 'PNG')
+        uma_handler_logger.info(f"[Image] Combined images vertically saved to: {filepath}")
+        return filepath
+    except Exception as e:
+        uma_handler_logger.error(f"Failed to combine images vertically: {e}")
+        return None
+
+async def combine_images_horizontally(img_urls):
+    """Downloads multiple images and combines them horizontally."""
+    if not PIL_AVAILABLE:
+        uma_handler_logger.warning("[Image] PIL not available, cannot combine images")
+        return img_urls[0] if img_urls else None
+
+    if not img_urls:
+        return None
+    if len(img_urls) == 1:
+        return img_urls[0]
+
+    try:
+        img_hash = get_image_hash(img_urls)
+        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
+        filename = f"combined_h_{img_hash}.png"
+        filepath = os.path.join("data", "combined_images", filename)
+
+        if os.path.exists(filepath):
+            uma_handler_logger.info(f"[Image] Using cached horizontal combined image: {filepath}")
+            return filepath
+
+        images = []
+        async with aiohttp.ClientSession() as session:
+            for url in img_urls:
+                try:
+                    if is_url(url):
+                        async with session.get(url) as resp:
+                            if resp.status == 200:
+                                img = Image.open(BytesIO(await resp.read())).convert('RGBA')
+                                images.append(img)
+                    elif os.path.exists(url):
+                        img = Image.open(url).convert('RGBA')
+                        images.append(img)
+                    else:
+                        uma_handler_logger.warning(f"[Image] Local file not found, skipping: {url}")
+                except Exception as e:
+                    uma_handler_logger.warning(f"[Image] Failed to load {url}: {e}")
+
+        if not images:
+            return img_urls[0]
+        if len(images) == 1:
+            return img_urls[0]
+
+        total_width = sum(img.width for img in images)
+        max_height = max(img.height for img in images)
+        combined = Image.new('RGBA', (total_width, max_height), (0, 0, 0, 0))
+        x_offset = 0
+        for img in images:
+            y_offset = (max_height - img.height) // 2
+            combined.paste(img, (x_offset, y_offset), img if img.mode == 'RGBA' else None)
+            x_offset += img.width
+        combined.save(filepath, 'PNG')
+        uma_handler_logger.info(f"[Image] Combined {len(images)} images horizontally saved to: {filepath}")
+        return filepath
+    except Exception as e:
+        uma_handler_logger.error(f"Failed to combine images horizontally: {e}")
+        return img_urls[0] if img_urls else None
+
+
+# ==================== UMA-SPECIFIC PARSING ====================
+
+def parse_champions_meeting_phases(event_description, event_start, event_end):
+    """Calculate Champions Meeting phase times based on event end time."""
+    phases = []
+    phase_definitions = [
+        ("Finals", 1),
+        ("Final Registration", 1),
+        ("Round 2", 2),
+        ("Round 1", 2),
+        ("League Selection", None)
+    ]
+    duration_map = {}
+    if event_description:
+        lines = event_description.split('\n')
+        for line in lines:
+            if "Round 1" in line:
+                m = re.search(r'\((\d+)\s+days?\)', line)
+                if m:
+                    duration_map["Round 1"] = int(m.group(1))
+            elif "Round 2" in line:
+                m = re.search(r'\((\d+)\s+days?\)', line)
+                if m:
+                    duration_map["Round 2"] = int(m.group(1))
+    current_end = event_end
+    for phase_name, default_duration in phase_definitions:
+        if phase_name == "League Selection":
+            duration_seconds = current_end - event_start
+            phase_start = event_start
+        else:
+            duration_days = duration_map.get(phase_name, default_duration)
+            duration_seconds = duration_days * 86400
+            phase_start = current_end - duration_seconds
+        phases.insert(0, {
+            "name": phase_name,
+            "start_time": phase_start,
+            "duration_days": duration_seconds // 86400
+        })
+        current_end = phase_start
+    return phases
+
+def parse_legend_race_characters(event_description, event_start, event_end):
+    """Calculate Legend Race character times based on event timing."""
+    characters = []
+    lines = event_description.split('\n')
+    character_duration = 3 * 86400
+    character_names = []
+
+    for line in lines:
+        line = line.strip()
+        if line.startswith('-') and '(' in line:
+            char_name = line[1:line.index('(')].strip()
+            if char_name:
+                character_names.append(char_name)
+
+    if not character_names:
+        in_character_section = False
+        for line in lines:
+            if '**Characters:**' in line or '**characters:**' in line.lower():
+                in_character_section = True
+                character_names.extend(re.findall(r'\[([^\]]+)\]\([^\)]+\)', line))
+            elif in_character_section and '[' in line:
+                character_names.extend(re.findall(r'\[([^\]]+)\]\([^\)]+\)', line))
+            elif in_character_section and line and not line.startswith('**'):
+                break
+
+    if not character_names:
+        for line in lines:
+            if 'characters:' in line.lower():
+                parts = line.split(':', 1)
+                if len(parts) > 1:
+                    character_names.extend([n.strip() for n in parts[1].split(',') if n.strip()])
+
+    current_start = event_start
+    for char_name in character_names:
+        if char_name:
+            char_end = current_start + character_duration
+            characters.append({
+                "name": char_name,
+                "start_time": current_start,
+                "end_time": char_end,
+                "duration_days": 3
+            })
+            current_start = char_end
+    return characters
+
+
+# ==================== UMA EVENT DATABASE WRITER ====================
+
+async def add_uma_event(event_data, user_id="0"):
+    """Adds or updates an Uma Musume event in the database (only if changed).
+
+    This is a pure-DB function with no Discord dependency, safe to call from
+    standalone scripts (uma_scraper.py) as well as from the bot.
     """
-    Main function to download timeline and update database.
-    This should be called periodically or manually to refresh Uma Musume events.
+    uma_handler_logger.info(f"[Add Event] Processing event: {event_data.get('title', 'Unknown')}")
+
+    title = event_data.get("title", "").lower()
+    if "legend race" in title:
+        event_data["category"] = "Legend Race"
+    elif "champions meeting" in title or "champion's meeting" in title:
+        event_data["category"] = "Champions Meeting"
+
+    async with aiosqlite.connect(UMA_DB_PATH) as conn:
+        async with conn.execute(
+            '''SELECT id, start_date, end_date, image, description
+               FROM events
+               WHERE title = ? AND category = ? AND profile = 'UMA' ''',
+            (event_data["title"], event_data["category"])
+        ) as cursor:
+            existing = await cursor.fetchone()
+
+        if existing:
+            event_id, old_start, old_end, old_image, old_desc = existing
+            changed = False
+            if "Champions Meeting" in event_data["title"] or "champions meeting" in event_data["title"].lower():
+                if (str(event_data["start"]) != str(old_start) or
+                        str(event_data["end"]) != str(old_end) or
+                        event_data.get("image") != old_image):
+                    changed = True
+            else:
+                if (str(event_data["start"]) != str(old_start) or
+                        str(event_data["end"]) != str(old_end) or
+                        event_data.get("image") != old_image or
+                        event_data.get("description", "") != old_desc):
+                    changed = True
+
+            if changed:
+                await conn.execute(
+                    '''UPDATE events
+                       SET start_date = ?, end_date = ?, image = ?, description = ?, user_id = ?
+                       WHERE id = ?''',
+                    (event_data["start"], event_data["end"], event_data.get("image"),
+                     event_data.get("description", ""), user_id, event_id)
+                )
+                await conn.commit()
+                uma_handler_logger.info(f"[Add Event] Updated existing event: {event_data['title']}")
+                print(f"[UMA HANDLER] Updated event: {event_data['title']}")
+                from notification_handler import delete_notifications_for_event
+                await delete_notifications_for_event(event_data['title'], event_data['category'], "UMA")
+            else:
+                uma_handler_logger.info(f"[Add Event] Event unchanged: {event_data['title']}")
+                print(f"[UMA HANDLER] Event unchanged: {event_data['title']}")
+        else:
+            cursor = await conn.execute(
+                '''INSERT INTO events (user_id, title, start_date, end_date, image, category, profile, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                (user_id, event_data["title"], event_data["start"], event_data["end"],
+                 event_data.get("image"), event_data["category"], "UMA",
+                 event_data.get("description", ""))
+            )
+            await conn.commit()
+            uma_handler_logger.info(f"[Add Event] Inserted new event: {event_data['title']} (ID: {cursor.lastrowid})")
+            print(f"[UMA HANDLER] New event: {event_data['title']}")
+
+    from notification_handler import NOTIF_DB_PATH
+    async with aiosqlite.connect(NOTIF_DB_PATH) as notif_conn:
+        async with notif_conn.execute(
+            'SELECT COUNT(*) FROM pending_notifications WHERE title = ? AND profile = ?',
+            (event_data['title'], "UMA")
+        ) as cursor:
+            notif_count = (await cursor.fetchone())[0]
+
+    if notif_count > 0:
+        print(f"[UMA HANDLER] Notifications already exist for: {event_data['title']} ({notif_count}), skipping schedule")
+        return
+
+    event_for_notification = {
+        'category': event_data['category'],
+        'profile': "UMA",
+        'title': event_data['title'],
+        'start_date': event_data['start'],
+        'end_date': event_data['end'],
+        'description': event_data.get('description', '')
+    }
+    from notification_handler import schedule_notifications_db_only
+    print(f"[UMA HANDLER] Scheduling notifications for: {event_data['title']}")
+    try:
+        await schedule_notifications_db_only(event_for_notification)
+        print(f"[UMA HANDLER] Notifications scheduled for: {event_data['title']}")
+    except Exception as e:
+        uma_handler_logger.error(f"Failed to schedule notifications for {event_data['title']}: {e}")
+        print(f"[UMA HANDLER] ERROR scheduling notifications: {e}")
+
+
+async def scrape_and_save_events():
+    """
+    Downloads the uma.moe timeline and writes events to the database.
+    Pure scrape + DB write — no Discord calls.
+    Dashboard refresh (uma_update_timers) is the caller's responsibility.
     """
     uma_handler_logger.info("Starting Uma Musume event update...")
     print("[UMA HANDLER] Starting Uma Musume event update...")
-    
-    # Download and process events
+
     print("[UMA HANDLER] Downloading timeline from uma.moe...")
     events = await download_timeline()
-    
+
     if not events:
         uma_handler_logger.warning("No events downloaded.")
         print("[UMA HANDLER] WARNING: No events downloaded!")
         return
-    
+
     print(f"[UMA HANDLER] Downloaded {len(events)} events, adding to database...")
-    
-    # Import module functions
-    from uma_module import add_uma_event, uma_update_timers
-    
-    # Create a dummy context for add_uma_event
-    class DummyCtx:
-        author = type('obj', (object,), {'id': '0'})()
-        async def send(self, msg, **kwargs):
-            uma_handler_logger.info(f"[Event Added] {msg}")
-    
-    ctx = DummyCtx()
-    
-    # Add or update events in database
+
     added_count = 0
-    updated_count = 0
-    skipped_count = 0
-    
     for event_data in events:
         try:
-            result = await add_uma_event(ctx, event_data)
+            await add_uma_event(event_data)
             added_count += 1
         except Exception as e:
             uma_handler_logger.error(f"Failed to process event '{event_data.get('title', 'Unknown')}': {e}")
             import traceback
             uma_handler_logger.error(traceback.format_exc())
-    
+
     uma_handler_logger.info(f"Processed {added_count}/{len(events)} events.")
     print(f"[UMA HANDLER] Processed {added_count}/{len(events)} events.")
-    
-    # Refresh dashboard to display new events
-    print(f"[UMA HANDLER] Refreshing dashboard to display events...")
-    try:
-        await uma_update_timers()
-        print(f"[UMA HANDLER] Dashboard refreshed successfully!")
-    except Exception as e:
-        uma_handler_logger.error(f"Failed to refresh dashboard: {e}")
-        print(f"[UMA HANDLER] ERROR: Failed to refresh dashboard: {e}")
-        import traceback
-        traceback.print_exc()
-    
     print(f"[UMA HANDLER] Event update complete!")
 
 # ==================== GAMETORA DATABASE SCRAPING ====================
@@ -2011,4 +2300,4 @@ async def get_banner_support_cards(banner_id: str):
             return [{"id": row[0], "name": row[1], "link": row[2]} for row in rows]
 
 if __name__ == "__main__":
-    asyncio.run(update_uma_events())
+    asyncio.run(scrape_and_save_events())
