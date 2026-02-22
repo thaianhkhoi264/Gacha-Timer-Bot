@@ -6,6 +6,7 @@ dateparser
 pytz
 aiosqlite
 aiohttp
+aiohttp-cors
 
 transformers
 optimum
