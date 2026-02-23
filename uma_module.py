@@ -1054,27 +1054,19 @@ async def start_uma_background_tasks():
         # Database already initialized in main.py before control panels
         # No need to initialize again here
         
-        # Run initial update on startup
+        # Refresh dashboards from existing DB data (cron runs uma_scraper.py for actual scraping)
         try:
-            uma_logger.info("[Startup] Running initial Uma Musume event update...")
-            print("[UMA STARTUP] Running initial event update (this may take 2-3 minutes)...")
-            from uma_handler import scrape_and_save_events
-            await scrape_and_save_events()
+            uma_logger.info("[Startup] Refreshing dashboards from existing DB data...")
+            print("[UMA STARTUP] Refreshing dashboards from existing DB data...")
             await uma_update_timers()
-            uma_logger.info("[Startup] Initial update completed successfully.")
-            print("[UMA STARTUP] Initial update completed successfully!")
+            uma_logger.info("[Startup] Dashboard refresh completed.")
+            print("[UMA STARTUP] Dashboard refresh completed.")
         except Exception as e:
-            uma_logger.error(f"[Startup] Initial update failed: {e}")
-            print(f"[UMA ERROR] Initial update failed: {e}")
+            uma_logger.error(f"[Startup] Dashboard refresh failed: {e}")
+            print(f"[UMA ERROR] Dashboard refresh failed: {e}")
             import traceback
             uma_logger.error(traceback.format_exc())
             traceback.print_exc()
-        
-        # Start periodic update task (every 3 days)
-        if UMA_UPDATE_TASK is None or UMA_UPDATE_TASK.done():
-            UMA_UPDATE_TASK = asyncio.create_task(periodic_uma_update())
-            uma_logger.info("[Startup] Periodic update task scheduled (every 3 days).")
-            print("[UMA STARTUP] Periodic update task scheduled (every 3 days).")
 
         # Start scraper file watcher (detects when uma_scraper.py has run)
         asyncio.create_task(scraper_file_watcher())
