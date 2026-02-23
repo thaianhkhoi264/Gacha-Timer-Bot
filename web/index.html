@@ -71,6 +71,42 @@
     tr.selected td { background: #0c2340; }
     .actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
 
+    /* ── Event Cards (New Layout) ── */
+    .event-card {
+      background: #16213e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s;
+      position: relative;
+      background-image: url('https://umamusume.com/_app/immutable/assets/bg.B9VZMSei.jpeg');
+      background-size: 50px; /* Adjust scale */
+      background-blend-mode: overlay; /* Blends texture with your dark theme */
+    }
+    .event-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+      border-color: #555;
+    }
+    .event-card.selected {
+      border-color: #e94560;
+      background: #1e2a45;
+      box-shadow: 0 0 0 1px #e94560;
+    }
+    .event-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2c3e50; padding-bottom: 0.6rem; }
+    .event-title-wrap { display: flex; align-items: baseline; gap: 0.6rem; }
+    .event-id { font-family: monospace; color: #666; font-size: 0.8rem; }
+    .event-title { font-weight: 600; font-size: 1.05rem; color: #fff; }
+    .event-time { font-size: 0.8rem; color: #aaa; }
+    .event-body { display: flex; justify-content: space-between; align-items: flex-end; }
+    .event-image { width: 140px; height: 79px; background: #0d1b2a; border-radius: 6px; border: 1px solid #333; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #555; font-size: 0.75rem; }
+    .event-image img { width: 100%; height: 100%; object-fit: cover; }
+    .event-actions { display: flex; gap: 0.5rem; }
+
     /* ── Notifications panel ── */
     #notifs-section {
       margin-top: 1.5rem; background: #16213e; border: 1px solid #2c4a6e;

@@ -1178,6 +1178,25 @@ async def handle_remove_notification(request):
         api_logger.error(f"Error removing notification: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+async def handle_update_notification(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    notif_id = request.match_info["notif_id"]
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON body"}, status=400)
+
+    try:
+        if "custom_message" in data:
+            await event_manager.update_notification_message(int(notif_id), data["custom_message"] or None)
+        return web.json_response({"success": True, "message": "Notification updated"})
+    except Exception as e:
+        api_logger.error(f"Error updating notification: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
 async def handle_refresh_notifications(request):
     is_valid, error_msg, _ = validate_api_key(request)
     if not is_valid:
@@ -1248,6 +1267,7 @@ def create_app():
     
     app.router.add_get('/api/events/{profile}/{event_id}/notifications', handle_list_notifications)
     app.router.add_delete('/api/notifications/{notif_id}', handle_remove_notification)
+    app.router.add_patch('/api/notifications/{notif_id}', handle_update_notification)
     app.router.add_post('/api/events/{profile}/{event_id}/notifications/refresh', handle_refresh_notifications)
     
     app.router.add_post('/api/dashboard/{profile}/refresh', handle_refresh_dashboard)
