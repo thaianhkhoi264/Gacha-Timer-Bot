@@ -4,34 +4,80 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bot Control Panel</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
+    /* ── Uma Musume asset URLs ── */
+    :root {
+      --uma-bg:          url('https://umamusume.com/_app/immutable/assets/bg.B9VZMSei.jpeg');
+      --uma-bg-title:    url('https://umamusume.com/_app/immutable/assets/bg_title.HYB_fX5K.png');
+      --uma-deco-base:   url('https://umamusume.com/_app/immutable/assets/decoration_base.ax2DgMiQ.svg');
+      --uma-deco-square: url('https://umamusume.com/_app/immutable/assets/decoration_square.CPV5Y4-u.svg');
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
+    body {
+      font-family: 'Roboto', system-ui, sans-serif;
+      background-color: #ebf0f9;
+      background-image: var(--uma-bg);
+      background-size: 256px;
+      background-blend-mode: luminosity;
+      color: #4d4d4d;
+      min-height: 100vh;
+    }
 
     /* ── Setup screen ── */
     #setup {
       display: none; flex-direction: column; align-items: center; justify-content: center;
       min-height: 100vh; gap: 1rem; padding: 2rem;
     }
-    #setup h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-    #setup label { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: #aaa; }
-    #setup input { padding: 0.5rem 0.75rem; background: #16213e; border: 1px solid #333; border-radius: 4px; color: #e0e0e0; font-size: 1rem; }
-    #setup .btn-connect { padding: 0.5rem 1.5rem; background: #0f3460; border: none; border-radius: 4px; color: #e0e0e0; cursor: pointer; font-size: 1rem; }
-    #setup .btn-connect:hover { background: #1a5276; }
-    #setup .err { color: #e74c3c; font-size: 0.85rem; min-height: 1.2em; }
+    #setup h1 { font-size: 1.5rem; margin-bottom: 0.5rem; color: #141414; font-weight: 700; }
+    #setup label { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: #898989; }
+    #setup input { padding: 0.5rem 0.75rem; background: #fff; border: 1px solid #b9bed2; border-radius: 4px; color: #4d4d4d; font-size: 1rem; }
+    #setup .btn-connect {
+      padding: 0.5rem 2rem; border: none; border-radius: 999px; color: #fff; cursor: pointer;
+      font-size: 1rem; font-weight: 700; font-style: italic; letter-spacing: 0.04em;
+      background: linear-gradient(135deg, #ff79d0 0%, #2a5dfa 100%);
+      position: relative; overflow: hidden;
+      transition: transform 0.3s cubic-bezier(.175,.885,.32,1.275);
+      filter: drop-shadow(0 3px 8px rgba(42,93,250,0.35));
+    }
+    #setup .btn-connect::before, #setup .btn-connect::after {
+      content: ''; position: absolute; top: 0; height: 100%; width: 28px;
+      background: var(--uma-deco-base) no-repeat center / auto 100%;
+      filter: brightness(0) invert(1); opacity: 0.4;
+    }
+    #setup .btn-connect::before { left: 0; }
+    #setup .btn-connect::after  { right: 0; transform: rotate(180deg); }
+    #setup .btn-connect:hover { transform: scale(0.95); }
+    #setup .err { color: #ff0000; font-size: 0.85rem; min-height: 1.2em; }
 
     /* ── App layout ── */
     #app { display: none; flex-direction: column; min-height: 100vh; }
-    header { background: #0f3460; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
-    header h1 { font-size: 1.1rem; }
-    header button { background: transparent; border: 1px solid #666; padding: 0.25rem 0.75rem; border-radius: 4px; color: #aaa; cursor: pointer; font-size: 0.8rem; }
-    header button:hover { border-color: #e0e0e0; color: #e0e0e0; }
+    header {
+      background-color: #ff79d0;
+      background-image: var(--uma-bg-title), linear-gradient(135deg, #ff79d0 0%, #2a5dfa 100%);
+      background-size: auto 100%, cover;
+      background-position: left center, center;
+      background-blend-mode: multiply, normal;
+      background-repeat: no-repeat, no-repeat;
+      padding: 0.75rem 1.5rem;
+      display: flex; align-items: center; justify-content: space-between;
+      position: relative; overflow: hidden;
+    }
+    header h1 { font-size: 1.1rem; color: #fff; font-weight: 700; letter-spacing: 0.04em; position: relative; }
+    header button {
+      background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4);
+      padding: 0.25rem 0.75rem; border-radius: 999px; color: #fff; cursor: pointer; font-size: 0.8rem;
+      position: relative;
+      transition: background 0.2s;
+    }
+    header button:hover { background: rgba(255,255,255,0.35); }
 
     /* ── Profile tabs ── */
-    nav { background: #16213e; display: flex; border-bottom: 1px solid #333; }
-    nav button { padding: 0.7rem 1.5rem; background: transparent; border: none; border-bottom: 2px solid transparent; color: #aaa; cursor: pointer; font-size: 0.9rem; }
-    nav button.active { color: #e0e0e0; border-bottom-color: #e94560; }
-    nav button:hover:not(.active) { color: #ccc; background: #1e2a45; }
+    nav { background: #fff; display: flex; border-bottom: 1px solid #b9bed2; }
+    nav button { padding: 0.7rem 1.5rem; background: transparent; border: none; border-bottom: 3px solid transparent; color: #898989; cursor: pointer; font-size: 0.9rem; font-weight: 500; }
+    nav button.active { color: #ff79d0; border-bottom-color: #ff79d0; }
+    nav button:hover:not(.active) { color: #4d4d4d; background: #f8f8f8; }
 
     /* ── Main content ── */
     main { padding: 1.5rem; flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; }
@@ -40,94 +86,128 @@
     .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
 
     /* ── Buttons ── */
-    .btn { padding: 0.35rem 0.75rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
-    .btn:hover { filter: brightness(1.15); }
-    .btn-primary { background: #0f3460; color: #e0e0e0; }
-    .btn-danger  { background: #7b241c; color: #e0e0e0; }
-    .btn-amber   { background: #6e4c0a; color: #e0e0e0; }
-    .btn-teal    { background: #0e6655; color: #e0e0e0; }
-    .btn-grey    { background: #2e2e3e; color: #ccc; }
-    .btn-sm { padding: 0.2rem 0.5rem; font-size: 0.78rem; }
+    .btn {
+      padding: 0.35rem 0.9rem; border: none; border-radius: 999px; cursor: pointer;
+      font-size: 0.85rem; font-weight: 700; font-style: italic; letter-spacing: 0.02em;
+      position: relative; overflow: hidden;
+      transition: transform 0.3s cubic-bezier(.175,.885,.32,1.275);
+    }
+    .btn::before, .btn::after {
+      content: ''; position: absolute; top: 0; height: 100%; width: 24px;
+      background: var(--uma-deco-base) no-repeat center / auto 100%;
+      filter: brightness(0) invert(1); opacity: 0.35; pointer-events: none;
+    }
+    .btn::before { left: 0; }
+    .btn::after  { right: 0; transform: rotate(180deg); }
+    .btn:hover   { transform: scale(0.95); }
+    .btn-primary { background: #2a5dfa; color: #fff; }
+    .btn-danger  { background: #e74c3c; color: #fff; }
+    .btn-amber   { background: #f39c12; color: #fff; }
+    .btn-teal    { background: #27ae60; color: #fff; }
+    .btn-grey    { background: #e7e7e7; color: #4d4d4d; }
+    .btn-grey::before, .btn-grey::after { filter: none; opacity: 0.15; }
+    .btn-sm { padding: 0.15rem 0.6rem; font-size: 0.78rem; }
+    .btn-sm::before, .btn-sm::after { width: 16px; }
 
     /* ── Form card ── */
-    .form-card { background: #16213e; border: 1px solid #333; border-radius: 6px; padding: 1.25rem; margin-bottom: 1.25rem; }
-    .form-card h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin-bottom: 1rem; }
+    .form-card {
+      background: #fff; border: 1px solid #b9bed2; border-radius: 8px;
+      padding: 1.25rem; margin-bottom: 1.25rem; box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      position: relative; overflow: hidden;
+    }
+    .form-card::after {
+      content: ''; position: absolute; top: 0; right: 0; width: 60px; height: 84px;
+      background: var(--uma-deco-square) no-repeat center / contain;
+      opacity: 0.12; pointer-events: none;
+    }
+    .form-card h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #898989; margin-bottom: 1rem; }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
     .form-group { display: flex; flex-direction: column; gap: 0.25rem; }
     .form-group.full { grid-column: 1 / -1; }
-    .form-group label { font-size: 0.78rem; color: #888; }
+    .form-group label { font-size: 0.78rem; color: #898989; }
     .form-group input, .form-group select {
-      padding: 0.4rem 0.6rem; background: #0d1b2a; border: 1px solid #333;
-      border-radius: 4px; color: #e0e0e0; font-size: 0.875rem;
+      padding: 0.4rem 0.6rem; background: #f8f8f8; border: 1px solid #b9bed2;
+      border-radius: 4px; color: #4d4d4d; font-size: 0.875rem;
     }
-    .form-group input:focus { outline: none; border-color: #2471a3; }
+    .form-group input:focus { outline: none; border-color: #2a5dfa; background: #fff; }
     .form-actions { display: flex; gap: 0.5rem; margin-top: 0.9rem; }
 
-    /* ── Events table ── */
+    /* ── Table (used for notifications) ── */
     table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-    th { text-align: left; padding: 0.45rem 0.75rem; color: #888; font-weight: 500; border-bottom: 1px solid #333; }
-    td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #222; vertical-align: middle; }
-    tr:hover td { background: #1e2a45; }
-    tr.selected td { background: #0c2340; }
+    th { text-align: left; padding: 0.45rem 0.75rem; color: #898989; font-weight: 500; border-bottom: 1px solid #b9bed2; }
+    td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #e7e7e7; vertical-align: middle; color: #4d4d4d; }
+    tr:hover td { background: #ebf0f9; }
+    tr.selected td { background: #fdf0f9; }
     .actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
 
-    /* ── Event Cards (New Layout) ── */
+    /* ── Event Cards ── */
     .event-card {
-      background: #16213e;
-      border: 1px solid #333;
+      background: #fff;
+      background-image: var(--uma-bg);
+      background-size: 128px;
+      background-blend-mode: luminosity;
+      border: 1px solid #b9bed2;
       border-radius: 8px;
       padding: 1rem 1.25rem;
       margin-bottom: 1rem;
       display: flex;
       flex-direction: column;
       gap: 0.75rem;
-      transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s;
-      position: relative;
-      background-image: url('https://umamusume.com/_app/immutable/assets/bg.B9VZMSei.jpeg');
-      background-size: 50px; /* Adjust scale */
-      background-blend-mode: overlay; /* Blends texture with your dark theme */
+      transition: transform 0.3s cubic-bezier(.175,.885,.32,1.275), box-shadow 0.3s, border-color 0.3s;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      position: relative; overflow: hidden;
+    }
+    .event-card::after {
+      content: ''; position: absolute; bottom: 0; right: 0; width: 70px; height: 98px;
+      background: var(--uma-deco-square) no-repeat bottom right / contain;
+      opacity: 0.1; pointer-events: none; transform: rotate(180deg);
     }
     .event-card:hover {
-      transform: translateY(-5px);
-      box-shadow: 0 10px 20px rgba(0,0,0,0.3);
-      border-color: #555;
+      transform: translateY(-3px);
+      box-shadow: 0 8px 20px rgba(42,93,250,0.15);
+      border-color: #a6c0ff;
     }
     .event-card.selected {
-      border-color: #e94560;
-      background: #1e2a45;
-      box-shadow: 0 0 0 1px #e94560;
+      border-color: #ff79d0;
+      box-shadow: 0 0 0 2px rgba(255,121,208,0.3);
     }
-    .event-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2c3e50; padding-bottom: 0.6rem; }
+    .event-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ebf0f9; padding-bottom: 0.6rem; }
     .event-title-wrap { display: flex; align-items: baseline; gap: 0.6rem; }
-    .event-id { font-family: monospace; color: #666; font-size: 0.8rem; }
-    .event-title { font-weight: 600; font-size: 1.05rem; color: #fff; }
-    .event-time { font-size: 0.8rem; color: #aaa; }
+    .event-id { font-family: monospace; color: #b9bed2; font-size: 0.8rem; }
+    .event-title { font-weight: 700; font-size: 1.05rem; color: #141414; }
+    .event-time { font-size: 0.8rem; color: #898989; }
     .event-body { display: flex; justify-content: space-between; align-items: flex-end; }
-    .event-image { width: 140px; height: 79px; background: #0d1b2a; border-radius: 6px; border: 1px solid #333; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #555; font-size: 0.75rem; }
+    .event-image { width: 140px; height: 79px; background: #ebf0f9; border-radius: 6px; border: 1px solid #b9bed2; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #b9bed2; font-size: 0.75rem; }
     .event-image img { width: 100%; height: 100%; object-fit: cover; }
-    .event-actions { display: flex; gap: 0.5rem; }
+    .event-actions { display: flex; gap: 0.5rem; position: relative; z-index: 1; }
 
     /* ── Notifications panel ── */
     #notifs-section {
-      margin-top: 1.5rem; background: #16213e; border: 1px solid #2c4a6e;
-      border-radius: 6px; padding: 1.25rem;
+      margin-top: 1.5rem; background: #fff; border: 1px solid #b9bed2;
+      border-radius: 8px; padding: 1.25rem; box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      position: relative; overflow: hidden;
     }
-    #notifs-section h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin-bottom: 0.75rem; }
+    #notifs-section::after {
+      content: ''; position: absolute; top: 0; right: 0; width: 60px; height: 84px;
+      background: var(--uma-deco-square) no-repeat center / contain;
+      opacity: 0.08; pointer-events: none;
+    }
+    #notifs-section h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #898989; margin-bottom: 0.75rem; }
     .notif-footer { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
 
     /* ── States ── */
-    .empty   { padding: 2rem; text-align: center; color: #555; font-size: 0.85rem; }
-    .loading { color: #555; font-size: 0.85rem; padding: 1.5rem 0; text-align: center; }
+    .empty   { padding: 2rem; text-align: center; color: #b9bed2; font-size: 0.85rem; }
+    .loading { color: #b9bed2; font-size: 0.85rem; padding: 1.5rem 0; text-align: center; }
 
     /* ── Toast ── */
     #toast {
       position: fixed; bottom: 1.25rem; right: 1.25rem;
-      padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.85rem;
+      padding: 0.5rem 1.25rem; border-radius: 999px; font-size: 0.85rem; font-style: italic;
       opacity: 0; pointer-events: none; transition: opacity 0.25s;
     }
     #toast.show  { opacity: 1; }
-    #toast.ok    { background: #1e8449; color: #fff; }
-    #toast.error { background: #7b241c; color: #fff; }
+    #toast.ok    { background: #27ae60; color: #fff; }
+    #toast.error { background: #e74c3c; color: #fff; }
   </style>
 </head>
 <body>
@@ -195,7 +275,7 @@
 
     <!-- Notifications panel -->
     <div id="notifs-section" style="display:none">
-      <h2>Pending Notifications — <span id="notif-event-name" style="color:#ccc;text-transform:none;font-size:0.9rem;letter-spacing:0"></span></h2>
+      <h2>Pending Notifications — <span id="notif-event-name" style="color:#4d4d4d;text-transform:none;font-size:0.9rem;letter-spacing:0"></span></h2>
       <div id="notifs-list"><div class="loading">Loading…</div></div>
       <div class="notif-footer">
         <button class="btn btn-teal btn-sm"  onclick="refreshNotifications()">↻ Regenerate All</button>

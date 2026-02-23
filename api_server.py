@@ -1034,6 +1034,11 @@ async def handle_list_events(request):
     
     try:
         events = await event_manager.get_events(profile)
+        # Convert local image paths to API-accessible URLs
+        for ev in events:
+            img = ev.get('image')
+            if img and not img.startswith(('http://', 'https://')):
+                ev['image'] = '/' + img.replace('\\', '/')
         return web.json_response({"success": True, "events": events})
     except Exception as e:
         api_logger.error(f"Error listing events: {e}")
@@ -1271,6 +1276,11 @@ def create_app():
     app.router.add_post('/api/events/{profile}/{event_id}/notifications/refresh', handle_refresh_notifications)
     
     app.router.add_post('/api/dashboard/{profile}/refresh', handle_refresh_dashboard)
+
+    # Serve local event images (combined banners etc.)
+    _data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+    if os.path.isdir(_data_dir):
+        app.router.add_static('/data', _data_dir)
 
     # Add CORS to all routes
     if cors:
