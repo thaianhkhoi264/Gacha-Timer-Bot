@@ -337,11 +337,9 @@ async def download_timeline():
                 await asyncio.sleep(1.5)  # Reduced wait time (JS extraction is instant)
 
                 curr_scroll = await timeline.evaluate("el => el.scrollLeft")
-                if curr_scroll == prev_scroll:
-                    print(f"[UMA HANDLER] Timeline end reached (scroll position unchanged). Total unique: {len(seen_events)}")
-                    break
 
-                # OPTIMIZED: Extract all visible events via JS (1 roundtrip)
+                # ALWAYS extract before checking for end-of-timeline so the last
+                # viewport is never skipped (fixes break-before-extract bug)
                 raw_items_data = await page.evaluate(extract_js)
 
                 new_count = 0
@@ -363,6 +361,10 @@ async def download_timeline():
                         proper_title = build_proper_title(event_data)
                         date_str = event_data.get('date_str', 'NO DATE')
                         print(f"[UMA SCROLL] Found new event: {proper_title} (date: {date_str})")
+
+                if curr_scroll == prev_scroll:
+                    print(f"[UMA HANDLER] Timeline end reached (scroll position unchanged). Total unique: {len(seen_events)}")
+                    break
 
                 # Update counter (secondary safety net: stop after 3 consecutive empty scrolls)
                 if new_count > 0:
@@ -1179,6 +1181,29 @@ async def add_uma_event(event_data, user_id="0"):
         event_data["category"] = "Champions Meeting"
 
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                title TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                image TEXT,
+                category TEXT,
+                profile TEXT,
+                description TEXT
+            )
+        ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS event_messages (
+                event_id INTEGER,
+                channel_id TEXT,
+                message_id TEXT,
+                PRIMARY KEY (event_id, channel_id)
+            )
+        ''')
+        await conn.commit()
+
         async with conn.execute(
             '''SELECT id, start_date, end_date, image, description
                FROM events
