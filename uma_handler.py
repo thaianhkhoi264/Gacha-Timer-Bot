@@ -162,51 +162,61 @@ async def download_timeline():
 
             # === SCROLL LEFT FIRST (to find past events as reference) ===
             print("[UMA HANDLER] Phase 1: Scrolling LEFT to find past events...")
-            scroll_amount = -600
+            scroll_amount = -800
             max_left_scrolls = 10  # Only need a few scrolls to find past events
             found_past_event = False
 
             for i in range(max_left_scrolls):
                 await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(2.0)  # Shorter wait since we're just checking dates
-                event_items = await page.query_selector_all('.timeline-item.timeline-event')
+                await asyncio.sleep(1.0)  # Reduced wait time
 
-                # Check if any visible events have ended (quick date check)
-                # We just need to find ONE past event to establish our position
-                for item in event_items[:5]:  # Check first 5 events only
-                    date_tag = await item.query_selector('.event-date')
-                    if date_tag:
-                        date_str = (await date_tag.inner_text()).strip()
-                        # Check if this event has already ended (end date is in the past)
-                        _, end_dt = parse_event_date(date_str)
-                        if end_dt and end_dt < datetime.now(timezone.utc):
-                            found_past_event = True
-                            print(f"[UMA HANDLER] LEFT scroll {i+1}: Found past event reference, stopping LEFT scroll")
-                            break
+                # OPTIMIZED: Get dates of first 5 events via JS (1 roundtrip instead of N)
+                dates = await page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll('.timeline-item.timeline-event'))
+                        .slice(0, 5)
+                        .map(el => {
+                            const d = el.querySelector('.event-date');
+                            return d ? d.innerText.trim() : "";
+                        });
+                }""")
+
+                for date_str in dates:
+                    if not date_str: continue
+                    # Check if this event has already ended (end date is in the past)
+                    _, end_dt = parse_event_date(date_str)
+                    if end_dt and end_dt < datetime.now(timezone.utc):
+                        found_past_event = True
+                        print(f"[UMA HANDLER] LEFT scroll {i+1}: Found past event reference, stopping LEFT scroll")
+                        break
 
                 if found_past_event:
                     break
 
-                print(f"[UMA HANDLER] Scroll LEFT {i+1}: {len(event_items)} events visible, looking for past events...")
+                print(f"[UMA HANDLER] Scroll LEFT {i+1}: Looking for past events...")
 
             if not found_past_event:
                 print(f"[UMA HANDLER] LEFT scroll complete: No past events found (all events might be future)")
 
-            current_count = len(event_items)
-
-            # === HELPER FUNCTION: Extract single event from DOM element ===
-            async def extract_single_event(item):
-                """Extract event data from a single timeline item DOM element."""
-                # Extract event title
-                title_tag = await item.query_selector('.event-title')
-                if not title_tag:
+            # === HELPER FUNCTION: Process raw data extracted by JS ===
+            def parse_raw_item_data(data):
+                """Process raw dictionary returned by JS extraction."""
+                full_title = data.get("full_title", "")
+                if not full_title:
                     return None
-                full_title = (await title_tag.inner_text()).strip()
+                
+                date_str = data.get("date_str", "")
+                if not date_str:
+                    return None
+                
+                start_date, end_date = parse_event_date(date_str)
+                
+                full_text = data.get("full_text", "")
+                description = data.get("description", "")
+                raw_image_urls = data.get("raw_image_urls", [])
 
                 # Extract character/event tags from text content
                 # Character names appear on separate lines after the event type and date
                 tags = []
-                full_text = await item.inner_text()
                 lines = [line.strip() for line in full_text.split('\n') if line.strip()]
 
                 # For CHARACTER BANNER or SUPPORT CARD BANNER:
@@ -234,36 +244,19 @@ async def download_timeline():
                             tags.append(name)
 
                 # Extract event description/subtitle
-                description = ""
-                desc_tag = await item.query_selector('.event-description')
-                if desc_tag:
-                    description = (await desc_tag.inner_text()).strip()
-
                 # Extract ALL event images (Legend Race can have 3-4 character images)
                 img_urls = []
 
-                # Get ALL img tags within this event item
-                all_imgs = await item.query_selector_all('img')
-
-                for img_tag in all_imgs:
-                    img_src = await img_tag.get_attribute("src")
-                    if img_src:
-                        full_url = urljoin(BASE_URL, img_src)
-                        # Add all relevant game images (banner IDs, character images)
-                        if any(pattern in img_src for pattern in ['chara_stand_', '2021_', '2022_', '2023_', '2024_', '2025_', '2026_', 'img_bnr_', '/story/', '/paid/', '/support/']):
-                            if full_url not in img_urls:  # Avoid duplicates
-                                img_urls.append(full_url)
+                for img_src in raw_image_urls:
+                    # JS returns absolute URLs for img.src, so urljoin is usually redundant but safe
+                    full_url = urljoin(BASE_URL, img_src)
+                    # Add all relevant game images (banner IDs, character images)
+                    if any(pattern in img_src for pattern in ['chara_stand_', '2021_', '2022_', '2023_', '2024_', '2025_', '2026_', 'img_bnr_', '/story/', '/paid/', '/support/']):
+                        if full_url not in img_urls:  # Avoid duplicates
+                            img_urls.append(full_url)
 
                 # Primary image URL (first one, for backwards compatibility)
                 img_url = img_urls[0] if img_urls else None
-
-                # Extract event date
-                date_tag = await item.query_selector('.event-date')
-                if not date_tag:
-                    return None
-                date_str = (await date_tag.inner_text()).strip()
-
-                start_date, end_date = parse_event_date(date_str)
 
                 # Return event data
                 return {
@@ -306,24 +299,54 @@ async def download_timeline():
 
             # === THEN SCROLL RIGHT (to future/newer events) ===
             print("[UMA HANDLER] Phase 2: Scrolling RIGHT to load future events and extracting during scroll...")
-            scroll_amount = 600  # Scroll RIGHT (increased from 400)
+            scroll_amount = 800  # Scroll RIGHT (increased for speed)
             max_scrolls = 200  # Max iterations for RIGHT scroll
             no_new_events_count = 0
 
             # Track unique events by (start_date, title) to avoid duplicates
             seen_events = set()
             raw_events = []
+            
+            # JS function to extract all visible events in one go
+            extract_js = """
+            () => {
+                const items = Array.from(document.querySelectorAll('.timeline-item.timeline-event'));
+                return items.map(item => {
+                    const titleEl = item.querySelector('.event-title');
+                    const descEl = item.querySelector('.event-description');
+                    const dateEl = item.querySelector('.event-date');
+                    const imgEls = Array.from(item.querySelectorAll('img'));
+                    const imgSrcs = imgEls.map(img => img.src).filter(src => src);
+                    
+                    return {
+                        full_title: titleEl ? titleEl.innerText.trim() : "",
+                        full_text: item.innerText,
+                        description: descEl ? descEl.innerText.trim() : "",
+                        date_str: dateEl ? dateEl.innerText.trim() : "",
+                        raw_image_urls: imgSrcs
+                    };
+                });
+            }
+            """
 
             for i in range(max_scrolls):
-                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(3.0)  # Wait for lazy loading + DOM updates
+                # Capture scroll position before scrolling to detect end-of-timeline
+                prev_scroll = await timeline.evaluate("el => el.scrollLeft")
 
-                # Extract events from current visible DOM
-                event_items = await page.query_selector_all('.timeline-item.timeline-event')
+                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
+                await asyncio.sleep(1.5)  # Reduced wait time (JS extraction is instant)
+
+                curr_scroll = await timeline.evaluate("el => el.scrollLeft")
+                if curr_scroll == prev_scroll:
+                    print(f"[UMA HANDLER] Timeline end reached (scroll position unchanged). Total unique: {len(seen_events)}")
+                    break
+
+                # OPTIMIZED: Extract all visible events via JS (1 roundtrip)
+                raw_items_data = await page.evaluate(extract_js)
 
                 new_count = 0
-                for item in event_items:
-                    event_data = await extract_single_event(item)
+                for item_data in raw_items_data:
+                    event_data = parse_raw_item_data(item_data)
                     if not event_data:
                         continue
 
@@ -341,15 +364,15 @@ async def download_timeline():
                         date_str = event_data.get('date_str', 'NO DATE')
                         print(f"[UMA SCROLL] Found new event: {proper_title} (date: {date_str})")
 
-                # Update counter
+                # Update counter (secondary safety net: stop after 3 consecutive empty scrolls)
                 if new_count > 0:
                     print(f"[UMA HANDLER] Scroll RIGHT {i+1}: Found {new_count} new events (total unique: {len(seen_events)})")
                     no_new_events_count = 0
                 else:
                     no_new_events_count += 1
                     print(f"[UMA HANDLER] Scroll RIGHT {i+1}: No new events (total unique: {len(seen_events)})")
-                    if no_new_events_count >= 30:
-                        print(f"[UMA HANDLER] No new events after 30 RIGHT scrolls. Total unique events: {len(seen_events)}")
+                    if no_new_events_count >= 3:
+                        print(f"[UMA HANDLER] No new events after 3 RIGHT scrolls. Total unique events: {len(seen_events)}")
                         break
 
             print(f"[UMA HANDLER] Scrolling complete. Captured {len(raw_events)} unique events.")
@@ -1502,6 +1525,27 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                 initial_containers = await page.query_selector_all('.sc-37bc0b3c-0')
                 print(f"[GameTora] Initial banners loaded: {len(initial_containers)}")
                 
+                # === OPTIMIZATION: Check if we need to scroll ===
+                if not force_full_scan:
+                    # Extract IDs from current page state without scrolling
+                    visible_banner_ids = await page.evaluate('''() => {
+                        const imgs = Array.from(document.querySelectorAll('img[src*="img_bnr_gacha_"]'));
+                        return imgs.map(img => {
+                            const match = img.src.match(/img_bnr_gacha_(\d+)\.png/);
+                            return match ? match[1] : null;
+                        }).filter(id => id !== null);
+                    }''')
+                    
+                    existing_banner_ids = await get_existing_banner_ids("JP")
+                    new_visible = [bid for bid in visible_banner_ids if bid not in existing_banner_ids]
+                    
+                    if not new_visible:
+                        print(f"[GameTora] No new banners found in initial load ({len(visible_banner_ids)} checked). Skipping scroll.")
+                        uma_handler_logger.info("[GameTora] No new banners found in initial load. Skipping scroll.")
+                        await browser.close()
+                        return {"banners": 0, "characters": 0, "support_cards": 0, "skipped": True}
+                    print(f"[GameTora] Found {len(new_visible)} new banners in initial load. Proceeding with scan.")
+
                 # Scroll DOWN progressively to load all banners (lazy loading)
                 print("[GameTora] Scrolling to load all banners...")
                 
@@ -1773,119 +1817,77 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                 
                 print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
                 await page.goto(url, timeout=90000, wait_until="domcontentloaded")
-                
-                # Wait for page to load
-                await asyncio.sleep(5)
-                
+
+                # Wait for character boxes to be in DOM.
+                # Most boxes are hidden (duKLID class), so use state="attached" not "visible".
+                try:
+                    await page.wait_for_selector('.sc-77f9d665-1', state="attached", timeout=30000)
+                except Exception:
+                    await asyncio.sleep(5)  # Fallback if selector not found
+
                 # Enable "Show Upcoming Characters" checkbox to get JP-exclusive characters
                 try:
-                    checkboxes = await page.query_selector_all('input[type="checkbox"]')
-                    print(f"[GameTora] Found {len(checkboxes)} checkboxes")
-                    
-                    for cb in checkboxes:
-                        # Get parent element to check label text
-                        parent = await cb.evaluate_handle('el => el.parentElement')
-                        parent_text = await parent.inner_text() if parent else ""
-                        
-                        if "upcoming" in parent_text.lower() or "show" in parent_text.lower():
-                            is_checked = await cb.is_checked()
-                            if not is_checked:
+                    # Single JS call to find which checkbox to click (avoids per-checkbox roundtrips)
+                    checkbox_info = await page.evaluate("""() => {
+                        const cbs = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+                        return cbs.map((cb, i) => ({
+                            index: i,
+                            text: cb.parentElement ? cb.parentElement.innerText.toLowerCase() : '',
+                            checked: cb.checked
+                        }));
+                    }""")
+                    print(f"[GameTora] Found {len(checkbox_info)} checkboxes")
+                    for info in checkbox_info:
+                        if 'upcoming' in info['text'] or 'show' in info['text']:
+                            if not info['checked']:
                                 print("[GameTora] Enabling 'Show Upcoming Characters' checkbox")
-                                await cb.click()
-                                await asyncio.sleep(3)
-                                break
+                                all_checkboxes = await page.query_selector_all('input[type="checkbox"]')
+                                await all_checkboxes[info['index']].click()
+                                await asyncio.sleep(2)
+                            break
                 except Exception as e:
                     print(f"[GameTora] Could not find/toggle upcoming characters checkbox: {e}")
                 
-                # Scroll to load all characters (lazy loading)
-                print("[GameTora] Scrolling to load all characters...")
-                previous_count = 0
-                no_change_count = 0
-                scroll_iteration = 0
-                max_iterations = 30
-                
-                while scroll_iteration < max_iterations:
-                    # Find all character links
-                    char_links = await page.query_selector_all('a[href*="/umamusume/characters/"]')
-                    current_count = len(char_links)
-                    
-                    if scroll_iteration % 5 == 0:  # Log every 5 iterations
-                        print(f"[GameTora] Scroll iteration {scroll_iteration + 1}: {current_count} characters found")
-                    
-                    if current_count == previous_count:
-                        no_change_count += 1
-                        if no_change_count >= 3:
-                            print(f"[GameTora] No new characters after 3 attempts, stopping scroll")
-                            break
-                    else:
-                        no_change_count = 0
-                    
-                    previous_count = current_count
-                    
-                    # Scroll to bottom
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    await asyncio.sleep(2)
-                    scroll_iteration += 1
-                
-                print(f"[GameTora] Found {current_count} total character links, extracting data...")
-                
-                # Extract character data
-                char_links = await page.query_selector_all('a[href*="/umamusume/characters/"]')
-                
+                # All characters are in the DOM immediately (most are hidden but attached).
+                # Use base class to get both visible (gpkuqF) and hidden (duKLID) boxes.
+                char_boxes = await page.query_selector_all('.sc-77f9d665-1')
+
                 characters_data = []
-                for link_elem in char_links:
+                for box in char_boxes:
                     try:
-                        # Get link href
-                        href = await link_elem.get_attribute('href')
+                        href = await box.get_attribute('href')
                         if not href or '/profiles' in href:
                             continue
-                        
-                        # Extract character ID from URL (e.g., /umamusume/characters/101801-air-groove)
-                        match = re.search(r'/characters/(\d+)-', href)
+
+                        # Character ID from URL
+                        match = re.search(r'/characters/(\d+)', href)
                         if not match:
                             continue
-                        
                         character_id = match.group(1)
-                        
-                        # Get full link text (includes stars and name)
-                        full_text = (await link_elem.inner_text()).strip()
-                        
-                        # Text format can be:
-                        # 1. "⭐⭐⭐\nCharacter Name" (base characters with stars)
-                        # 2. "Event Type\nCharacter Name" (alternate versions like "Festival\nSymboli Rudolf")
-                        # 3. "Character Name" (some characters without prefix)
-                        
-                        # Remove star emojis first
-                        text_without_stars = re.sub(r'⭐+', '', full_text).strip()
-                        
-                        # Split by newlines and get the last non-empty line (that's the actual character name)
-                        lines = [line.strip() for line in text_without_stars.split('\n') if line.strip()]
-                        
-                        if not lines:
+
+                        # Name from the dedicated name element
+                        name_elem = await box.query_selector('.sc-af488da5-0.iWKoPF')
+                        if not name_elem:
                             continue
-                        
-                        # The character name is always the last line
-                        # For "Festival\nSymboli Rudolf" -> "Symboli Rudolf"
-                        # For "Eishin Flash" -> "Eishin Flash"
-                        name = lines[-1]
-                        
-                        # If there's a prefix (like "Festival"), include it: "Symboli Rudolf (Festival)"
-                        if len(lines) > 1:
-                            prefix = lines[0]  # "Festival", "Halloween", "Christmas", etc.
-                            name = f"{name} ({prefix})"
-                        
+                        raw = await name_elem.inner_text()
+                        # "Matikane-\nfukukitaru" → hyphen is a display line-break, not real punctuation
+                        name = raw.replace('-\n', '').replace('\n', ' ').strip()
                         if not name:
                             continue
-                        
-                        # Use href as-is (already has full path)
-                        full_link = href if href.startswith('/') else f"/{href}"
-                        
+
+                        # Variant label — only present for alternate versions (New Year, Festival, …)
+                        version_elem = await box.query_selector('.characters_list_char_version__CVHa7')
+                        if version_elem:
+                            version = (await version_elem.inner_text()).strip()
+                            if version:
+                                name = f"{name} ({version})"
+
                         characters_data.append({
                             'character_id': character_id,
                             'name': name,
-                            'link': full_link
+                            'link': href if href.startswith('/') else f"/{href}",
                         })
-                        
+
                     except Exception as e:
                         print(f"[GameTora] Error extracting character: {e}")
                         continue
