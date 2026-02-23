@@ -1,5 +1,4 @@
 from modules import *
-from bot import bot
 
 from collections import deque
 import asyncio
@@ -418,6 +417,7 @@ async def schedule_notifications_for_event(event):
     Schedules notifications for an event using profile-based timings.
     Now supports Champions Meeting and Legend Race special scheduling.
     """
+    from bot import bot
     send_log(MAIN_SERVER_ID, f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
     
     # Special handling for Champions Meeting (detect by title pattern)
@@ -692,6 +692,7 @@ async def send_notification(event, timing_type):
     Sends a notification to the correct profile-specific channel, using global_config.py for channel lookup.
     For HYV games, uses combined regional roles from COMBINED_REGIONAL_ROLE_IDS.
     """
+    from bot import bot
     from global_config import NOTIFICATION_CHANNELS, MAIN_SERVER_ID, COMBINED_REGIONAL_ROLE_IDS
 
     profile = event['profile'].upper()
@@ -1086,146 +1087,272 @@ async def update_combined_roles(member):
                         await member.remove_roles(combined_role, reason="Auto combined role update")
                         print(f"[DEBUG] ❌ Removed {combined_role.name} from {member.display_name}")
                         
-# Listeners for reaction roles
-@bot.event
-async def on_raw_reaction_add(payload):
-    if payload.member is None or payload.member.bot:
-        return
-    
-    # Check if this is a tracked role reaction message
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
-            row = await cursor.fetchone()
+if __name__ != "__main__":
+    from bot import bot
+
+    # Listeners for reaction roles
+    @bot.event
+    async def on_raw_reaction_add(payload):
+        if payload.member is None or payload.member.bot:
+            return
+
+        # Check if this is a tracked role reaction message
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                return  # Not a role reaction message
+
+        guild = bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+
+        # Profile roles
+        for profile, emoji in PROFILE_EMOJIS.items():
+            if str(payload.emoji) == emoji:
+                role_id = ROLE_IDS.get(profile)
+                if role_id:
+                    role = guild.get_role(role_id)
+                    if role:
+                        await payload.member.add_roles(role, reason="Profile role reaction add")
+        # Region roles
+        for region, emoji in REGION_EMOJIS.items():
+            if str(payload.emoji) == emoji:
+                role_id = REGIONAL_ROLE_IDS.get(region.upper())
+                if role_id:
+                    role = guild.get_role(role_id)
+                    if role:
+                        await payload.member.add_roles(role, reason="Region role reaction add")
+        # After adding, update combined roles
+        await update_combined_roles(payload.member)
+
+    @bot.event
+    async def on_raw_reaction_remove(payload):
+        guild = bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+
+        # Check if this is a tracked role reaction message
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
+                row = await cursor.fetchone()
+
         if not row:
             return  # Not a role reaction message
-    
-    guild = bot.get_guild(payload.guild_id)
-    if not guild:
-        return
 
-    # Profile roles
-    for profile, emoji in PROFILE_EMOJIS.items():
-        if str(payload.emoji) == emoji:
+        member = guild.get_member(payload.user_id)
+        if not member:
+            return
+
+        # Profile roles
+        for profile, emoji in PROFILE_EMOJIS.items():
+            if str(payload.emoji) == emoji:
+                role_id = ROLE_IDS.get(profile)
+                if role_id:
+                    role = guild.get_role(role_id)
+                    if role:
+                        await member.remove_roles(role, reason="Profile role reaction remove")
+
+        # Region roles
+        for region, emoji in REGION_EMOJIS.items():
+            if str(payload.emoji) == emoji:
+                role_id = REGIONAL_ROLE_IDS.get(region.upper())
+                if role_id:
+                    role = guild.get_role(role_id)
+                    if role:
+                        await member.remove_roles(role, reason="Region role reaction remove")
+
+        # After removing, update combined roles
+        await update_combined_roles(member)
+
+    @bot.command()
+    @commands.has_permissions(manage_roles=True)
+    async def create_role_reaction(ctx):
+        """
+        Sends a message for users to react and get profile/region roles.
+        Uses hardcoded role IDs and emojis from global_config.py.
+        """
+        guild = ctx.guild
+
+        # Profile roles
+        profile_msg = await ctx.send("React to this message to get notification roles for each game.")
+        for profile, emoji in PROFILE_EMOJIS.items():
             role_id = ROLE_IDS.get(profile)
             if role_id:
-                role = guild.get_role(role_id)
-                if role:
-                    await payload.member.add_roles(role, reason="Profile role reaction add")
-    # Region roles
-    for region, emoji in REGION_EMOJIS.items():
-        if str(payload.emoji) == emoji:
-            role_id = REGIONAL_ROLE_IDS.get(region.upper())
+                await profile_msg.add_reaction(emoji)
+
+        # Region roles
+        region_msg = await ctx.send("React to this message to get your region role. (This only matters for Star Rail, Zenless Zone Zero and Wuthering Waves)")
+        for region, emoji in REGION_EMOJIS.items():
+            role_id = REGIONAL_ROLE_IDS.get(region)
             if role_id:
-                role = guild.get_role(role_id)
-                if role:
-                    await payload.member.add_roles(role, reason="Region role reaction add")
-    # After adding, update combined roles
-    await update_combined_roles(payload.member)
+                await region_msg.add_reaction(emoji)
 
-@bot.event
-async def on_raw_reaction_remove(payload):
-    guild = bot.get_guild(payload.guild_id)
-    if not guild:
-        return
+        # Save message IDs to database
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("profile", str(profile_msg.id)))
+            await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("region", str(region_msg.id)))
+            await conn.commit()
 
-    # Check if this is a tracked role reaction message
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
-            row = await cursor.fetchone()
-    
-    if not row:
-        return  # Not a role reaction message
-        
-    member = guild.get_member(payload.user_id)
-    if not member:
-        return
+        await ctx.send("React to the above messages to assign yourself roles!")
 
-    # Profile roles
-    for profile, emoji in PROFILE_EMOJIS.items():
-        if str(payload.emoji) == emoji:
-            role_id = ROLE_IDS.get(profile)
-            if role_id:
-                role = guild.get_role(role_id)
-                if role:
-                    await member.remove_roles(role, reason="Profile role reaction remove")
-    
-    # Region roles
-    for region, emoji in REGION_EMOJIS.items():
-        if str(payload.emoji) == emoji:
-            role_id = REGIONAL_ROLE_IDS.get(region.upper())
-            if role_id:
-                role = guild.get_role(role_id)
-                if role:
-                    await member.remove_roles(role, reason="Region role reaction remove")
-    
-    # After removing, update combined roles
-    await update_combined_roles(member)
+    @bot.command()
+    @commands.has_permissions(administrator=True)
+    async def update_all_combined_roles(ctx):
+        """Checks all members and updates their combined roles."""
+        count = 0
+        for member in ctx.guild.members:
+            if not member.bot:
+                await update_combined_roles(member)
+                count += 1
+        await ctx.send(f"Updated combined roles for {count} members.")
 
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def create_role_reaction(ctx):
+    @bot.command()
+    @commands.has_permissions(administrator=True)
+    async def clear_pending_notifications(ctx):
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            await conn.execute("DELETE FROM pending_notifications")
+            await conn.commit()
+        await ctx.send("Cleared all pending notifications.")
+        await update_all_pending_notifications_embeds(ctx.guild)
+
+    @bot.command()
+    @commands.has_permissions(administrator=True)
+    async def cleanup_notifications(ctx):
+        """Removes ghost notifications and validates event notifications."""
+        await ctx.send("Running notification maintenance...")
+        ghost_count = await cleanup_ghost_notifications()
+        fixed_count = await validate_event_notifications()
+        await ctx.send(
+            f"✅ **Notification Maintenance Complete**\n"
+            f"• Removed {ghost_count} ghost notification(s)\n"
+            f"• Fixed {fixed_count} event(s) with missing notifications"
+        )
+        await update_all_pending_notifications_embeds(ctx.guild)
+
+def send_notification_webhook(row):
     """
-    Sends a message for users to react and get profile/region roles.
-    Uses hardcoded role IDs and emojis from global_config.py.
+    Synchronous webhook sender for standalone cron use.
+    Posts a notification to the Discord webhook for the event's profile.
+    Returns True on success (HTTP 200/204), False otherwise.
+
+    row: dict with keys matching pending_notifications columns:
+        id, profile, title, category, timing_type, event_time_unix,
+        region, message_template, custom_message, phase, character_name
     """
-    guild = ctx.guild
-
-    # Profile roles
-    profile_msg = await ctx.send("React to this message to get notification roles for each game.")
-    for profile, emoji in PROFILE_EMOJIS.items():
-        role_id = ROLE_IDS.get(profile)
-        if role_id:
-            await profile_msg.add_reaction(emoji)
-    
-    # Region roles
-    region_msg = await ctx.send("React to this message to get your region role. (This only matters for Star Rail, Zenless Zone Zero and Wuthering Waves)")
-    for region, emoji in REGION_EMOJIS.items():
-        role_id = REGIONAL_ROLE_IDS.get(region)
-        if role_id:
-            await region_msg.add_reaction(emoji)
-    
-    # Save message IDs to database
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("profile", str(profile_msg.id)))
-        await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("region", str(region_msg.id)))
-        await conn.commit()
-    
-    await ctx.send("React to the above messages to assign yourself roles!")
-    
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def update_all_combined_roles(ctx):
-    """Checks all members and updates their combined roles."""
-    count = 0
-    for member in ctx.guild.members:
-        if not member.bot:
-            await update_combined_roles(member)
-            count += 1
-    await ctx.send(f"Updated combined roles for {count} members.")
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def clear_pending_notifications(ctx):
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute("DELETE FROM pending_notifications")
-        await conn.commit()
-    await ctx.send("Cleared all pending notifications.")
-    await update_all_pending_notifications_embeds(ctx.guild)
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def cleanup_notifications(ctx):
-    """Removes ghost notifications and validates event notifications."""
-    await ctx.send("Running notification maintenance...")
-    ghost_count = await cleanup_ghost_notifications()
-    fixed_count = await validate_event_notifications()
-    await ctx.send(
-        f"✅ **Notification Maintenance Complete**\n"
-        f"• Removed {ghost_count} ghost notification(s)\n"
-        f"• Fixed {fixed_count} event(s) with missing notifications"
+    import urllib.request
+    import json as _json
+    from global_config import (
+        ROLE_IDS, COMBINED_REGIONAL_ROLE_IDS, NOTIFICATION_WEBHOOK_URLS
     )
-    await update_all_pending_notifications_embeds(ctx.guild)
+
+    profile = row["profile"].upper()
+
+    # Build role mention string (no discord.py — just raw ID string)
+    HYV_PROFILES = {"HSR", "ZZZ", "WUWA"}
+    if profile in HYV_PROFILES:
+        region = (row.get("region") or "").upper()
+        role_id = COMBINED_REGIONAL_ROLE_IDS.get((profile, region))
+    else:
+        role_id = ROLE_IDS.get(profile)
+    role_mention = f"<@&{role_id}>" if role_id else ""
+
+    # Map event_time_unix → start_date/end_date for message formatting
+    timing_type = row.get("timing_type", "start")
+    event_time_unix = row.get("event_time_unix")
+    if timing_type == "end":
+        unix_time = event_time_unix
+        time_str = "ending"
+    else:
+        unix_time = event_time_unix
+        time_str = "starting"
+
+    # Build message: custom_message > template > default
+    message = None
+    if row.get("custom_message"):
+        message = row["custom_message"]
+    elif row.get("message_template") and row["message_template"] in MESSAGE_TEMPLATES:
+        template = MESSAGE_TEMPLATES[row["message_template"]]
+        kwargs = {
+            "role": role_mention,
+            "name": row["title"],
+            "category": row["category"],
+            "action": time_str,
+            "time": f"<t:{unix_time}:R>" if unix_time else "",
+        }
+        if row.get("phase"):
+            kwargs["phase"] = row["phase"]
+        if row.get("character_name"):
+            kwargs["character"] = row["character_name"]
+        try:
+            message = template.format(**kwargs)
+        except KeyError:
+            pass
+
+    if not message:
+        time_ref = f"<t:{unix_time}:R>" if unix_time else "soon"
+        message = f"{role_mention}, the **{row['category']}** event **{row['title']}** is {time_str} {time_ref}!"
+
+    # POST to webhook
+    url = NOTIFICATION_WEBHOOK_URLS.get(profile, "")
+    if not url:
+        print(f"[NOTIFIER] No webhook URL configured for profile {profile}, skipping")
+        return False
+
+    payload = _json.dumps({"content": message}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status in (200, 204)
+    except Exception as e:
+        print(f"[NOTIFIER] Webhook POST failed for {profile}: {e}")
+        return False
+
+
+def run():
+    """
+    Standalone entry point: query due notifications and send via Discord webhooks.
+    Marks sent=1 only after a successful webhook POST.
+    Safe to run as a cron job every minute.
+    """
+    import sqlite3
+    import datetime as _dt
+
+    now = int(_dt.datetime.now(_dt.timezone.utc).timestamp())
+    cols = [
+        "id", "profile", "title", "category", "timing_type",
+        "notify_unix", "event_time_unix", "region",
+        "message_template", "custom_message", "phase", "character_name",
+    ]
+    conn = sqlite3.connect(NOTIF_DB_PATH)
+    rows = conn.execute(
+        f"SELECT {','.join(cols)} FROM pending_notifications "
+        "WHERE sent=0 AND notify_unix <= ?",
+        (now,),
+    ).fetchall()
+
+    for raw in rows:
+        row = dict(zip(cols, raw))
+        if send_notification_webhook(row):
+            conn.execute(
+                "UPDATE pending_notifications SET sent=1 WHERE id=?",
+                (row["id"],),
+            )
+            print(f"[NOTIFIER] Sent: {row['profile']} — {row['title']} ({row['timing_type']})")
+        else:
+            print(f"[NOTIFIER] FAILED: {row['profile']} — {row['title']} ({row['timing_type']})")
+
+    conn.commit()
+    conn.close()
+
+
+if __name__ == "__main__":
+    run()
+
 
 async def debug_log(message, bot=None, important=False):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
