@@ -1,6 +1,7 @@
 """
 Global configuration for Kanami.
 """
+import os
 import discord
 
 # Owner's Discord user ID
@@ -108,14 +109,14 @@ COMMANDS_CHANNELS = {
 }
 
 # Notification webhook URLs (profile → Discord webhook URL)
-# Create a webhook per notification channel: Channel Settings → Integrations → Webhooks
+# Set each via environment variable (see config/.env.example)
 NOTIFICATION_WEBHOOK_URLS = {
-    "UMA":  "https://discord.com/api/webhooks/1475563804220719187/fkua9MYe1RT5etVPEY715_FUbMRlJRmXaTQgBq6QFVOZryQUh8P_rNW1HC7al0lCwP2_",
-    "AK":   "https://discord.com/api/webhooks/1475560512791249130/Hezg1VAmcDJEoB1K7asvV8JN-HhvslWkFaDqZgg_B_puDIyAw7NBYlghoWRl_yEq6tVa", # Bloopy
-    "STRI": "",
-    "HSR":  "",
-    "ZZZ":  "",
-    "WUWA": "",
+    "UMA":  os.getenv("WEBHOOK_UMA", ""),
+    "AK":   os.getenv("WEBHOOK_AK", ""),
+    "STRI": os.getenv("WEBHOOK_STRI", ""),
+    "HSR":  os.getenv("WEBHOOK_HSR", ""),
+    "ZZZ":  os.getenv("WEBHOOK_ZZZ", ""),
+    "WUWA": os.getenv("WEBHOOK_WUWA", ""),
 }
 
 # List of supported game profiles (used throughout the bot)
