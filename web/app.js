@@ -167,8 +167,11 @@ function renderEvents() {
   }
   
   el.innerHTML = state.events.map(ev => {
-    const imgHtml = ev.image 
-      ? `<img src="${esc(ev.image)}" alt="Event Image">` 
+    const imgSrc = ev.image
+      ? (ev.image.startsWith('http') ? ev.image : `${API_URL}${ev.image}`)
+      : null;
+    const imgHtml = imgSrc
+      ? `<img src="${esc(imgSrc)}" alt="Event Image">`
       : `<span>No Image</span>`;
 
     return `

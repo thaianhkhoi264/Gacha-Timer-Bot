@@ -42,9 +42,9 @@ async def get_events(profile):
     db_path = PROFILE_CONFIG[profile]["DB_PATH"]
     async with aiosqlite.connect(db_path) as conn:
         async with conn.execute(
-            "SELECT id, title, category, start_date, end_date FROM events ORDER BY start_date ASC"
+            "SELECT id, title, category, start_date, end_date, image FROM events ORDER BY start_date ASC"
         ) as cursor:
-            return [dict(id=row[0], title=row[1], category=row[2], start=row[3], end=row[4]) async for row in cursor]
+            return [dict(id=row[0], title=row[1], category=row[2], start=row[3], end=row[4], image=row[5]) async for row in cursor]
 
 async def get_event_by_id(profile, event_id):
     db_path = PROFILE_CONFIG[profile]["DB_PATH"]
