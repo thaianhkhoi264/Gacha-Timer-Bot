@@ -186,9 +186,9 @@ function renderEvents() {
             <td>${fmtDate(ev.end)}</td>
             <td>
               <div class="actions">
-                <button class="btn btn-primary btn-sm" onclick="showEditForm(${ev.id})">Edit</button>
-                <button class="btn btn-danger btn-sm"  onclick="removeEvent(${ev.id})">Remove</button>
-                <button class="btn btn-teal btn-sm"    onclick="showNotifs(${ev.id})">Notifs</button>
+                <button class="btn btn-primary btn-sm" onclick="showEditForm('${esc(ev.id)}')">Edit</button>
+                <button class="btn btn-danger btn-sm"  onclick="removeEvent('${esc(ev.id)}')">Remove</button>
+                <button class="btn btn-teal btn-sm"    onclick="showNotifs('${esc(ev.id)}')">Notifs</button>
               </div>
             </td>
           </tr>
@@ -213,7 +213,7 @@ function showAddForm() {
 }
 
 async function showEditForm(eventId) {
-  const ev = state.events.find(e => e.id === eventId);
+  const ev = state.events.find(e => String(e.id) === String(eventId));
   if (!ev) return;
 
   document.getElementById('form-title').textContent = 'Edit Event';
@@ -269,7 +269,7 @@ async function submitForm() {
 // ── Events – Remove ───────────────────────────────────────────────────────────
 
 async function removeEvent(eventId) {
-  const ev = state.events.find(e => e.id === eventId);
+  const ev = state.events.find(e => String(e.id) === String(eventId));
   const name = ev ? `"${ev.title}"` : `#${eventId}`;
   if (!confirm(`Remove event ${name} and all its pending notifications?`)) return;
 
@@ -306,7 +306,7 @@ async function showNotifs(eventId) {
   const row = document.getElementById(`evrow-${eventId}`);
   if (row) row.classList.add('selected');
 
-  const ev = state.events.find(e => e.id === eventId);
+  const ev = state.events.find(e => String(e.id) === String(eventId));
   document.getElementById('notif-event-name').textContent = ev ? ev.title : `Event #${eventId}`;
   document.getElementById('notifs-section').style.display = 'block';
 
