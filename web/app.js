@@ -9,6 +9,7 @@ const state = {
   apiKey: '',
   profile: 'UMA',
   events: [],
+  notifications: [],
   selectedEventId: null,
 };
 
@@ -164,38 +165,36 @@ function renderEvents() {
     el.innerHTML = '<div class="empty">No events found. Add one with the button above.</div>';
     return;
   }
-  el.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Title</th>
-          <th>Category</th>
-          <th>Start (UTC)</th>
-          <th>End (UTC)</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${state.events.map(ev => `
-          <tr id="evrow-${ev.id}" class="${ev.id === state.selectedEventId ? 'selected' : ''}">
-            <td>${ev.id}</td>
-            <td>${esc(ev.title)}</td>
-            <td>${esc(ev.category)}</td>
-            <td>${fmtDate(ev.start)}</td>
-            <td>${fmtDate(ev.end)}</td>
-            <td>
-              <div class="actions">
-                <button class="btn btn-primary btn-sm" onclick="showEditForm('${esc(ev.id)}')">Edit</button>
-                <button class="btn btn-danger btn-sm"  onclick="removeEvent('${esc(ev.id)}')">Remove</button>
-                <button class="btn btn-teal btn-sm"    onclick="showNotifs('${esc(ev.id)}')">Notifs</button>
-              </div>
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>
-  `;
+  
+  el.innerHTML = state.events.map(ev => {
+    const imgHtml = ev.image 
+      ? `<img src="${esc(ev.image)}" alt="Event Image">` 
+      : `<span>No Image</span>`;
+
+    return `
+      <div id="evcard-${ev.id}" class="event-card ${ev.id === state.selectedEventId ? 'selected' : ''}">
+        <div class="event-header">
+          <div class="event-title-wrap">
+            <span class="event-id">#${ev.id}</span>
+            <span class="event-title">${esc(ev.title)}</span>
+          </div>
+          <div class="event-time">
+            ${fmtDate(ev.start)} — ${fmtDate(ev.end)}
+          </div>
+        </div>
+        <div class="event-body">
+          <div class="event-image">
+            ${imgHtml}
+          </div>
+          <div class="event-actions">
+            <button class="btn btn-primary btn-sm" onclick="showEditForm('${esc(ev.id)}')">Edit</button>
+            <button class="btn btn-danger btn-sm"  onclick="removeEvent('${esc(ev.id)}')">Remove</button>
+            <button class="btn btn-teal btn-sm"    onclick="showNotifs('${esc(ev.id)}')">Notifs</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 // ── Events – Add / Edit Form ──────────────────────────────────────────────────
@@ -301,14 +300,15 @@ async function refreshDashboard() {
 async function showNotifs(eventId) {
   state.selectedEventId = eventId;
 
-  // Highlight the selected event row
-  document.querySelectorAll('#events-list tr').forEach(r => r.classList.remove('selected'));
-  const row = document.getElementById(`evrow-${eventId}`);
-  if (row) row.classList.add('selected');
+  // Highlight the selected event card
+  document.querySelectorAll('.event-card').forEach(c => c.classList.remove('selected'));
+  const card = document.getElementById(`evcard-${eventId}`);
+  if (card) card.classList.add('selected');
 
   const ev = state.events.find(e => String(e.id) === String(eventId));
   document.getElementById('notif-event-name').textContent = ev ? ev.title : `Event #${eventId}`;
   document.getElementById('notifs-section').style.display = 'block';
+  document.getElementById('notifs-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   await loadNotifications(eventId);
 }
@@ -316,7 +316,7 @@ async function showNotifs(eventId) {
 function closeNotifs() {
   state.selectedEventId = null;
   document.getElementById('notifs-section').style.display = 'none';
-  document.querySelectorAll('#events-list tr').forEach(r => r.classList.remove('selected'));
+  document.querySelectorAll('.event-card').forEach(c => c.classList.remove('selected'));
 }
 
 async function loadNotifications(eventId) {
@@ -332,6 +332,7 @@ async function loadNotifications(eventId) {
 }
 
 function renderNotifications(notifs) {
+  state.notifications = notifs;
   const el = document.getElementById('notifs-list');
   if (!notifs.length) {
     el.innerHTML = '<div class="empty">No pending notifications for this event.</div>';
@@ -340,7 +341,7 @@ function renderNotifications(notifs) {
   el.innerHTML = `
     <table>
       <thead>
-        <tr><th>ID</th><th>Type</th><th>Fires At (UTC)</th><th></th></tr>
+        <tr><th>ID</th><th>Type</th><th>Fires At (UTC)</th><th>Custom Message</th><th></th></tr>
       </thead>
       <tbody>
         ${notifs.map(n => `
@@ -348,8 +349,12 @@ function renderNotifications(notifs) {
             <td>${n.id}</td>
             <td>${esc(n.timing_type)}</td>
             <td>${fmtDate(n.notify_unix)}</td>
+            <td>${n.custom_message ? esc(n.custom_message) : '<em style="color:#888">(default)</em>'}</td>
             <td>
-              <button class="btn btn-danger btn-sm" onclick="removeNotification(${n.id})">Remove</button>
+              <div class="actions">
+                <button class="btn btn-primary btn-sm" onclick="editNotifMsg(${n.id})">Edit Msg</button>
+                <button class="btn btn-danger btn-sm" onclick="removeNotification(${n.id})">Remove</button>
+              </div>
             </td>
           </tr>
         `).join('')}
@@ -364,6 +369,21 @@ async function removeNotification(notifId) {
     if (!data.success) throw new Error(data.error);
     toast('Notification removed.');
     if (state.selectedEventId !== null) loadNotifications(state.selectedEventId);
+  } catch (e) {
+    toast(`Error: ${e.message}`, 'error');
+  }
+}
+
+async function editNotifMsg(notifId) {
+  const n = state.notifications.find(x => x.id === notifId);
+  const current = n ? (n.custom_message || '') : '';
+  const msg = prompt('Custom message (leave blank to restore default):', current);
+  if (msg === null) return; // cancelled
+  try {
+    const data = await api('PATCH', `/api/notifications/${notifId}`, { custom_message: msg.trim() || null });
+    if (!data.success) throw new Error(data.error);
+    toast('Message updated.');
+    loadNotifications(state.selectedEventId);
   } catch (e) {
     toast(`Error: ${e.message}`, 'error');
   }
