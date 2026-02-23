@@ -1051,12 +1051,10 @@ async def handle_get_event(request):
         return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
 
     try:
-        event = await event_manager.get_event_by_id(profile, int(event_id))
+        event = await event_manager.get_event_by_id(profile, event_id)
         if not event:
             return web.json_response({"success": False, "error": "Event not found"}, status=404)
         return web.json_response({"success": True, "event": event})
-    except ValueError:
-        return web.json_response({"success": False, "error": "Invalid event ID"}, status=400)
     except Exception as e:
         api_logger.error(f"Error getting event: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
@@ -1115,8 +1113,8 @@ async def handle_update_event(request):
     try:
         data = await request.json()
         await event_manager.update_event(
-            profile, 
-            int(event_id), 
+            profile,
+            event_id,
             data["title"], 
             data["category"], 
             str(data["start_unix"]), 
@@ -1140,7 +1138,7 @@ async def handle_remove_event(request):
         return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
 
     try:
-        success = await event_manager.remove_event_by_id(profile, int(event_id))
+        success = await event_manager.remove_event_by_id(profile, event_id)
         if success:
             return web.json_response({"success": True, "message": "Event removed"})
         else:
@@ -1161,7 +1159,7 @@ async def handle_list_notifications(request):
         return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
 
     try:
-        notifs = await event_manager.get_pending_notifications_for_event(profile, int(event_id))
+        notifs = await event_manager.get_pending_notifications_for_event(profile, event_id)
         return web.json_response({"success": True, "notifications": notifs})
     except Exception as e:
         api_logger.error(f"Error listing notifications: {e}")
@@ -1192,7 +1190,7 @@ async def handle_refresh_notifications(request):
         return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
 
     try:
-        await event_manager.refresh_pending_notifications_for_event(profile, int(event_id))
+        await event_manager.refresh_pending_notifications_for_event(profile, event_id)
         return web.json_response({"success": True, "message": "Notifications refreshed"})
     except Exception as e:
         api_logger.error(f"Error refreshing notifications: {e}")

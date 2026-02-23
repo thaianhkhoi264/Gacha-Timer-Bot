@@ -105,7 +105,7 @@ async def init_uma_db():
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 user_id TEXT,
                 title TEXT,
                 start_date TEXT,
@@ -118,7 +118,7 @@ async def init_uma_db():
         ''')
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS event_messages (
-                event_id INTEGER,
+                event_id TEXT,
                 channel_id TEXT,
                 message_id TEXT,
                 PRIMARY KEY (event_id, channel_id)
