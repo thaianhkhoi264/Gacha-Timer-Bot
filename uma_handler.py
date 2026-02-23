@@ -23,6 +23,28 @@ BASE_URL = "https://uma.moe/"
 uma_handler_logger = logging.getLogger("uma_handler")
 uma_handler_logger.setLevel(logging.INFO)
 
+# Matches YEAR_NNNNN in image URLs (e.g. 2022_30064.png) — captures the 5-digit ID only
+_BANNER_ID_RE = re.compile(r'/20\d{2}_(\d{5})\.')
+
+def extract_banner_id(image_url: str):
+    """Return the 5-digit banner ID string from a YEAR_NNNNN image URL, or None."""
+    if not image_url:
+        return None
+    m = _BANNER_ID_RE.search(image_url)
+    return m.group(1) if m else None
+
+
+async def _next_sequential_id(prefix: str, conn) -> str:
+    """Return the next unused prefixed sequential ID (e.g. LR0001, CM0002)."""
+    async with conn.execute(
+        "SELECT MAX(CAST(SUBSTR(id, ?) AS INTEGER)) FROM events WHERE id LIKE ?",
+        (len(prefix) + 1, prefix + "%")
+    ) as cur:
+        row = await cur.fetchone()
+    n = (row[0] or 0) + 1
+    return f"{prefix}{n:04d}"
+
+
 def parse_event_date(date_str):
     """
     Parses a date string like 'Oct 1 – Oct 8, 2025' or '~Oct 1 – Oct 8, 2025'
@@ -258,6 +280,14 @@ async def download_timeline():
                 # Primary image URL (first one, for backwards compatibility)
                 img_url = img_urls[0] if img_urls else None
 
+                # Extract banner ID from the first YEAR_NNNNN image URL
+                banner_id = None
+                for url in img_urls:
+                    bid = extract_banner_id(url)
+                    if bid:
+                        banner_id = bid
+                        break
+
                 # Return event data
                 return {
                     "full_title": full_title,
@@ -266,6 +296,7 @@ async def download_timeline():
                     "description": description,
                     "image_url": img_url,  # Primary image (first one)
                     "image_urls": img_urls,  # ALL images for this event
+                    "banner_id": banner_id,  # 5-digit ID from YEAR_NNNNN filename, or None
                     "start_date": start_date,
                     "end_date": end_date,
                     "date_str": date_str
@@ -348,8 +379,9 @@ async def download_timeline():
                     if not event_data:
                         continue
 
-                    # Create unique key (start_date, title)
-                    event_key = (event_data['start_date'], event_data['full_title'])
+                    # Use banner_id as dedup key when available (guaranteed unique per release);
+                    # fall back to (start_date, title) for events without a banner image ID.
+                    event_key = event_data['banner_id'] if event_data.get('banner_id') else (event_data['start_date'], event_data['full_title'])
 
                     # Check if this is a new unique event
                     if event_key not in seen_events:
@@ -690,9 +722,14 @@ async def process_events(raw_events):
                 _, enriched_supports, best_img = await enrich_with_gametora_data(
                     "", support_names, img_url
                 )
-                
+
+                # Use GameTora name for title; asterisk if not enriched (no GameTora match)
+                was_enriched = "](" in enriched_supports
+                plain_supports = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_supports)
+
                 processed.append({
-                    "title": f"{support_names} Support Banner",
+                    "id": event.get("banner_id"),
+                    "title": f"{plain_supports}{'*' if not was_enriched else ''} Support Banner",
                     "start": int(start_date.timestamp()),
                     "end": int(end_date.timestamp()),
                     "image": best_img,  # Use GameTora image if available
@@ -772,14 +809,17 @@ async def process_events(raw_events):
                 else:
                     uma_handler_logger.warning(f"[Process] ✗ Image combination failed, using character image only")
 
-            # Create combined event
-            title = f"{char_names} Banner"  # Keep original names in title
+            # Create combined event — use GameTora name for title
+            was_enriched = "](" in enriched_chars
+            plain_chars = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_chars)
+            title = f"{plain_chars}{'*' if not was_enriched else ''} Banner"
             event_desc = f"**Characters:** {enriched_chars}\n**Support Cards:** {enriched_supports}" if enriched_supports else f"**Characters:** {enriched_chars}"
 
             print(f"[UMA HANDLER] Created banner - Chars: {enriched_chars[:60]}...")
             print(f"[UMA HANDLER] Supports: {enriched_supports[:60] if enriched_supports else 'None'}...")
-            
+
             processed.append({
+                "id": event.get("banner_id"),
                 "title": title,
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
@@ -811,6 +851,7 @@ async def process_events(raw_events):
                     combined_img = combined_path
             
             processed.append({
+                "id": event.get("banner_id"),
                 "title": "Paid Banner",
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
@@ -829,6 +870,7 @@ async def process_events(raw_events):
             event_desc = description if description else ""
             
             processed.append({
+                "id": None,
                 "title": story_name,
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
@@ -837,7 +879,7 @@ async def process_events(raw_events):
                 "description": event_desc
             })
             continue
-        
+
         # === LEGEND RACE ===
         if event_type == "LEGEND_RACE":
             # Extract race details from lines (e.g., "1600m - Mile - Turf")
@@ -888,6 +930,7 @@ async def process_events(raw_events):
                 combined_img = legend_images[0]
             
             processed.append({
+                "id": None,
                 "title": race_name,
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
@@ -896,7 +939,7 @@ async def process_events(raw_events):
                 "description": event_desc
             })
             continue
-        
+
         # === CHAMPIONS MEETING ===
         if event_type == "CHAMPIONS_MEETING":
             # Title is directly the cup name (e.g., "Champions Meeting: Virgo Cup")
@@ -927,6 +970,7 @@ async def process_events(raw_events):
             print(f"[UMA HANDLER] Champions Meeting '{cup_name}' details: {detail_lines}")
             
             processed.append({
+                "id": None,
                 "title": cup_name,
                 "start": int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60),
                 "end": int(end_date.timestamp()),
@@ -935,10 +979,11 @@ async def process_events(raw_events):
                 "description": details if details else ""
             })
             continue
-        
+
         # === FALLBACK: Store all other events with their original titles ===
         # This ensures we don't lose events that don't match specific patterns
         processed.append({
+            "id": None,
             "title": full_title[:100],  # Limit title length
             "start": int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60),
             "end": int(end_date.timestamp()),
@@ -1183,7 +1228,7 @@ async def add_uma_event(event_data, user_id="0"):
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 user_id TEXT,
                 title TEXT,
                 start_date TEXT,
@@ -1196,7 +1241,7 @@ async def add_uma_event(event_data, user_id="0"):
         ''')
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS event_messages (
-                event_id INTEGER,
+                event_id TEXT,
                 channel_id TEXT,
                 message_id TEXT,
                 PRIMARY KEY (event_id, channel_id)
@@ -1204,16 +1249,27 @@ async def add_uma_event(event_data, user_id="0"):
         ''')
         await conn.commit()
 
+        # Resolve the event ID: use banner_id from scrape, or generate a sequential prefix ID.
+        event_id = event_data.get("id")
+        if not event_id:
+            prefix_map = {
+                "Legend Race":      "LR",
+                "Champions Meeting": "CM",
+                "Offer":            "PD",
+                "Banner":           "CB",
+                "Event":            "SE",
+            }
+            prefix = prefix_map.get(event_data.get("category"), "UNK")
+            event_id = await _next_sequential_id(prefix, conn)
+
         async with conn.execute(
-            '''SELECT id, start_date, end_date, image, description
-               FROM events
-               WHERE title = ? AND category = ? AND profile = 'UMA' ''',
-            (event_data["title"], event_data["category"])
+            "SELECT id, start_date, end_date, image, description FROM events WHERE id = ?",
+            (event_id,)
         ) as cursor:
             existing = await cursor.fetchone()
 
         if existing:
-            event_id, old_start, old_end, old_image, old_desc = existing
+            _, old_start, old_end, old_image, old_desc = existing
             changed = False
             if "Champions Meeting" in event_data["title"] or "champions meeting" in event_data["title"].lower():
                 if (str(event_data["start"]) != str(old_start) or
@@ -1236,24 +1292,24 @@ async def add_uma_event(event_data, user_id="0"):
                      event_data.get("description", ""), user_id, event_id)
                 )
                 await conn.commit()
-                uma_handler_logger.info(f"[Add Event] Updated existing event: {event_data['title']}")
-                print(f"[UMA HANDLER] Updated event: {event_data['title']}")
+                uma_handler_logger.info(f"[Add Event] Updated existing event: {event_data['title']} (ID: {event_id})")
+                print(f"[UMA HANDLER] Updated event: {event_data['title']} (ID: {event_id})")
                 from notification_handler import delete_notifications_for_event
                 await delete_notifications_for_event(event_data['title'], event_data['category'], "UMA")
             else:
-                uma_handler_logger.info(f"[Add Event] Event unchanged: {event_data['title']}")
-                print(f"[UMA HANDLER] Event unchanged: {event_data['title']}")
+                uma_handler_logger.info(f"[Add Event] Event unchanged: {event_data['title']} (ID: {event_id})")
+                print(f"[UMA HANDLER] Event unchanged: {event_data['title']} (ID: {event_id})")
         else:
-            cursor = await conn.execute(
-                '''INSERT INTO events (user_id, title, start_date, end_date, image, category, profile, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (user_id, event_data["title"], event_data["start"], event_data["end"],
+            await conn.execute(
+                '''INSERT INTO events (id, user_id, title, start_date, end_date, image, category, profile, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (event_id, user_id, event_data["title"], event_data["start"], event_data["end"],
                  event_data.get("image"), event_data["category"], "UMA",
                  event_data.get("description", ""))
             )
             await conn.commit()
-            uma_handler_logger.info(f"[Add Event] Inserted new event: {event_data['title']} (ID: {cursor.lastrowid})")
-            print(f"[UMA HANDLER] New event: {event_data['title']}")
+            uma_handler_logger.info(f"[Add Event] Inserted new event: {event_data['title']} (ID: {event_id})")
+            print(f"[UMA HANDLER] New event: {event_data['title']} (ID: {event_id})")
 
     from notification_handler import NOTIF_DB_PATH
     async with aiosqlite.connect(NOTIF_DB_PATH) as notif_conn:
