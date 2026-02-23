@@ -107,6 +107,17 @@ COMMANDS_CHANNELS = {
     MAIN_SERVER_ID: 1417209387877138613,
 }
 
+# Notification webhook URLs (profile → Discord webhook URL)
+# Create a webhook per notification channel: Channel Settings → Integrations → Webhooks
+NOTIFICATION_WEBHOOK_URLS = {
+    "UMA":  "https://discord.com/api/webhooks/1475563804220719187/fkua9MYe1RT5etVPEY715_FUbMRlJRmXaTQgBq6QFVOZryQUh8P_rNW1HC7al0lCwP2_",
+    "AK":   "https://discord.com/api/webhooks/1475560512791249130/Hezg1VAmcDJEoB1K7asvV8JN-HhvslWkFaDqZgg_B_puDIyAw7NBYlghoWRl_yEq6tVa", # Bloopy
+    "STRI": "",
+    "HSR":  "",
+    "ZZZ":  "",
+    "WUWA": "",
+}
+
 # List of supported game profiles (used throughout the bot)
 GAME_PROFILES = ["HSR", "ZZZ", "AK", "STRI", "WUWA", "UMA"]
 

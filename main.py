@@ -317,12 +317,6 @@ async def send_daily_report():
         except Exception as e:
             print(f"[Daily Report] Failed to send DM: {e}")
 
-# Notification loop function to load and schedule pending notifications
-async def notification_loop():
-    while True:
-        await notification_handler.load_and_schedule_pending_notifications(bot)
-        await asyncio.sleep(30)  # Check every 30 seconds
-
 # Get latest git commit message for version info
 def get_latest_commit_message():
     try:
@@ -414,8 +408,6 @@ async def on_ready():
     print("[DEBUG] Creating background tasks...")
     # asyncio.create_task(reminder_module.daily_reminder_task())
     # print("[DEBUG] Reminder task created.")
-    asyncio.create_task(notification_loop())
-    print("[DEBUG] Notification loop task created.")
     # asyncio.create_task(send_daily_report())
     # print("[DEBUG] Daily report task created.")
     # asyncio.create_task(hsr_scraper.periodic_hsr_scraping_task())

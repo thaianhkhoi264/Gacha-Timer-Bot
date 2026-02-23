@@ -125,6 +125,31 @@ async def remove_pending_notification(notif_id):
         await conn.execute("DELETE FROM pending_notifications WHERE id=?", (notif_id,))
         await conn.commit()
 
+async def get_all_pending_notifications(profile=None):
+    """Return all unsent pending notifications, optionally filtered by profile."""
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        if profile:
+            async with conn.execute(
+                "SELECT * FROM pending_notifications WHERE sent=0 AND profile=? ORDER BY notify_unix ASC",
+                (profile.upper(),)
+            ) as cursor:
+                return [dict(row) async for row in cursor]
+        else:
+            async with conn.execute(
+                "SELECT * FROM pending_notifications WHERE sent=0 ORDER BY notify_unix ASC"
+            ) as cursor:
+                return [dict(row) async for row in cursor]
+
+async def update_notification_message(notif_id, custom_message):
+    """Set custom_message on a pending notification row."""
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        await conn.execute(
+            "UPDATE pending_notifications SET custom_message=? WHERE id=?",
+            (custom_message, notif_id)
+        )
+        await conn.commit()
+
 async def refresh_pending_notifications_for_event(profile, event_id):
     event = await get_event_by_id(profile, event_id)
     if not event:
