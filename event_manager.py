@@ -50,12 +50,12 @@ async def get_event_by_id(profile, event_id):
     db_path = PROFILE_CONFIG[profile]["DB_PATH"]
     async with aiosqlite.connect(db_path) as conn:
         async with conn.execute(
-            "SELECT id, title, category, start_date, end_date, image FROM events WHERE id=?",
+            "SELECT id, title, category, start_date, end_date, image, description FROM events WHERE id=?",
             (event_id,)
         ) as cursor:
             row = await cursor.fetchone()
             if row:
-                return dict(id=row[0], title=row[1], category=row[2], start=row[3], end=row[4], image=row[5])
+                return dict(id=row[0], title=row[1], category=row[2], start=row[3], end=row[4], image=row[5], description=row[6] or '')
     return None
 
 async def remove_event_by_id(profile, event_id):
@@ -160,6 +160,7 @@ async def refresh_pending_notifications_for_event(profile, event_id):
         'profile': profile,
         'title': event['title'],
         'start_date': str(event['start']),
-        'end_date': str(event['end'])
+        'end_date': str(event['end']),
+        'description': event.get('description', ''),
     }
     await schedule_notifications_for_event(event_for_notification)
