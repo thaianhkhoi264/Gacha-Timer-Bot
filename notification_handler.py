@@ -601,12 +601,18 @@ async def cleanup_ghost_notifications():
     except Exception as e:
         print(f"[NotificationHandler] Error reading AK database: {e}")
     
-    # TODO: Add other profile databases here as they're implemented
-    # async with aiosqlite.connect(HSR_DB_PATH) as conn:
-    #     async with conn.execute("SELECT profile, title, category FROM events") as cursor:
-    #         async for row in cursor:
-    #             valid_events.add((row[0], row[1], row[2]))
-    
+    # Check UMA database
+    try:
+        from uma_module import UMA_DB_PATH as _UMA_DB_PATH
+        async with aiosqlite.connect(_UMA_DB_PATH) as conn:
+            async with conn.execute("SELECT profile, title, category FROM events") as cursor:
+                async for row in cursor:
+                    valid_events.add((row[0], row[1], row[2]))
+    except Exception as e:
+        print(f"[NotificationHandler] Error reading UMA database: {e}")
+
+    # TODO: Add other profile databases here as they're implemented (HSR, ZZZ, etc.)
+
     # Remove notifications that don't match any valid event
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute("SELECT DISTINCT profile, title, category FROM pending_notifications") as cursor:
@@ -655,8 +661,27 @@ async def validate_event_notifications():
     except Exception as e:
         print(f"[NotificationHandler] Error reading AK database: {e}")
     
-    # TODO: Add other profile databases here as they're implemented
-    
+    # Check UMA database
+    try:
+        from uma_module import UMA_DB_PATH as _UMA_DB_PATH
+        async with aiosqlite.connect(_UMA_DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT profile, title, category, start_date, end_date, description FROM events"
+            ) as cursor:
+                async for row in cursor:
+                    all_events.append({
+                        'profile':     row[0],
+                        'title':       row[1],
+                        'category':    row[2],
+                        'start_date':  row[3],
+                        'end_date':    row[4],
+                        'description': row[5] or '',
+                    })
+    except Exception as e:
+        print(f"[NotificationHandler] Error reading UMA database: {e}")
+
+    # TODO: Add other profile databases here as they're implemented (HSR, ZZZ, etc.)
+
     # For each event, check if it has all expected notifications
     fixed_count = 0
     for event in all_events:
