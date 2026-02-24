@@ -748,31 +748,33 @@ async def send_notification(event, timing_type):
 
         # Build message: Priority 1 = custom_message, Priority 2 = template, Priority 3 = default
         message = None
+        time_str = "starting" if timing_type == "start" else "ending"
+        kwargs = {
+            'role': role_mention,
+            'name': event['title'],
+            'category': event['category'],
+            'action': time_str,
+            'time': f"<t:{unix_time}:R>"
+        }
+        if event.get('phase'):
+            kwargs['phase'] = event['phase']
+        if event.get('character'):
+            kwargs['character'] = event['character_name']
         if event.get('custom_message'):
-            message = event['custom_message']
+            try:
+                message = event['custom_message'].format(**kwargs)
+            except (KeyError, IndexError):
+                message = event['custom_message']
         elif event.get('message_template') and event.get('message_template') in MESSAGE_TEMPLATES:
             template = MESSAGE_TEMPLATES[event['message_template']]
-            time_str = "starting" if timing_type == "start" else "ending"
-            kwargs = {
-                'role': role_mention,
-                'name': event['title'],
-                'category': event['category'],
-                'action': time_str,
-                'time': f"<t:{unix_time}:R>"
-            }
-            if event.get('phase'):
-                kwargs['phase'] = event['phase']
-            if event.get('character'):
-                kwargs['character'] = event['character_name']
             try:
                 message = template.format(**kwargs)
             except KeyError:
                 pass  # Fall through to default
-        
+
         if not message:
-            time_str = "starting" if timing_type == "start" else "ending"
             message = f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
-        
+
         try:
             await channel.send(message)
             send_log(event.get('server_id', 'N/A'), f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
@@ -806,29 +808,31 @@ async def send_notification(event, timing_type):
 
         # Build message: Priority 1 = custom_message, Priority 2 = template, Priority 3 = default
         message = None
+        time_str = "starting" if timing_type == "start" else "ending"
+        kwargs = {
+            'role': role_mention,
+            'name': event['title'],
+            'category': event['category'],
+            'action': time_str,
+            'time': f"<t:{unix_time}:R>"
+        }
+        if event.get('phase'):
+            kwargs['phase'] = event['phase']
+        if event.get('character_name'):
+            kwargs['character'] = event['character_name']
         if event.get('custom_message'):
-            message = event['custom_message']
+            try:
+                message = event['custom_message'].format(**kwargs)
+            except (KeyError, IndexError):
+                message = event['custom_message']
         elif event.get('message_template') and event.get('message_template') in MESSAGE_TEMPLATES:
             template = MESSAGE_TEMPLATES[event['message_template']]
-            time_str = "starting" if timing_type == "start" else "ending"
-            kwargs = {
-                'role': role_mention,
-                'name': event['title'],
-                'category': event['category'],
-                'action': time_str,
-                'time': f"<t:{unix_time}:R>"
-            }
-            if event.get('phase'):
-                kwargs['phase'] = event['phase']
-            if event.get('character_name'):
-                kwargs['character'] = event['character_name']
             try:
                 message = template.format(**kwargs)
             except KeyError:
                 pass  # Fall through to default
-        
+
         if not message:
-            time_str = "starting" if timing_type == "start" else "ending"
             message = f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
         
         try:

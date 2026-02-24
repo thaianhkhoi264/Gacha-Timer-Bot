@@ -186,6 +186,36 @@
 
     /* ── Notifications panel ── */
     .notif-footer { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
+    .notif-msg-cell { max-width: 260px; word-break: break-word; font-size: 0.82rem; }
+
+    /* ── Edit message modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center; z-index: 100;
+    }
+    .modal-card {
+      background: #fff; border-radius: 10px; padding: 1.5rem;
+      width: min(560px, 95vw); box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      display: flex; flex-direction: column; gap: 0.75rem;
+    }
+    .modal-card h3 { font-size: 1rem; font-weight: 700; color: #141414; }
+    .modal-hint { font-size: 0.8rem; color: #898989; }
+    .placeholder-table { font-size: 0.8rem; border-collapse: collapse; width: 100%; }
+    .placeholder-table td { padding: 0.2rem 0.5rem; }
+    .placeholder-table td:first-child { width: 110px; }
+    .placeholder-table code { background: #ebf0f9; border-radius: 3px; padding: 0.1rem 0.3rem; font-size: 0.78rem; }
+    .msg-textarea {
+      width: 100%; min-height: 80px; padding: 0.5rem 0.6rem;
+      border: 1px solid #b9bed2; border-radius: 4px;
+      font-family: inherit; font-size: 0.875rem; color: #4d4d4d; resize: vertical;
+    }
+    .msg-textarea:focus { outline: none; border-color: #2a5dfa; }
+    .modal-preview-label { font-size: 0.78rem; color: #898989; }
+    .modal-preview {
+      background: #ebf0f9; border-radius: 4px; padding: 0.5rem 0.75rem;
+      font-size: 0.85rem; color: #4d4d4d; min-height: 2rem; word-break: break-word;
+    }
+    .modal-actions { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
 
     /* ── States ── */
     .empty   { padding: 2rem; text-align: center; color: #b9bed2; font-size: 0.85rem; }
@@ -266,6 +296,30 @@
     <!-- Events list -->
     <div id="events-list"><div class="loading">Loading…</div></div>
   </main>
+</div>
+
+<!-- Edit notification message modal -->
+<div id="edit-msg-modal" style="display:none" class="modal-overlay" onclick="if(event.target===this)closeEditMsgModal()">
+  <div class="modal-card">
+    <h3>Edit Notification Message</h3>
+    <p class="modal-hint">Leave blank to restore the default. Supported placeholders:</p>
+    <table class="placeholder-table">
+      <tr><td><code>{role}</code></td><td>Role ping for this game</td></tr>
+      <tr><td><code>{name}</code></td><td>Event title</td></tr>
+      <tr><td><code>{time}</code></td><td>Relative Discord timestamp (e.g. "in 2 hours")</td></tr>
+      <tr><td><code>{category}</code></td><td>Event category</td></tr>
+      <tr><td><code>{character}</code></td><td>Character name (Legend Race only)</td></tr>
+      <tr><td><code>{phase}</code></td><td>Phase name (Champions Meeting only)</td></tr>
+    </table>
+    <textarea id="editMsgText" class="msg-textarea" placeholder="Leave blank to restore default…" oninput="updateMsgPreview()"></textarea>
+    <div class="modal-preview-label">Preview:</div>
+    <div id="editMsgPreview" class="modal-preview"></div>
+    <input type="hidden" id="editMsgId">
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveEditMsg()">Save</button>
+      <button class="btn btn-grey"    onclick="closeEditMsgModal()">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>
