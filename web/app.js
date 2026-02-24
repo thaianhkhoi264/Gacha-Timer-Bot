@@ -314,6 +314,38 @@ async function refreshAllNotifications() {
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 
+const NOTIF_TEMPLATES = {
+  'default':                                            '{role}, The {category} {name} is {action} {time}!',
+  'uma_champions_meeting_reminder':                     '{role}, {name} is starting in {time}!',
+  'uma_champions_meeting_registration_start':           '{role}, {name} Registration has started!',
+  'uma_champions_meeting_round1_start':                 '{role}, {name} Round 1 has started!',
+  'uma_champions_meeting_round2_start':                 '{role}, {name} Round 2 has started!',
+  'uma_champions_meeting_final_registration_start':     '{role}, {name} Final Registration has started!',
+  'uma_champions_meeting_finals_start':                 '{role}, {name} Finals has started! Good luck!',
+  'uma_champions_meeting_end':                          '{role}, {name} has ended! Hope you got a good placement!',
+  'uma_legend_race_reminder':                           '{role}, {name} is starting in 1 day!',
+  'uma_legend_race_character_start':                    "{role}, {character}'s Legend Race has started!",
+  'uma_legend_race_end':                                '{role}, {name} has ended!',
+};
+
+function renderNotifMessage(n, ev) {
+  const action = ['start', 'character_start', 'phase_start', 'reminder'].includes(n.timing_type)
+    ? 'starting' : 'ending';
+  const kwargs = {
+    role:      `@${state.profile}`,
+    name:      ev ? esc(ev.title)    : '?',
+    category:  ev ? esc(ev.category) : '?',
+    action,
+    time:      `<t:${n.notify_unix}:R>`,
+    character: n.character_name ? esc(n.character_name) : '',
+    phase:     n.phase          ? esc(n.phase)          : '',
+  };
+  const src = n.custom_message
+    ? n.custom_message
+    : (NOTIF_TEMPLATES[n.message_template] || NOTIF_TEMPLATES['default']);
+  return esc(src).replace(/\{(\w+)\}/g, (_, k) => kwargs[k] ?? `{${k}}`);
+}
+
 async function showNotifs(eventId) {
   // If same card's panel is open, close it (toggle)
   if (state.selectedEventId === eventId) {
@@ -376,14 +408,14 @@ function renderNotifications(eventId, notifs) {
     <h3 class="notif-heading">Notifications — ${ev ? esc(ev.title) : `Event #${eventId}`}</h3>
     <table>
       <thead>
-        <tr><th>Type</th><th>Fires At (ET)</th><th>Custom Message</th><th></th></tr>
+        <tr><th>Type</th><th>Fires At (ET)</th><th>Message</th><th></th></tr>
       </thead>
       <tbody>
         ${notifs.map(n => `
           <tr>
             <td>${esc(n.timing_type)}</td>
             <td>${fmtDate(n.notify_unix)}</td>
-            <td>${n.custom_message ? esc(n.custom_message) : '<em style="color:#888">(default)</em>'}</td>
+            <td class="notif-msg-cell">${renderNotifMessage(n, ev)}</td>
             <td>
               <div class="actions">
                 <button class="btn btn-primary btn-sm" onclick="editNotifMsg(${n.id})">Edit Msg</button>
@@ -412,15 +444,39 @@ async function removeNotification(notifId) {
   }
 }
 
-async function editNotifMsg(notifId) {
+function editNotifMsg(notifId) {
   const n = state.notifications.find(x => x.id === notifId);
-  const current = n ? (n.custom_message || '') : '';
-  const msg = prompt('Custom message (leave blank to restore default):', current);
-  if (msg === null) return; // cancelled
+  document.getElementById('editMsgId').value   = notifId;
+  document.getElementById('editMsgText').value = n ? (n.custom_message || '') : '';
+  updateMsgPreview();
+  document.getElementById('edit-msg-modal').style.display = 'flex';
+  document.getElementById('editMsgText').focus();
+}
+
+function updateMsgPreview() {
+  const notifId = parseInt(document.getElementById('editMsgId').value);
+  const raw     = document.getElementById('editMsgText').value;
+  const n  = state.notifications.find(x => x.id === notifId);
+  const ev = state.events.find(e => String(e.id) === String(state.selectedEventId));
+  const preview = renderNotifMessage(
+    raw.trim() ? { ...n, custom_message: raw } : { ...n, custom_message: null },
+    ev
+  );
+  document.getElementById('editMsgPreview').innerHTML = preview;
+}
+
+function closeEditMsgModal() {
+  document.getElementById('edit-msg-modal').style.display = 'none';
+}
+
+async function saveEditMsg() {
+  const notifId = parseInt(document.getElementById('editMsgId').value);
+  const msg = document.getElementById('editMsgText').value.trim();
   try {
-    const data = await api('PATCH', `/api/notifications/${notifId}`, { custom_message: msg.trim() || null });
+    const data = await api('PATCH', `/api/notifications/${notifId}`, { custom_message: msg || null });
     if (!data.success) throw new Error(data.error);
     toast('Message updated.');
+    closeEditMsgModal();
     loadNotifications(state.selectedEventId);
   } catch (e) {
     toast(`Error: ${e.message}`, 'error');
