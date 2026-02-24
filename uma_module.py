@@ -257,8 +257,11 @@ async def upsert_event_message(guild, channel, event, event_id):
                     await msg.edit(embed=embed)
                 return
             except Exception as e:
-                print(f"[UMA] Failed to edit message: {e}")
-                pass
+                print(f"[UMA] Failed to edit/fetch message {row[0]}: {e}")
+                try:
+                    await channel.get_partial_message(int(row[0])).delete()
+                except Exception:
+                    pass
         
         # Send new message
         if event.get("image"):
@@ -339,6 +342,47 @@ async def clear_channel_messages(channel, event_ids_to_keep):
         uma_logger.error(f"[Clear Channel] Failed to clear channel: {e}")
         import traceback
         traceback.print_exc()
+
+async def ensure_channel_order(guild, channel, events_for_channel, db_path):
+    """
+    Checks that tracked event messages appear in start_date ascending order.
+    If any are out of order, deletes all and reposts in the correct order.
+    events_for_channel: list of event dicts for this channel, sorted by start ASC.
+    """
+    async with aiosqlite.connect(db_path) as conn:
+        async with conn.execute(
+            "SELECT event_id, message_id FROM event_messages WHERE channel_id=? "
+            "ORDER BY CAST(message_id AS INTEGER) ASC",
+            (str(channel.id),)
+        ) as cursor:
+            actual = [(r[0], r[1]) async for r in cursor]
+
+    if not actual:
+        return
+
+    actual_order  = [row[0] for row in actual]
+    tracked_ids   = set(actual_order)
+    desired_order = [e["id"] for e in events_for_channel if e["id"] in tracked_ids]
+
+    if actual_order == desired_order:
+        return  # Already in correct order
+
+    print(f"[UMA] #{channel.name} out of order — reposting {len(actual)} messages in correct order")
+
+    async with aiosqlite.connect(db_path) as conn:
+        for ev_id, msg_id in actual:
+            try:
+                await channel.get_partial_message(int(msg_id)).delete()
+            except Exception:
+                pass
+        await conn.execute("DELETE FROM event_messages WHERE channel_id=?", (str(channel.id),))
+        await conn.commit()
+
+    event_map = {e["id"]: e for e in events_for_channel}
+    for ev_id in desired_order:
+        if ev_id in event_map:
+            await upsert_event_message(guild, channel, event_map[ev_id], ev_id)
+
 
 async def uma_update_timers(_guild=None, force_update=False):
     """
@@ -478,6 +522,17 @@ async def uma_update_timers(_guild=None, force_update=False):
                     print(f"[UMA] Posted to upcoming channel: {event['title']}")
                 await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["UMA"], event["id"])
         
+        # Ensure events appear in start_date order in each channel
+        ongoing_events_shown  = [e for e in events
+                                  if e["start"] <= now < e["end"]
+                                  and not (e["start"] > one_month_later and e["end"] > one_month_later)]
+        upcoming_events_shown = [e for e in events
+                                  if e["start"] > now and e["start"] <= one_month_later]
+        if ongoing_channel:
+            await ensure_channel_order(main_guild, ongoing_channel, ongoing_events_shown, UMA_DB_PATH)
+        if upcoming_channel:
+            await ensure_channel_order(main_guild, upcoming_channel, upcoming_events_shown, UMA_DB_PATH)
+
         uma_logger.info(f"[Update Timers] Summary - Ongoing: {ongoing_count}, Upcoming: {upcoming_count}, Deleted: {deleted_count}, Skipped (>1mo): {skipped_count}")
     
 async def add_uma_event(ctx, event_data):
