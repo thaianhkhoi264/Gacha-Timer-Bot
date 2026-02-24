@@ -806,6 +806,8 @@ async def process_events(raw_events):
                 if combined_path:
                     final_img = combined_path
                     uma_handler_logger.info(f"[Process] ✓ Combined enriched images: {combined_path}")
+                    # Pre-generate horizontal version for the web control panel
+                    await combine_images_horizontally([enriched_char_img, enriched_support_img])
                 else:
                     uma_handler_logger.warning(f"[Process] ✗ Image combination failed, using character image only")
 
@@ -849,6 +851,8 @@ async def process_events(raw_events):
                 combined_path = await combine_images_vertically(img_url, paired_img)
                 if combined_path:
                     combined_img = combined_path
+                    # Pre-generate horizontal version for the web control panel
+                    await combine_images_horizontally([img_url, paired_img])
             
             processed.append({
                 "id": event.get("banner_id"),

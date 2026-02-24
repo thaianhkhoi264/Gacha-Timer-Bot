@@ -185,15 +185,13 @@ function renderEvents() {
             ${fmtDate(ev.start)} — ${fmtDate(ev.end)}
           </div>
         </div>
-        <div class="event-body">
-          <div class="event-image">
-            ${imgHtml}
-          </div>
-          <div class="event-actions">
-            <button class="btn btn-primary btn-sm" onclick="showEditForm('${esc(ev.id)}')">Edit</button>
-            <button class="btn btn-danger btn-sm"  onclick="removeEvent('${esc(ev.id)}')">Remove</button>
-            <button class="btn btn-teal btn-sm"    onclick="showNotifs('${esc(ev.id)}')">Notifs</button>
-          </div>
+        <div class="event-image">
+          ${imgHtml}
+        </div>
+        <div class="event-actions">
+          <button class="btn btn-primary btn-sm" onclick="showEditForm('${esc(ev.id)}')">Edit</button>
+          <button class="btn btn-danger btn-sm"  onclick="removeEvent('${esc(ev.id)}')">Remove</button>
+          <button class="btn btn-teal btn-sm"    onclick="showNotifs('${esc(ev.id)}')">Notifs</button>
         </div>
       </div>
     `;
