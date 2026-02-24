@@ -218,10 +218,12 @@ async def upsert_event_message(guild, channel, event, event_id):
                         if event["image"].startswith("http"):
                             new_image_url = event["image"]
                         else:
-                            # Local file path - will be uploaded as attachment://image.png
-                            # Check if old image is also an attachment
-                            if old_image_url and old_image_url.startswith("attachment://"):
-                                # Both are attachments, consider unchanged
+                            # Local file path — uploaded with its basename as the attachment filename.
+                            # Discord stores it as a CDN URL ending in that basename.
+                            # Check if the old embed's CDN URL already refers to the same file.
+                            basename = os.path.basename(event["image"])
+                            if old_image_url and (old_image_url.endswith(basename) or
+                                                  old_image_url.startswith("attachment://")):
                                 new_image_url = old_image_url
                     
                     # For Champions Meeting, ignore description changes (detail lines vary)
@@ -250,8 +252,9 @@ async def upsert_event_message(guild, channel, event, event_id):
                         embed.set_image(url=event["image"])
                         await msg.edit(embed=embed)
                     else:
-                        file = discord.File(event["image"], filename="image.png")
-                        embed.set_image(url=f"attachment://image.png")
+                        basename = os.path.basename(event["image"])
+                        file = discord.File(event["image"], filename=basename)
+                        embed.set_image(url=f"attachment://{basename}")
                         await msg.edit(embed=embed, attachments=[file])
                 else:
                     await msg.edit(embed=embed)
@@ -269,8 +272,9 @@ async def upsert_event_message(guild, channel, event, event_id):
                 embed.set_image(url=event["image"])
                 msg = await channel.send(embed=embed)
             else:
-                file = discord.File(event["image"], filename="image.png")
-                embed.set_image(url=f"attachment://image.png")
+                basename = os.path.basename(event["image"])
+                file = discord.File(event["image"], filename=basename)
+                embed.set_image(url=f"attachment://{basename}")
                 msg = await channel.send(embed=embed, file=file)
         else:
             msg = await channel.send(embed=embed)
