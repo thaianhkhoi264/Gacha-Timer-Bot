@@ -119,14 +119,17 @@ function toUnix(dtLocalValue) {
   return Math.floor(new Date(dtLocalValue + ':00Z').getTime() / 1000);
 }
 
-// unix timestamp (string or number) → human readable UTC string
+// unix timestamp (string or number) → human readable Eastern Time string
 function fmtDate(val) {
   if (val === null || val === undefined || val === '') return '—';
   const n = Number(val);
   const d = (!isNaN(n) && n > 1e9) ? new Date(n * 1000) : new Date(val);
   if (isNaN(d)) return String(val);
-  // e.g. "2024-03-15 14:00 UTC"
-  return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  return d.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }) + ' ET';
 }
 
 // unix timestamp (string or number) → datetime-local value for input prefill
@@ -185,14 +188,17 @@ function renderEvents() {
             ${fmtDate(ev.start)} — ${fmtDate(ev.end)}
           </div>
         </div>
-        <div class="event-image">
-          ${imgHtml}
+        <div class="event-body">
+          <div class="event-image">
+            ${imgHtml}
+          </div>
+          <div class="event-actions">
+            <button class="btn btn-primary" onclick="showEditForm('${esc(ev.id)}')">Edit</button>
+            <button class="btn btn-danger"  onclick="removeEvent('${esc(ev.id)}')">Remove</button>
+            <button class="btn btn-teal"    onclick="showNotifs('${esc(ev.id)}')">Notifs</button>
+          </div>
         </div>
-        <div class="event-actions">
-          <button class="btn btn-primary btn-sm" onclick="showEditForm('${esc(ev.id)}')">Edit</button>
-          <button class="btn btn-danger btn-sm"  onclick="removeEvent('${esc(ev.id)}')">Remove</button>
-          <button class="btn btn-teal btn-sm"    onclick="showNotifs('${esc(ev.id)}')">Notifs</button>
-        </div>
+        <div class="event-notifs" id="notifs-${esc(ev.id)}" style="display:none"></div>
       </div>
     `;
   }).join('');
@@ -299,55 +305,72 @@ async function refreshDashboard() {
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 async function showNotifs(eventId) {
-  state.selectedEventId = eventId;
+  // If same card's panel is open, close it (toggle)
+  if (state.selectedEventId === eventId) {
+    closeNotifs();
+    return;
+  }
 
-  // Highlight the selected event card
+  // Close any currently open notif panel
+  document.querySelectorAll('.event-notifs').forEach(el => {
+    el.style.display = 'none';
+    el.innerHTML = '';
+  });
+
+  state.selectedEventId = eventId;
   document.querySelectorAll('.event-card').forEach(c => c.classList.remove('selected'));
   const card = document.getElementById(`evcard-${eventId}`);
   if (card) card.classList.add('selected');
 
-  const ev = state.events.find(e => String(e.id) === String(eventId));
-  document.getElementById('notif-event-name').textContent = ev ? ev.title : `Event #${eventId}`;
-  document.getElementById('notifs-section').style.display = 'block';
-  document.getElementById('notifs-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const panel = document.getElementById(`notifs-${eventId}`);
+  panel.innerHTML = '<div class="loading">Loading…</div>';
+  panel.style.display = 'block';
 
   await loadNotifications(eventId);
 }
 
 function closeNotifs() {
   state.selectedEventId = null;
-  document.getElementById('notifs-section').style.display = 'none';
+  document.querySelectorAll('.event-notifs').forEach(el => {
+    el.style.display = 'none';
+    el.innerHTML = '';
+  });
   document.querySelectorAll('.event-card').forEach(c => c.classList.remove('selected'));
 }
 
 async function loadNotifications(eventId) {
-  const el = document.getElementById('notifs-list');
+  const el = document.getElementById(`notifs-${eventId}`);
   el.innerHTML = '<div class="loading">Loading…</div>';
   try {
     const data = await api('GET', `/api/events/${state.profile}/${eventId}/notifications`);
     if (!data.success) throw new Error(data.error);
-    renderNotifications(data.notifications);
+    renderNotifications(eventId, data.notifications);
   } catch (e) {
     el.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
   }
 }
 
-function renderNotifications(notifs) {
+function renderNotifications(eventId, notifs) {
   state.notifications = notifs;
-  const el = document.getElementById('notifs-list');
+  const el = document.getElementById(`notifs-${eventId}`);
+  const ev = state.events.find(e => String(e.id) === String(eventId));
   if (!notifs.length) {
-    el.innerHTML = '<div class="empty">No pending notifications for this event.</div>';
+    el.innerHTML = `<div class="empty">No pending notifications for this event.</div>
+      <div class="notif-footer">
+        <button class="btn btn-teal btn-sm" onclick="refreshNotifications()">↻ Regenerate All</button>
+        <button class="btn btn-grey btn-sm" onclick="closeNotifs()">Close</button>
+      </div>`;
     return;
   }
   el.innerHTML = `
+    <h3 class="notif-heading">Notifications — ${ev ? esc(ev.title) : `Event #${eventId}`}</h3>
     <table>
       <thead>
-        <tr><th>ID</th><th>Type</th><th>Fires At (UTC)</th><th>Custom Message</th><th></th></tr>
+        <tr><th>Type</th><th>Fires At (ET)</th><th>Custom Message</th><th></th></tr>
       </thead>
       <tbody>
         ${notifs.map(n => `
           <tr>
-            <td>${n.id}</td>
             <td>${esc(n.timing_type)}</td>
             <td>${fmtDate(n.notify_unix)}</td>
             <td>${n.custom_message ? esc(n.custom_message) : '<em style="color:#888">(default)</em>'}</td>
@@ -361,6 +384,10 @@ function renderNotifications(notifs) {
         `).join('')}
       </tbody>
     </table>
+    <div class="notif-footer">
+      <button class="btn btn-teal btn-sm" onclick="refreshNotifications()">↻ Regenerate All</button>
+      <button class="btn btn-grey btn-sm" onclick="closeNotifs()">Close</button>
+    </div>
   `;
 }
 
