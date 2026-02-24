@@ -54,6 +54,9 @@ print(f"[INIT] Database path set to: {UMA_DB_PATH}")
 
 # Background task for periodic updates
 UMA_UPDATE_TASK = None
+
+# Prevent concurrent uma_update_timers() calls from interleaving
+_update_timers_lock = asyncio.Lock()
 print("[INIT] Global variables initialized")
 print("[INIT] Defining async functions...")
 
@@ -392,11 +395,16 @@ async def uma_update_timers(_guild=None, force_update=False):
     """
     Updates Uma Musume event dashboards.
     Only shows events within 1 month from now.
-    
+
     Args:
         _guild: Guild to update (unused, kept for compatibility)
         force_update: If True, forces update of all event embeds even if unchanged
     """
+    async with _update_timers_lock:
+        await _uma_update_timers_impl(_guild=_guild, force_update=force_update)
+
+
+async def _uma_update_timers_impl(_guild=None, force_update=False):
     uma_logger.info("[Update Timers] Starting dashboard update...")
     print("[UMA] Starting dashboard update...")
     
@@ -876,8 +884,6 @@ async def uma_remove(ctx, *, title: str):
     uma_logger.info("[uma_remove] Refreshing dashboard after removing event...")
     await uma_update_timers()
     uma_logger.info("[uma_remove] Dashboard refresh completed.")
-    
-    await uma_update_timers()
 
 print("[INIT] uma_remove command registered")
 print("[INIT] Defining uma_edit command...")

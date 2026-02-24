@@ -259,6 +259,8 @@ async function submitForm() {
   const body = { title, category, start_unix: toUnix(startVal), end_unix: toUnix(endVal) };
   if (image) body.image = image;
 
+  const btn = document.querySelector('#event-form .btn-primary');
+  if (btn) btn.disabled = true;
   try {
     const data = id
       ? await api('PUT',  `/api/events/${state.profile}/${id}`, body)
@@ -269,6 +271,8 @@ async function submitForm() {
     loadEvents();
   } catch (e) {
     toast(`Error: ${e.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
