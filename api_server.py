@@ -1270,6 +1270,32 @@ async def handle_refresh_dashboard(request):
         api_logger.error(f"Error refreshing dashboard: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+async def handle_restart(request):
+    """POST /api/restart — git pull + systemctl restart kanami-bot (owner-only via API key)."""
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    import subprocess, asyncio
+    try:
+        await web.json_response({"success": True, "message": "Restarting…"}).prepare(request)
+    except Exception:
+        pass
+
+    async def _do_restart():
+        try:
+            subprocess.run(
+                ["git", "-C", "/home/piberry/Gacha-Timer-Bot", "pull"],
+                check=True
+            )
+        except Exception:
+            pass
+        subprocess.Popen(["sudo", "systemctl", "restart", "kanami-bot"])
+
+    asyncio.ensure_future(_do_restart())
+    return web.json_response({"success": True, "message": "Restarting…"})
+
+
 def create_app():
     """
     Creates and configures the aiohttp web application.
@@ -1311,6 +1337,7 @@ def create_app():
     app.router.add_post('/api/notifications/{profile}/refresh_all', handle_refresh_all_notifications)
     
     app.router.add_post('/api/dashboard/{profile}/refresh', handle_refresh_dashboard)
+    app.router.add_post('/api/restart', handle_restart)
 
     # Serve local event images (combined banners etc.)
     _data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
