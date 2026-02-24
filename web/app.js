@@ -316,6 +316,16 @@ async function refreshAllNotifications() {
   }
 }
 
+async function restartBot() {
+  if (!confirm('Pull latest changes from GitHub and restart the bot?')) return;
+  try {
+    await api('POST', '/api/restart');
+    toast('Bot is restarting… the panel will be unavailable for a moment.');
+  } catch (e) {
+    toast(`Error: ${e.message}`, 'error');
+  }
+}
+
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 const NOTIF_TEMPLATES = {
