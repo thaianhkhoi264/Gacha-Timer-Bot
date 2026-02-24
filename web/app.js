@@ -329,7 +329,7 @@ async function restartBot() {
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 const NOTIF_TEMPLATES = {
-  'default':                                            '{role}, The {category} {name} is {action} {time}!',
+  'default':                                            '{role}, The {name} is {action} {time}!',
   'uma_champions_meeting_reminder':                     '{role}, {name} is starting in {time}!',
   'uma_champions_meeting_registration_start':           '{role}, {name} Registration has started!',
   'uma_champions_meeting_round1_start':                 '{role}, {name} Round 1 has started!',
@@ -350,7 +350,6 @@ function renderNotifMessage(n, ev) {
     name:      ev ? esc(ev.title)    : '?',
     category:  ev ? esc(ev.category) : '?',
     action,
-    time:      `<t:${n.notify_unix}:R>`,
     character: n.character_name ? esc(n.character_name) : '',
     phase:     n.phase          ? esc(n.phase)          : '',
   };

@@ -114,7 +114,7 @@ UMA_NOTIFICATION_TIMINGS = {
 # Notification message templates
 MESSAGE_TEMPLATES = {
     # Default template (used when no specific template exists)
-    "default": "{role}, The {category} {name} is {action} {time}!",
+    "default": "{role}, The {name} is {action} {time}!",
     
     # Uma Musume - Champions Meeting phases
     "uma_champions_meeting_registration_start": "{role}, {name} Registration has started!",

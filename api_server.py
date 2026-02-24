@@ -1247,9 +1247,16 @@ async def handle_refresh_all_notifications(request):
 
     try:
         events = await event_manager.get_events(profile)
+        seen_keys = set()
+        refreshed = 0
         for ev in events:
+            key = (ev['title'], ev['category'])
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
             await event_manager.refresh_pending_notifications_for_event(profile, ev["id"])
-        return web.json_response({"success": True, "refreshed": len(events)})
+            refreshed += 1
+        return web.json_response({"success": True, "refreshed": refreshed})
     except Exception as e:
         api_logger.error(f"Error refreshing all notifications: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)

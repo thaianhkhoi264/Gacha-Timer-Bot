@@ -115,10 +115,11 @@ async def get_pending_notifications_for_event(profile, event_id):
         return []
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute(
-            "SELECT id, timing_type, notify_unix, custom_message FROM pending_notifications WHERE title=? AND profile=? ORDER BY notify_unix ASC",
+            "SELECT id, timing_type, notify_unix, custom_message, message_template, phase, character_name FROM pending_notifications WHERE title=? AND profile=? ORDER BY notify_unix ASC",
             (event['title'], profile)
         ) as cursor:
-            return [dict(id=row[0], timing_type=row[1], notify_unix=row[2], custom_message=row[3]) async for row in cursor]
+            return [dict(id=row[0], timing_type=row[1], notify_unix=row[2], custom_message=row[3],
+                         message_template=row[4], phase=row[5], character_name=row[6]) async for row in cursor]
 
 async def remove_pending_notification(notif_id):
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
