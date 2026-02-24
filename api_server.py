@@ -1236,6 +1236,24 @@ async def handle_refresh_notifications(request):
         api_logger.error(f"Error refreshing notifications: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+async def handle_refresh_all_notifications(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        events = await event_manager.get_events(profile)
+        for ev in events:
+            await event_manager.refresh_pending_notifications_for_event(profile, ev["id"])
+        return web.json_response({"success": True, "refreshed": len(events)})
+    except Exception as e:
+        api_logger.error(f"Error refreshing all notifications: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
 async def handle_refresh_dashboard(request):
     is_valid, error_msg, _ = validate_api_key(request)
     if not is_valid:
@@ -1290,6 +1308,7 @@ def create_app():
     app.router.add_delete('/api/notifications/{notif_id}', handle_remove_notification)
     app.router.add_patch('/api/notifications/{notif_id}', handle_update_notification)
     app.router.add_post('/api/events/{profile}/{event_id}/notifications/refresh', handle_refresh_notifications)
+    app.router.add_post('/api/notifications/{profile}/refresh_all', handle_refresh_all_notifications)
     
     app.router.add_post('/api/dashboard/{profile}/refresh', handle_refresh_dashboard)
 

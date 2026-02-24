@@ -302,6 +302,16 @@ async function refreshDashboard() {
   }
 }
 
+async function refreshAllNotifications() {
+  try {
+    const data = await api('POST', `/api/notifications/${state.profile}/refresh_all`);
+    if (!data.success) throw new Error(data.error);
+    toast(`Notifications regenerated for ${data.refreshed} event(s).`);
+  } catch (e) {
+    toast(`Error: ${e.message}`, 'error');
+  }
+}
+
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 async function showNotifs(eventId) {
