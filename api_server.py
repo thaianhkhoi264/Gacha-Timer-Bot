@@ -1035,10 +1035,17 @@ async def handle_list_events(request):
     try:
         events = await event_manager.get_events(profile)
         # Convert local image paths to API-accessible URLs
+        _base = os.path.dirname(os.path.abspath(__file__))
         for ev in events:
             img = ev.get('image')
             if img and not img.startswith(('http://', 'https://')):
-                ev['image'] = '/' + img.replace('\\', '/')
+                img_clean = img.replace('\\', '/')
+                # Prefer horizontal combined image for the web control panel
+                if 'combined_v_' in img_clean:
+                    h_img = img_clean.replace('combined_v_', 'combined_h_')
+                    if os.path.exists(os.path.join(_base, h_img)):
+                        img_clean = h_img
+                ev['image'] = '/' + img_clean
         return web.json_response({"success": True, "events": events})
     except Exception as e:
         api_logger.error(f"Error listing events: {e}")
@@ -1059,6 +1066,15 @@ async def handle_get_event(request):
         event = await event_manager.get_event_by_id(profile, event_id)
         if not event:
             return web.json_response({"success": False, "error": "Event not found"}, status=404)
+        img = event.get('image')
+        if img and not img.startswith(('http://', 'https://')):
+            img_clean = img.replace('\\', '/')
+            if 'combined_v_' in img_clean:
+                h_img = img_clean.replace('combined_v_', 'combined_h_')
+                _base = os.path.dirname(os.path.abspath(__file__))
+                if os.path.exists(os.path.join(_base, h_img)):
+                    img_clean = h_img
+            event['image'] = '/' + img_clean
         return web.json_response({"success": True, "event": event})
     except Exception as e:
         api_logger.error(f"Error getting event: {e}")
