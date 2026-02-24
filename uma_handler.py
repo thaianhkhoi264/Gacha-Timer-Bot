@@ -1315,18 +1315,6 @@ async def add_uma_event(event_data, user_id="0"):
             uma_handler_logger.info(f"[Add Event] Inserted new event: {event_data['title']} (ID: {event_id})")
             print(f"[UMA HANDLER] New event: {event_data['title']} (ID: {event_id})")
 
-    from notification_handler import NOTIF_DB_PATH
-    async with aiosqlite.connect(NOTIF_DB_PATH) as notif_conn:
-        async with notif_conn.execute(
-            'SELECT COUNT(*) FROM pending_notifications WHERE title = ? AND profile = ?',
-            (event_data['title'], "UMA")
-        ) as cursor:
-            notif_count = (await cursor.fetchone())[0]
-
-    if notif_count > 0:
-        print(f"[UMA HANDLER] Notifications already exist for: {event_data['title']} ({notif_count}), skipping schedule")
-        return
-
     event_for_notification = {
         'category': event_data['category'],
         'profile': "UMA",
