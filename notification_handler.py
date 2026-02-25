@@ -568,15 +568,34 @@ async def schedule_notifications_db_only(event):
                         )
         await conn.commit()
 
-async def delete_notifications_for_event(title, category, profile):
+async def delete_notifications_for_event(title, category, profile, event_start=None, event_end=None):
     """
-    Deletes all pending notifications for a specific event (profile-based).
+    Deletes pending notifications for a specific event.
+
+    If event_start and event_end are provided (unix timestamps), the delete is
+    scoped to notifications whose event_time_unix falls within a 7-day window
+    around those dates.  This prevents accidentally deleting sibling events
+    that share the same title+category (e.g. two simultaneous Paid Banners).
+
+    When event_start/event_end are omitted the old behaviour is preserved
+    (delete everything matching title+category+profile).
     """
+    _MARGIN = 7 * 24 * 3600  # 7 days
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute(
-            "DELETE FROM pending_notifications WHERE title=? AND category=? AND profile=?",
-            (title, category, profile)
-        )
+        if event_start is not None and event_end is not None:
+            await conn.execute(
+                """DELETE FROM pending_notifications
+                   WHERE title=? AND category=? AND profile=?
+                     AND (event_time_unix IS NULL
+                          OR event_time_unix BETWEEN ? AND ?)""",
+                (title, category, profile,
+                 int(event_start) - _MARGIN, int(event_end) + _MARGIN)
+            )
+        else:
+            await conn.execute(
+                "DELETE FROM pending_notifications WHERE title=? AND category=? AND profile=?",
+                (title, category, profile)
+            )
         await conn.commit()
 
 async def cleanup_ghost_notifications():

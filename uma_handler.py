@@ -856,7 +856,7 @@ async def process_events(raw_events):
             
             processed.append({
                 "id": event.get("banner_id"),
-                "title": "Paid Banner",
+                "title": f"Paid Banner ({start_date.strftime('%b %d')})",
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
                 "image": combined_img,
@@ -1267,13 +1267,14 @@ async def add_uma_event(event_data, user_id="0"):
             event_id = await _next_sequential_id(prefix, conn)
 
         async with conn.execute(
-            "SELECT id, start_date, end_date, image, description FROM events WHERE id = ?",
+            "SELECT id, title, start_date, end_date, image, description FROM events WHERE id = ?",
             (event_id,)
         ) as cursor:
             existing = await cursor.fetchone()
 
         if existing:
-            _, old_start, old_end, old_image, old_desc = existing
+            _, old_title, old_start, old_end, old_image, old_desc = existing
+            title_changed = old_title != event_data["title"]
             changed = False
             if "Champions Meeting" in event_data["title"] or "champions meeting" in event_data["title"].lower():
                 if (str(event_data["start"]) != str(old_start) or
@@ -1287,19 +1288,20 @@ async def add_uma_event(event_data, user_id="0"):
                         event_data.get("description", "") != old_desc):
                     changed = True
 
-            if changed:
+            if changed or title_changed:
                 await conn.execute(
                     '''UPDATE events
-                       SET start_date = ?, end_date = ?, image = ?, description = ?, user_id = ?
+                       SET title = ?, start_date = ?, end_date = ?, image = ?, description = ?, user_id = ?
                        WHERE id = ?''',
-                    (event_data["start"], event_data["end"], event_data.get("image"),
+                    (event_data["title"], event_data["start"], event_data["end"], event_data.get("image"),
                      event_data.get("description", ""), user_id, event_id)
                 )
                 await conn.commit()
                 uma_handler_logger.info(f"[Add Event] Updated existing event: {event_data['title']} (ID: {event_id})")
                 print(f"[UMA HANDLER] Updated event: {event_data['title']} (ID: {event_id})")
+                # Delete by OLD title so orphaned notifications don't linger if the title changed
                 from notification_handler import delete_notifications_for_event
-                await delete_notifications_for_event(event_data['title'], event_data['category'], "UMA")
+                await delete_notifications_for_event(old_title, event_data['category'], "UMA")
             else:
                 uma_handler_logger.info(f"[Add Event] Event unchanged: {event_data['title']} (ID: {event_id})")
                 print(f"[UMA HANDLER] Event unchanged: {event_data['title']} (ID: {event_id})")
