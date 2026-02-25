@@ -1332,7 +1332,10 @@ def send_notification_webhook(row):
     req = urllib.request.Request(
         url,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "KanamiBot/1.0",
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
