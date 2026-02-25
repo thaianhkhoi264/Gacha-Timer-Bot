@@ -1316,22 +1316,26 @@ def send_notification_webhook(row):
         time_str = "starting"
 
     # Build message: custom_message > template > default
+    kwargs = {
+        "role":     role_mention,
+        "name":     row["title"],
+        "category": row["category"],
+        "action":   time_str,
+        "time":     f"<t:{unix_time}:R>" if unix_time else "",
+    }
+    if row.get("phase"):
+        kwargs["phase"] = row["phase"]
+    if row.get("character_name"):
+        kwargs["character"] = row["character_name"]
+
     message = None
     if row.get("custom_message"):
-        message = row["custom_message"]
+        try:
+            message = row["custom_message"].format(**kwargs)
+        except (KeyError, IndexError):
+            message = row["custom_message"]  # send raw if the template is malformed
     elif row.get("message_template") and row["message_template"] in MESSAGE_TEMPLATES:
         template = MESSAGE_TEMPLATES[row["message_template"]]
-        kwargs = {
-            "role": role_mention,
-            "name": row["title"],
-            "category": row["category"],
-            "action": time_str,
-            "time": f"<t:{unix_time}:R>" if unix_time else "",
-        }
-        if row.get("phase"):
-            kwargs["phase"] = row["phase"]
-        if row.get("character_name"):
-            kwargs["character"] = row["character_name"]
         try:
             message = template.format(**kwargs)
         except KeyError:
