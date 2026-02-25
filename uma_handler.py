@@ -1253,7 +1253,7 @@ async def add_uma_event(event_data, user_id="0"):
         ''')
         await conn.commit()
 
-        # Resolve the event ID: use banner_id from scrape, or generate a sequential prefix ID.
+        # Resolve the event ID: use banner_id from scrape, or find/generate a sequential prefix ID.
         event_id = event_data.get("id")
         if not event_id:
             prefix_map = {
@@ -1264,7 +1264,26 @@ async def add_uma_event(event_data, user_id="0"):
                 "Event":            "SE",
             }
             prefix = prefix_map.get(event_data.get("category"), "UNK")
-            event_id = await _next_sequential_id(prefix, conn)
+
+            # Look up by title + start_date first to avoid creating a new sequential ID
+            # on every scraper run for the same event (which caused exponential duplication).
+            async with conn.execute(
+                "SELECT id FROM events WHERE title=? AND start_date=? AND profile='UMA' ORDER BY id ASC",
+                (event_data["title"], str(event_data["start"]))
+            ) as _cur:
+                existing_ids = [row[0] async for row in _cur]
+
+            if existing_ids:
+                event_id = existing_ids[0]  # reuse the canonical (earliest) id
+                # Delete any duplicates that accumulated before this fix
+                for dup_id in existing_ids[1:]:
+                    await conn.execute("DELETE FROM events WHERE id=?", (dup_id,))
+                    await conn.execute("DELETE FROM event_messages WHERE event_id=?", (dup_id,))
+                if len(existing_ids) > 1:
+                    await conn.commit()
+                    print(f"[UMA HANDLER] Cleaned {len(existing_ids) - 1} duplicate(s) for: {event_data['title']}")
+            else:
+                event_id = await _next_sequential_id(prefix, conn)  # genuinely new event
 
         async with conn.execute(
             "SELECT id, title, start_date, end_date, image, description FROM events WHERE id = ?",
