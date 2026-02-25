@@ -113,10 +113,17 @@ async def get_pending_notifications_for_event(profile, event_id):
     event = await get_event_by_id(profile, event_id)
     if not event:
         return []
+    _MARGIN = 7 * 24 * 3600  # 7-day window around the event's own start/end
+    start = int(event['start']) - _MARGIN
+    end   = int(event['end'])   + _MARGIN
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute(
-            "SELECT id, timing_type, notify_unix, custom_message, message_template, phase, character_name FROM pending_notifications WHERE title=? AND profile=? ORDER BY notify_unix ASC",
-            (event['title'], profile)
+            """SELECT id, timing_type, notify_unix, custom_message, message_template, phase, character_name
+               FROM pending_notifications
+               WHERE title=? AND profile=?
+                 AND (event_time_unix IS NULL OR event_time_unix BETWEEN ? AND ?)
+               ORDER BY notify_unix ASC""",
+            (event['title'], profile, start, end)
         ) as cursor:
             return [dict(id=row[0], timing_type=row[1], notify_unix=row[2], custom_message=row[3],
                          message_template=row[4], phase=row[5], character_name=row[6]) async for row in cursor]
@@ -155,7 +162,8 @@ async def refresh_pending_notifications_for_event(profile, event_id):
     event = await get_event_by_id(profile, event_id)
     if not event:
         return
-    await delete_notifications_for_event(event['title'], event['category'], profile)
+    await delete_notifications_for_event(event['title'], event['category'], profile,
+                                         event_start=event['start'], event_end=event['end'])
     event_for_notification = {
         'category': event['category'],
         'profile': profile,
