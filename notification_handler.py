@@ -1339,6 +1339,8 @@ def send_notification_webhook(row):
             return resp.status in (200, 204)
     except Exception as e:
         print(f"[NOTIFIER] Webhook POST failed for {profile}: {e}")
+        if hasattr(e, 'read'):
+            print(f"[NOTIFIER] Discord error body: {e.read().decode('utf-8', errors='replace')}")
         return False
 
 
