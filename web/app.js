@@ -432,6 +432,7 @@ function renderNotifications(eventId, notifs) {
             <td>
               <div class="actions">
                 <button class="btn btn-primary btn-sm" onclick="editNotifMsg(${n.id})">Edit Msg</button>
+                <button class="btn btn-amber btn-sm" onclick="fireNotification(${n.id})">&#9654; Test Fire</button>
                 <button class="btn btn-danger btn-sm" onclick="removeNotification(${n.id})">Remove</button>
               </div>
             </td>
@@ -444,6 +445,18 @@ function renderNotifications(eventId, notifs) {
       <button class="btn btn-grey btn-sm" onclick="closeNotifs()">Close</button>
     </div>
   `;
+}
+
+async function fireNotification(notifId) {
+  if (!confirm('Send this notification immediately and consume it?')) return;
+  try {
+    const data = await api('POST', `/api/notifications/${notifId}/fire`);
+    if (!data.success) throw new Error(data.error);
+    toast('Notification fired!');
+    if (state.selectedEventId !== null) loadNotifications(state.selectedEventId);
+  } catch (e) {
+    toast(`Error: ${e.message}`, 'error');
+  }
 }
 
 async function removeNotification(notifId) {
