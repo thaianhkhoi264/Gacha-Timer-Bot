@@ -62,6 +62,7 @@ function logout() {
 function showApp() {
   document.getElementById('app').style.display = 'flex';
   buildTabs();
+  document.getElementById('btn-run-scraper').style.display = state.profile === 'UMA' ? '' : 'none';
   loadEvents();
 }
 
@@ -86,6 +87,7 @@ function switchProfile(profile) {
   document.querySelectorAll('#profileTabs button').forEach(b =>
     b.classList.toggle('active', b.dataset.profile === profile)
   );
+  document.getElementById('btn-run-scraper').style.display = profile === 'UMA' ? '' : 'none';
   loadEvents();
 }
 
@@ -311,6 +313,17 @@ async function refreshAllNotifications() {
     const data = await api('POST', `/api/notifications/${state.profile}/refresh_all`);
     if (!data.success) throw new Error(data.error);
     toast(`Notifications regenerated for ${data.refreshed} event(s).`);
+  } catch (e) {
+    toast(`Error: ${e.message}`, 'error');
+  }
+}
+
+async function runScraper() {
+  if (!confirm('Run the UMA scraper now? The dashboard will refresh automatically when it finishes (~30–60 s).')) return;
+  try {
+    const data = await api('POST', '/api/scraper/uma/run');
+    if (!data.success) throw new Error(data.error);
+    toast('Scraper started — dashboard will update shortly.');
   } catch (e) {
     toast(`Error: ${e.message}`, 'error');
   }

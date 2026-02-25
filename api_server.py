@@ -1337,6 +1337,36 @@ async def handle_restart(request):
     return web.json_response({"success": True, "message": "Restarting…"})
 
 
+async def handle_run_scraper(request):
+    """POST /api/scraper/uma/run — kick off uma_scraper.py in the background."""
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    import sys, os
+    scraper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uma_scraper.py")
+    if not os.path.exists(scraper_path):
+        return web.json_response({"success": False, "error": "uma_scraper.py not found"}, status=500)
+
+    async def _run():
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, scraper_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                api_logger.error(f"[Scraper] exited {proc.returncode}: {stderr.decode('utf-8', errors='replace')}")
+            else:
+                api_logger.info("[Scraper] finished successfully")
+        except Exception as e:
+            api_logger.error(f"[Scraper] failed to run: {e}")
+
+    asyncio.ensure_future(_run())
+    return web.json_response({"success": True, "message": "Scraper started"})
+
+
 def create_app():
     """
     Creates and configures the aiohttp web application.
@@ -1379,6 +1409,7 @@ def create_app():
     app.router.add_post('/api/notifications/{profile}/refresh_all', handle_refresh_all_notifications)
     
     app.router.add_post('/api/dashboard/{profile}/refresh', handle_refresh_dashboard)
+    app.router.add_post('/api/scraper/uma/run', handle_run_scraper)
     app.router.add_post('/api/restart', handle_restart)
 
     # Serve local event images (combined banners etc.)
