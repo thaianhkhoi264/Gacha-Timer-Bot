@@ -1323,7 +1323,7 @@ def send_notification_webhook(row):
         message = f"{role_mention}, the **{row['category']}** event **{row['title']}** is {time_str} {time_ref}!"
 
     # POST to webhook
-    url = NOTIFICATION_WEBHOOK_URLS.get(profile, "")
+    url = os.getenv(f"WEBHOOK_{profile}", "") or NOTIFICATION_WEBHOOK_URLS.get(profile, "")
     if not url:
         print(f"[NOTIFIER] No webhook URL configured for profile {profile}, skipping")
         return False
@@ -1348,6 +1348,13 @@ def run():
     Marks sent=1 only after a successful webhook POST.
     Safe to run as a cron job every minute.
     """
+    # Load .env so WEBHOOK_* vars are available when running standalone (not via bot.py)
+    try:
+        from dotenv import load_dotenv as _load_dotenv
+        _load_dotenv()
+    except ImportError:
+        pass
+
     import sqlite3
     import datetime as _dt
 

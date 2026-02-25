@@ -1218,6 +1218,40 @@ async def handle_update_notification(request):
         api_logger.error(f"Error updating notification: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+async def handle_fire_notification(request):
+    """POST /api/notifications/{notif_id}/fire — send immediately and mark sent=1."""
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    notif_id = int(request.match_info["notif_id"])
+    cols = [
+        "id", "profile", "title", "category", "timing_type",
+        "notify_unix", "event_time_unix", "region",
+        "message_template", "custom_message", "phase", "character_name",
+    ]
+    async with aiosqlite.connect(event_manager.NOTIF_DB_PATH) as conn:
+        async with conn.execute(
+            f"SELECT {','.join(cols)} FROM pending_notifications WHERE id=?",
+            (notif_id,)
+        ) as cursor:
+            raw = await cursor.fetchone()
+        if not raw:
+            return web.json_response({"success": False, "error": "Notification not found"}, status=404)
+
+        row = dict(zip(cols, raw))
+        from notification_handler import send_notification_webhook
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, send_notification_webhook, row)
+
+        if success:
+            await conn.execute("UPDATE pending_notifications SET sent=1 WHERE id=?", (notif_id,))
+            await conn.commit()
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({"success": False, "error": "Webhook POST failed — check logs"}, status=500)
+
+
 async def handle_refresh_notifications(request):
     is_valid, error_msg, _ = validate_api_key(request)
     if not is_valid:
@@ -1340,6 +1374,7 @@ def create_app():
     app.router.add_get('/api/events/{profile}/{event_id}/notifications', handle_list_notifications)
     app.router.add_delete('/api/notifications/{notif_id}', handle_remove_notification)
     app.router.add_patch('/api/notifications/{notif_id}', handle_update_notification)
+    app.router.add_post('/api/notifications/{notif_id}/fire', handle_fire_notification)
     app.router.add_post('/api/events/{profile}/{event_id}/notifications/refresh', handle_refresh_notifications)
     app.router.add_post('/api/notifications/{profile}/refresh_all', handle_refresh_all_notifications)
     
