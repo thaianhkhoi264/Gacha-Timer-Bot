@@ -302,17 +302,24 @@ async def schedule_champions_meeting_notifications(event):
     send_log(MAIN_SERVER_ID, f"[Champions Meeting] Parsed {len(phases)} phases")
     
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+
         # 1. Reminder: 1 day before event starts
         reminder_time = int(event['start_date']) - 86400
-        if reminder_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-            await conn.execute("""
-                INSERT INTO pending_notifications 
-                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            """, (event['category'], event['profile'], event['title'], 'reminder', 
-                  reminder_time, int(event['start_date']), 'uma_champions_meeting_reminder'))
-            send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled reminder at <t:{reminder_time}:F>")
-        
+        if reminder_time > now:
+            async with conn.execute(
+                "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                (event['category'], event['profile'], event['title'], 'reminder', reminder_time)
+            ) as _cur:
+                if not await _cur.fetchone():
+                    await conn.execute("""
+                        INSERT INTO pending_notifications
+                        (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                    """, (event['category'], event['profile'], event['title'], 'reminder',
+                          reminder_time, int(event['start_date']), 'uma_champions_meeting_reminder'))
+                    send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled reminder at <t:{reminder_time}:F>")
+
         # 2-6. Phase start notifications (all 5 phases)
         phase_template_map = {
             "League Selection": "uma_champions_meeting_registration_start",
@@ -321,29 +328,39 @@ async def schedule_champions_meeting_notifications(event):
             "Final Registration": "uma_champions_meeting_final_registration_start",
             "Finals": "uma_champions_meeting_finals_start"
         }
-        
+
         for phase in phases:
             template_key = phase_template_map.get(phase['name'])
-            if template_key and phase['start_time'] > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-                await conn.execute("""
-                    INSERT INTO pending_notifications 
-                    (category, profile, title, timing_type, notify_unix, event_time_unix, sent, 
-                     message_template, phase)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-                """, (event['category'], event['profile'], event['title'], 'phase_start',
-                      phase['start_time'], phase['start_time'], template_key, phase['name']))
-                send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled {phase['name']} at <t:{phase['start_time']}:F>")
-        
+            if template_key and phase['start_time'] > now:
+                async with conn.execute(
+                    "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=? AND phase=?",
+                    (event['category'], event['profile'], event['title'], 'phase_start', phase['start_time'], phase['name'])
+                ) as _cur:
+                    if not await _cur.fetchone():
+                        await conn.execute("""
+                            INSERT INTO pending_notifications
+                            (category, profile, title, timing_type, notify_unix, event_time_unix, sent,
+                             message_template, phase)
+                            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                        """, (event['category'], event['profile'], event['title'], 'phase_start',
+                              phase['start_time'], phase['start_time'], template_key, phase['name']))
+                        send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled {phase['name']} at <t:{phase['start_time']}:F>")
+
         # 7. Event end notification
         end_time = int(event['end_date'])
-        if end_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-            await conn.execute("""
-                INSERT INTO pending_notifications 
-                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            """, (event['category'], event['profile'], event['title'], 'end',
-                  end_time, end_time, 'uma_champions_meeting_end'))
-            send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled end notification at <t:{end_time}:F>")
+        if end_time > now:
+            async with conn.execute(
+                "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                (event['category'], event['profile'], event['title'], 'end', end_time)
+            ) as _cur:
+                if not await _cur.fetchone():
+                    await conn.execute("""
+                        INSERT INTO pending_notifications
+                        (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                    """, (event['category'], event['profile'], event['title'], 'end',
+                          end_time, end_time, 'uma_champions_meeting_end'))
+                    send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled end notification at <t:{end_time}:F>")
         
         await conn.commit()
     
@@ -373,39 +390,56 @@ async def schedule_legend_race_notifications(event):
     send_log(MAIN_SERVER_ID, f"[Legend Race] Parsed {len(characters)} characters")
     
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+
         # 1. Reminder: 1 day before event starts
         reminder_time = int(event['start_date']) - 86400
-        if reminder_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-            await conn.execute("""
-                INSERT INTO pending_notifications 
-                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            """, (event['category'], event['profile'], event['title'], 'reminder',
-                  reminder_time, int(event['start_date']), 'uma_legend_race_reminder'))
-            send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled reminder at <t:{reminder_time}:F>")
-        
+        if reminder_time > now:
+            async with conn.execute(
+                "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                (event['category'], event['profile'], event['title'], 'reminder', reminder_time)
+            ) as _cur:
+                if not await _cur.fetchone():
+                    await conn.execute("""
+                        INSERT INTO pending_notifications
+                        (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                    """, (event['category'], event['profile'], event['title'], 'reminder',
+                          reminder_time, int(event['start_date']), 'uma_legend_race_reminder'))
+                    send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled reminder at <t:{reminder_time}:F>")
+
         # 2-(N+1). Character start notifications
         for char in characters:
-            if char['start_time'] > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-                await conn.execute("""
-                    INSERT INTO pending_notifications 
-                    (category, profile, title, timing_type, notify_unix, event_time_unix, sent,
-                     message_template, character_name)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-                """, (event['category'], event['profile'], event['title'], 'character_start',
-                      char['start_time'], char['start_time'], 'uma_legend_race_character_start', char['name']))
-                send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled {char['name']} at <t:{char['start_time']}:F>")
-        
+            if char['start_time'] > now:
+                async with conn.execute(
+                    "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=? AND character_name=?",
+                    (event['category'], event['profile'], event['title'], 'character_start', char['start_time'], char['name'])
+                ) as _cur:
+                    if not await _cur.fetchone():
+                        await conn.execute("""
+                            INSERT INTO pending_notifications
+                            (category, profile, title, timing_type, notify_unix, event_time_unix, sent,
+                             message_template, character_name)
+                            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                        """, (event['category'], event['profile'], event['title'], 'character_start',
+                              char['start_time'], char['start_time'], 'uma_legend_race_character_start', char['name']))
+                        send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled {char['name']} at <t:{char['start_time']}:F>")
+
         # (N+2). Event end notification
         end_time = int(event['end_date'])
-        if end_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-            await conn.execute("""
-                INSERT INTO pending_notifications 
-                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            """, (event['category'], event['profile'], event['title'], 'end',
-                  end_time, end_time, 'uma_legend_race_end'))
-            send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled end notification at <t:{end_time}:F>")
+        if end_time > now:
+            async with conn.execute(
+                "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                (event['category'], event['profile'], event['title'], 'end', end_time)
+            ) as _cur:
+                if not await _cur.fetchone():
+                    await conn.execute("""
+                        INSERT INTO pending_notifications
+                        (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                    """, (event['category'], event['profile'], event['title'], 'end',
+                          end_time, end_time, 'uma_legend_race_end'))
+                    send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled end notification at <t:{end_time}:F>")
         
         await conn.commit()
     
