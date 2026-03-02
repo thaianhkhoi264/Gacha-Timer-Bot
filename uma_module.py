@@ -424,10 +424,36 @@ async def _uma_update_timers_impl(_guild=None, force_update=False):
         print(f"[UMA] ERROR: Main guild not found! MAIN_SERVER_ID={MAIN_SERVER_ID}")
         return
     
+    # Heal any events that were inserted without an id (NULL id) by the old broken code.
+    from uma_handler import _next_sequential_id
+    _heal_prefix_map = {
+        "Legend Race":      "LR",
+        "Champions Meeting": "CM",
+        "Offer":            "PD",
+        "Banner":           "CB",
+        "Event":            "SE",
+        "Maintenance":      "MT",
+    }
+    async with aiosqlite.connect(UMA_DB_PATH) as _conn:
+        async with _conn.execute(
+            "SELECT rowid, title, category FROM events WHERE id IS NULL AND profile='UMA'"
+        ) as _cur:
+            null_id_rows = await _cur.fetchall()
+        if null_id_rows:
+            for rowid, title, category in null_id_rows:
+                prefix = _heal_prefix_map.get(category, "UNK")
+                new_id = await _next_sequential_id(prefix, _conn)
+                await _conn.execute(
+                    "UPDATE events SET id=? WHERE rowid=?", (new_id, rowid)
+                )
+                uma_logger.info(f"[Update Timers] Healed NULL id for '{title}' ({category}) → {new_id}")
+                print(f"[UMA] Healed NULL id for '{title}' → {new_id}")
+            await _conn.commit()
+
     now = int(datetime.now(timezone.utc).timestamp())
     one_month_later = now + (30 * 24 * 60 * 60)  # 30 days (1 month)
     one_month_earlier = now - (30 * 24 * 60 * 60)  # 30 days in the past
-    
+
     ongoing_channel = main_guild.get_channel(ONGOING_EVENTS_CHANNELS["UMA"])
     upcoming_channel = main_guild.get_channel(UPCOMING_EVENTS_CHANNELS["UMA"])
     
@@ -559,6 +585,9 @@ async def add_uma_event(ctx, event_data):
     elif "champions meeting" in title or "champion's meeting" in title:
         uma_logger.info(f"[Add Event] Auto-converting category to 'Champions Meeting' based on title")
         event_data["category"] = "Champions Meeting"
+    elif "maintenance" in title:
+        uma_logger.info(f"[Add Event] Auto-converting category to 'Maintenance' based on title")
+        event_data["category"] = "Maintenance"
     
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         # Check if event already exists
@@ -572,7 +601,27 @@ async def add_uma_event(ctx, event_data):
         
         if existing:
             event_id, old_start, old_end, old_image, old_desc = existing
-            
+
+            # Heal legacy events that were inserted with a NULL id (pre-fix bug).
+            if event_id is None:
+                from uma_handler import _next_sequential_id
+                _prefix_map = {
+                    "Legend Race":      "LR",
+                    "Champions Meeting": "CM",
+                    "Offer":            "PD",
+                    "Banner":           "CB",
+                    "Event":            "SE",
+                    "Maintenance":      "MT",
+                }
+                prefix = _prefix_map.get(event_data.get("category"), "UNK")
+                event_id = await _next_sequential_id(prefix, conn)
+                await conn.execute(
+                    "UPDATE events SET id=? WHERE title=? AND category=? AND profile='UMA' AND id IS NULL",
+                    (event_id, event_data["title"], event_data["category"])
+                )
+                await conn.commit()
+                uma_logger.info(f"[Add Event] Healed NULL id for existing event '{event_data['title']}' → {event_id}")
+
             # Check if anything changed
             changed = False
             
@@ -615,17 +664,28 @@ async def add_uma_event(ctx, event_data):
                 print(f"[UMA] Event unchanged: {event_data['title']}")
                 # Don't return - continue to check if notifications need to be scheduled
         else:
-            # Insert new event
-            cursor = await conn.execute(
-                '''INSERT INTO events (user_id, title, start_date, end_date, image, category, profile, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (str(ctx.author.id) if hasattr(ctx, 'author') else "0",
+            # Insert new event with a proper prefixed string ID
+            from uma_handler import _next_sequential_id
+            _prefix_map = {
+                "Legend Race":      "LR",
+                "Champions Meeting": "CM",
+                "Offer":            "PD",
+                "Banner":           "CB",
+                "Event":            "SE",
+                "Maintenance":      "MT",
+            }
+            prefix = _prefix_map.get(event_data.get("category"), "UNK")
+            event_id = await _next_sequential_id(prefix, conn)
+            await conn.execute(
+                '''INSERT INTO events (id, user_id, title, start_date, end_date, image, category, profile, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (event_id,
+                 str(ctx.author.id) if hasattr(ctx, 'author') else "0",
                  event_data["title"], event_data["start"], event_data["end"],
                  event_data.get("image"), event_data["category"], "UMA",
                  event_data.get("description", ""))
             )
             await conn.commit()
-            event_id = cursor.lastrowid  # Get the ID of the newly inserted event
             uma_logger.info(f"[Add Event] Inserted new event: {event_data['title']} (ID: {event_id})")
             print(f"[UMA] New event: {event_data['title']}")
     

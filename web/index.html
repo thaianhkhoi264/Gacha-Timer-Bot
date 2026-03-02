@@ -106,6 +106,7 @@
     .btn-amber   { background: #f39c12; color: #fff; }
     .btn-teal    { background: #27ae60; color: #fff; }
     .btn-purple  { background: #8e44ad; color: #fff; }
+    .btn-orange  { background: #d35400; color: #fff; }
     .btn-grey    { background: #e7e7e7; color: #4d4d4d; }
     .btn-grey::before, .btn-grey::after { filter: none; opacity: 0.15; }
     .btn-sm { padding: 0.15rem 0.6rem; font-size: 0.78rem; }
@@ -261,6 +262,7 @@
       <button class="btn btn-amber"   onclick="refreshDashboard()">↻ Refresh Dashboard</button>
       <button class="btn btn-teal"    onclick="refreshAllNotifications()">↻ Regenerate All Notifications</button>
       <button class="btn btn-purple"  onclick="runScraper()" id="btn-run-scraper" style="display:none">▶ Run Scraper</button>
+      <button class="btn btn-orange"  onclick="openMaintenanceModal()" id="btn-add-maintenance" style="display:none">🔧 Add Maintenance</button>
       <button class="btn btn-danger"  onclick="restartBot()" style="margin-left:auto">⟳ Restart Bot</button>
     </div>
 
@@ -321,6 +323,21 @@
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="saveEditMsg()">Save</button>
       <button class="btn btn-grey"    onclick="closeEditMsgModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Maintenance from tweet/announcement modal -->
+<div id="maintenance-modal" style="display:none" class="modal-overlay" onclick="if(event.target===this)closeMaintenanceModal()">
+  <div class="modal-card" style="max-width:480px">
+    <h3>Add Maintenance Event</h3>
+    <p class="modal-hint">Paste the maintenance tweet text or a link to the announcement page. The time window will be extracted automatically.</p>
+    <textarea id="maintenanceInput" class="msg-textarea" rows="6"
+              placeholder="7:00 a.m. - 9:00 a.m., Mar 3, 2026 (UTC)&#10;&#10;or&#10;&#10;https://umamusume.com/news/..."></textarea>
+    <div id="maintenanceError" style="color:#c0392b;font-size:0.85rem;margin-top:0.25rem;display:none"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="parseMaintenance()">Parse &amp; Add Event</button>
+      <button class="btn btn-grey"    onclick="closeMaintenanceModal()">Cancel</button>
     </div>
   </div>
 </div>

@@ -1262,6 +1262,7 @@ async def add_uma_event(event_data, user_id="0"):
                 "Offer":            "PD",
                 "Banner":           "CB",
                 "Event":            "SE",
+                "Maintenance":      "MT",
             }
             prefix = prefix_map.get(event_data.get("category"), "UNK")
 
