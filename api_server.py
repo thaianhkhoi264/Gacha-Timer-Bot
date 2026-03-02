@@ -1337,6 +1337,79 @@ async def handle_restart(request):
     return web.json_response({"success": True, "message": "Restarting…"})
 
 
+def _parse_maintenance_text(text):
+    """Parse a UMA maintenance announcement (tweet text or stripped HTML) and return event fields.
+
+    Matches patterns like: "7:00 a.m. - 9:00 a.m., Mar 3, 2026 (UTC)"
+    Returns {"title": ..., "start_unix": ..., "end_unix": ...} or None.
+    """
+    import re as _re, datetime as _dt
+    pattern = (r'(\d{1,2}):(\d{2})\s*([ap]\.m\.)\s*[-\u2013]\s*'
+               r'(\d{1,2}):(\d{2})\s*([ap]\.m\.),?\s*'
+               r'([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})\s*\(UTC\)')
+    m = _re.search(pattern, text, _re.IGNORECASE)
+    if not m:
+        return None
+    sh, sm, sap, eh, em, eap, mon, day, year = m.groups()
+
+    def to_24h(h, m, ap):
+        h, m = int(h), int(m)
+        if 'p' in ap.lower() and h != 12:
+            h += 12
+        elif 'a' in ap.lower() and h == 12:
+            h = 0
+        return h, m
+
+    sh24, sm24 = to_24h(sh, sm, sap)
+    eh24, em24 = to_24h(eh, em, eap)
+    try:
+        base = _dt.datetime.strptime(f"{mon} {int(day)} {year}", "%b %d %Y").replace(tzinfo=_dt.timezone.utc)
+    except ValueError:
+        return None
+    start = base.replace(hour=sh24, minute=sm24)
+    end   = base.replace(hour=eh24, minute=em24)
+    if end <= start:
+        end += _dt.timedelta(days=1)
+    title = f"{base.strftime('%b')} {int(day)} Maintenance"  # e.g. "Mar 3 Maintenance"
+    return {"title": title, "start_unix": int(start.timestamp()), "end_unix": int(end.timestamp())}
+
+
+async def handle_parse_maintenance(request):
+    """POST /api/uma/parse-maintenance — parse tweet text or URL and return maintenance event fields."""
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+    try:
+        data = await request.json()
+        raw = data.get("input", "").strip()
+        if not raw:
+            return web.json_response({"success": False, "error": "No input provided"}, status=400)
+
+        text = raw
+        if raw.startswith("http"):
+            import aiohttp as _aiohttp, re as _re
+            try:
+                async with _aiohttp.ClientSession() as session:
+                    async with session.get(raw, timeout=_aiohttp.ClientTimeout(total=10),
+                                           headers={"User-Agent": "KanamiBot/1.0"}) as resp:
+                        html = await resp.text()
+                text = _re.sub(r'<[^>]+>', ' ', html)
+            except Exception as fetch_err:
+                return web.json_response({"success": False, "error": f"Failed to fetch URL: {fetch_err}"}, status=502)
+
+        result = _parse_maintenance_text(text)
+        if not result:
+            return web.json_response(
+                {"success": False, "error": "Could not find a maintenance time window in the text. "
+                 "Expected format: '7:00 a.m. - 9:00 a.m., Mar 3, 2026 (UTC)'"},
+                status=422
+            )
+        return web.json_response({"success": True, **result})
+    except Exception as e:
+        api_logger.error(f"Error parsing maintenance: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
 async def handle_run_scraper(request):
     """POST /api/scraper/uma/run — kick off uma_scraper.py in the background."""
     is_valid, error_msg, _ = validate_api_key(request)
@@ -1410,6 +1483,7 @@ def create_app():
     
     app.router.add_post('/api/dashboard/{profile}/refresh', handle_refresh_dashboard)
     app.router.add_post('/api/scraper/uma/run', handle_run_scraper)
+    app.router.add_post('/api/uma/parse-maintenance', handle_parse_maintenance)
     app.router.add_post('/api/restart', handle_restart)
 
     # Serve local event images (combined banners etc.)

@@ -109,6 +109,9 @@ UMA_NOTIFICATION_TIMINGS = {
     # Champions Meeting and Legend Race: Custom handling (will be handled separately)
     "Champions Meeting": {"start": [], "end": []},
     "Legend Race": {"start": [], "end": []},
+
+    # Maintenance: 1 hour before start, notify at end (server back up)
+    "Maintenance": {"start": [60], "end": [0]},
 }
 
 # Notification message templates

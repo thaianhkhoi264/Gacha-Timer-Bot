@@ -63,6 +63,7 @@ function showApp() {
   document.getElementById('app').style.display = 'flex';
   buildTabs();
   document.getElementById('btn-run-scraper').style.display = state.profile === 'UMA' ? '' : 'none';
+  document.getElementById('btn-add-maintenance').style.display = state.profile === 'UMA' ? '' : 'none';
   loadEvents();
 }
 
@@ -88,6 +89,7 @@ function switchProfile(profile) {
     b.classList.toggle('active', b.dataset.profile === profile)
   );
   document.getElementById('btn-run-scraper').style.display = profile === 'UMA' ? '' : 'none';
+  document.getElementById('btn-add-maintenance').style.display = profile === 'UMA' ? '' : 'none';
   loadEvents();
 }
 
@@ -326,6 +328,44 @@ async function runScraper() {
     toast('Scraper started — dashboard will update shortly.');
   } catch (e) {
     toast(`Error: ${e.message}`, 'error');
+  }
+}
+
+function openMaintenanceModal() {
+  document.getElementById('maintenanceInput').value = '';
+  document.getElementById('maintenanceError').style.display = 'none';
+  document.getElementById('maintenance-modal').style.display = 'flex';
+}
+
+function closeMaintenanceModal() {
+  document.getElementById('maintenance-modal').style.display = 'none';
+}
+
+async function parseMaintenance() {
+  const input = document.getElementById('maintenanceInput').value.trim();
+  const errEl = document.getElementById('maintenanceError');
+  errEl.style.display = 'none';
+  if (!input) {
+    errEl.textContent = 'Please enter tweet text or a URL.';
+    errEl.style.display = '';
+    return;
+  }
+  try {
+    const parsed = await api('POST', '/api/uma/parse-maintenance', { input });
+    if (!parsed.success) throw new Error(parsed.error);
+    const added = await api('POST', '/api/events/UMA', {
+      title:     parsed.title,
+      category:  'Maintenance',
+      start_unix: parsed.start_unix,
+      end_unix:   parsed.end_unix,
+    });
+    if (!added.success) throw new Error(added.error);
+    closeMaintenanceModal();
+    toast(`Added: ${parsed.title}`);
+    loadEvents();
+  } catch (e) {
+    errEl.textContent = `Error: ${e.message}`;
+    errEl.style.display = '';
   }
 }
 
