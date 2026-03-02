@@ -374,19 +374,37 @@ async def ensure_channel_order(guild, channel, events_for_channel, db_path):
     if actual_order == desired_order:
         return  # Already in correct order
 
-    print(f"[UMA] #{channel.name} out of order — reposting {len(actual)} messages in correct order")
+    # Find the prefix that is already in the correct position.
+    # Only delete+repost messages from the first mismatch onward ("tail repost"),
+    # rather than nuking and reposting every message in the channel.
+    prefix_len = 0
+    for a_id, d_id in zip(actual_order, desired_order):
+        if a_id == d_id:
+            prefix_len += 1
+        else:
+            break
+
+    to_delete = actual[prefix_len:]         # (event_id, message_id) tuples to remove
+    to_repost = desired_order[prefix_len:]  # event_ids to repost in correct order
+
+    print(f"[UMA] #{channel.name} out of order — reposting {len(to_delete)} of {len(actual)} messages")
 
     async with aiosqlite.connect(db_path) as conn:
-        for ev_id, msg_id in actual:
+        for ev_id, msg_id in to_delete:
             try:
                 await channel.get_partial_message(int(msg_id)).delete()
             except Exception:
                 pass
-        await conn.execute("DELETE FROM event_messages WHERE channel_id=?", (str(channel.id),))
-        await conn.commit()
+        if to_delete:
+            placeholders = ",".join("?" * len(to_delete))
+            await conn.execute(
+                f"DELETE FROM event_messages WHERE channel_id=? AND event_id IN ({placeholders})",
+                (str(channel.id),) + tuple(ev_id for ev_id, _ in to_delete)
+            )
+            await conn.commit()
 
     event_map = {e["id"]: e for e in events_for_channel}
-    for ev_id in desired_order:
+    for ev_id in to_repost:
         if ev_id in event_map:
             await upsert_event_message(guild, channel, event_map[ev_id], ev_id)
 
