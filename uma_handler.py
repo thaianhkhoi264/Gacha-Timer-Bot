@@ -1274,6 +1274,50 @@ async def add_uma_event(event_data, user_id="0"):
             ) as _cur:
                 existing_ids = [row[0] async for row in _cur]
 
+            if not existing_ids:
+                # ── Fallback: detect date-shifted events ──────────────────────────────
+                # The exact title+start_date lookup found nothing, but the event may have
+                # been rescheduled on uma.moe.  Try fuzzy matching so we UPDATE the existing
+                # row (and edit the Discord embed in-place) instead of inserting a new one.
+                _category = event_data.get("category", "")
+                _new_start = int(event_data["start"])
+                _TWO_MONTHS = 60 * 24 * 3600  # 60 days in seconds
+
+                if _category == "Event":
+                    # Story Events / Legend Races / Champions Meetings keep the same title
+                    # when rescheduled.  Match by exact title, then confirm the existing
+                    # start_date is within 2 months of the new one.
+                    async with conn.execute(
+                        "SELECT id, start_date FROM events "
+                        "WHERE title=? AND category='Event' AND profile='UMA' ORDER BY id ASC",
+                        (event_data["title"],)
+                    ) as _cur:
+                        _candidates = [(row[0], row[1]) async for row in _cur if row[0]]
+
+                    for _cand_id, _cand_start in _candidates:
+                        if _cand_start and abs(int(_cand_start) - _new_start) <= _TWO_MONTHS:
+                            existing_ids = [_cand_id]
+                            print(f"[UMA HANDLER] Date-shift match for '{event_data['title']}': "
+                                  f"reusing {_cand_id} (was start {_cand_start}, now {_new_start})")
+                            break
+
+                elif _category == "Offer":
+                    # Paid Banners: title encodes start date ("Paid Banner (Mar 16)"), so
+                    # title matching is useless after a shift.  Same banner always has the
+                    # same image even when dates change — match on image URL instead.
+                    _img = event_data.get("image") or ""
+                    if _img:
+                        async with conn.execute(
+                            "SELECT id FROM events "
+                            "WHERE image=? AND category='Offer' AND profile='UMA' ORDER BY id ASC",
+                            (_img,)
+                        ) as _cur:
+                            existing_ids = [row[0] async for row in _cur if row[0]]
+                        if existing_ids:
+                            print(f"[UMA HANDLER] Image match for Paid Banner: "
+                                  f"reusing {existing_ids[0]}")
+                # ── End fallback ───────────────────────────────────────────────────────
+
             if existing_ids:
                 event_id = existing_ids[0]  # reuse the canonical (earliest) id
                 # Delete any duplicates that accumulated before this fix
