@@ -939,7 +939,7 @@ async def process_events(raw_events):
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
                 "image": combined_img,
-                "category": "Event",
+                "category": "Legend Race",
                 "description": event_desc
             })
             continue
@@ -979,7 +979,7 @@ async def process_events(raw_events):
                 "start": int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60),
                 "end": int(end_date.timestamp()),
                 "image": img_url,
-                "category": "Event",
+                "category": "Champions Meeting",
                 "description": details if details else ""
             })
             continue
@@ -1283,14 +1283,14 @@ async def add_uma_event(event_data, user_id="0"):
                 _new_start = int(event_data["start"])
                 _TWO_MONTHS = 60 * 24 * 3600  # 60 days in seconds
 
-                if _category == "Event":
-                    # Story Events / Legend Races / Champions Meetings keep the same title
-                    # when rescheduled.  Match by exact title, then confirm the existing
-                    # start_date is within 2 months of the new one.
+                if _category in ("Event", "Legend Race", "Champions Meeting", "Maintenance"):
+                    # Story Events / Legend Races / Champions Meetings / Maintenance keep
+                    # the same title when rescheduled.  Match by exact title + category,
+                    # then confirm the existing start_date is within 2 months of the new one.
                     async with conn.execute(
                         "SELECT id, start_date FROM events "
-                        "WHERE title=? AND category='Event' AND profile='UMA' ORDER BY id ASC",
-                        (event_data["title"],)
+                        "WHERE title=? AND category=? AND profile='UMA' ORDER BY id ASC",
+                        (event_data["title"], _category)
                     ) as _cur:
                         _candidates = [(row[0], row[1]) async for row in _cur if row[0]]
 
@@ -1331,14 +1331,15 @@ async def add_uma_event(event_data, user_id="0"):
                 event_id = await _next_sequential_id(prefix, conn)  # genuinely new event
 
         async with conn.execute(
-            "SELECT id, title, start_date, end_date, image, description FROM events WHERE id = ?",
+            "SELECT id, title, start_date, end_date, image, category, description FROM events WHERE id = ?",
             (event_id,)
         ) as cursor:
             existing = await cursor.fetchone()
 
         if existing:
-            _, old_title, old_start, old_end, old_image, old_desc = existing
+            _, old_title, old_start, old_end, old_image, old_category, old_desc = existing
             title_changed = old_title != event_data["title"]
+            category_changed = old_category != event_data.get("category")
             changed = False
             if "Champions Meeting" in event_data["title"] or "champions meeting" in event_data["title"].lower():
                 if (str(event_data["start"]) != str(old_start) or
@@ -1352,13 +1353,13 @@ async def add_uma_event(event_data, user_id="0"):
                         event_data.get("description", "") != old_desc):
                     changed = True
 
-            if changed or title_changed:
+            if changed or title_changed or category_changed:
                 await conn.execute(
                     '''UPDATE events
-                       SET title = ?, start_date = ?, end_date = ?, image = ?, description = ?, user_id = ?
+                       SET title = ?, start_date = ?, end_date = ?, image = ?, category = ?, description = ?, user_id = ?
                        WHERE id = ?''',
                     (event_data["title"], event_data["start"], event_data["end"], event_data.get("image"),
-                     event_data.get("description", ""), user_id, event_id)
+                     event_data.get("category"), event_data.get("description", ""), user_id, event_id)
                 )
                 await conn.commit()
                 uma_handler_logger.info(f"[Add Event] Updated existing event: {event_data['title']} (ID: {event_id})")
