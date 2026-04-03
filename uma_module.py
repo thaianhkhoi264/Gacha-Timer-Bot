@@ -814,7 +814,8 @@ async def uma_debug(ctx):
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             await page.goto("https://uma.moe/timeline", timeout=60000)
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_load_state("load")
+            await asyncio.sleep(5)
             
             # Scroll to load events (simplified version)
             timeline = await page.query_selector('.timeline-container')
