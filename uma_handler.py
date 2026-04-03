@@ -687,7 +687,13 @@ async def process_events(raw_events):
             event_type = "CHAMPIONS_MEETING"
         elif "PAID BANNER" in full_text_upper:
             event_type = "PAID_BANNER"
-        
+        elif "MISSION CAMPAIGN" in full_text_upper:
+            event_type = "MISSION_CAMPAIGN"
+
+        if event_type == "MISSION_CAMPAIGN":
+            print(f"[UMA HANDLER] Skipping Mission Campaign: {full_title[:50]}")
+            continue
+
         print(f"[UMA HANDLER] Processing: {full_title[:50]}... | Type: {event_type} | Tags: {tags}")
         
         # === SUPPORT BANNER (standalone or for combination) ===
