@@ -1495,7 +1495,7 @@ async def handle_voice_event(request):
 
     # Format message
     action = "Joined" if event == "join" else "Left"
-    content = f"**{username}** has **{action}** **{channel_name}**."
+    content = f"Tore-chan, **{username}** has {action} **{channel_name}**."
 
     # Resolve webhook URL from env
     webhook_url = os.getenv("WEBHOOK_EMPIRE", "")
