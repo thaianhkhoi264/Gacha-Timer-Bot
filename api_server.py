@@ -1440,6 +1440,93 @@ async def handle_run_scraper(request):
     return web.json_response({"success": True, "message": "Scraper started"})
 
 
+async def handle_voice_event(request):
+    """
+    POST /api/empire/voice_event
+
+    Receives a voice join/leave event from the EmpireTracker Vencord plugin
+    and forwards it to the configured Discord webhook.
+
+    Headers:
+        X-API-Key: <key>
+
+    Body (JSON):
+        {
+            "event":        "join" | "leave",
+            "username":     "Narisurii",
+            "channel_name": "Audience Chamber",
+            "user_id":      "...",   // optional
+            "channel_id":   "...",   // optional
+            "guild_id":     "..."    // optional
+        }
+
+    Response:
+        { "success": true }
+        { "success": false, "error": "..." }
+    """
+    # Auth
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    # Parse body
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    required = {"event", "username", "channel_name"}
+    missing = required - data.keys()
+    if missing:
+        return web.json_response(
+            {"success": False, "error": f"Missing fields: {', '.join(missing)}"},
+            status=400,
+        )
+
+    event = data["event"]
+    username = data["username"]
+    channel_name = data["channel_name"]
+
+    if event not in ("join", "leave"):
+        return web.json_response(
+            {"success": False, "error": "Field 'event' must be 'join' or 'leave'"},
+            status=400,
+        )
+
+    # Format message
+    action = "Joined" if event == "join" else "Left"
+    content = f"**{username}** has **{action}** **{channel_name}**."
+
+    # Resolve webhook URL from env
+    webhook_url = os.getenv("WEBHOOK_EMPIRE", "")
+    if not webhook_url:
+        api_logger.warning("[EmpireTracker] WEBHOOK_EMPIRE not set, skipping voice event.")
+        return web.json_response(
+            {"success": False, "error": "WEBHOOK_EMPIRE not configured on the server"},
+            status=503,
+        )
+
+    # POST to Discord webhook (async — avoids blocking the event loop)
+    import aiohttp as _aiohttp
+    try:
+        async with _aiohttp.ClientSession() as session:
+            async with session.post(
+                webhook_url,
+                json={"content": content},
+                headers={"User-Agent": "KanamiBot/1.0"},
+                timeout=_aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                ok = resp.status in (200, 204)
+    except Exception as e:
+        api_logger.error(f"[EmpireTracker] Webhook POST failed: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=502)
+
+    api_logger.info(
+        f"[EmpireTracker] Voice event '{event}' for {username} in {channel_name} forwarded."
+    )
+    return web.json_response({"success": ok})
+
+
 def create_app():
     """
     Creates and configures the aiohttp web application.
@@ -1485,6 +1572,7 @@ def create_app():
     app.router.add_post('/api/scraper/uma/run', handle_run_scraper)
     app.router.add_post('/api/uma/parse-maintenance', handle_parse_maintenance)
     app.router.add_post('/api/restart', handle_restart)
+    app.router.add_post('/api/empire/voice_event', handle_voice_event)
 
     # Serve local event images (combined banners etc.)
     _data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
