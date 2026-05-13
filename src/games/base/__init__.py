@@ -10,9 +10,13 @@ from .game_module import (
     GameModule,
     HoyoverseGameModule,
 )
+from .special_event_module import (
+    SpecialEventGameModule,
+)
 
 __all__ = [
     'GameConfig',
     'GameModule',
     'HoyoverseGameModule',
+    'SpecialEventGameModule',
 ]

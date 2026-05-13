@@ -10,6 +10,12 @@ import logging
 
 BASE_URL = "https://uma.moe/"
 
+# Duration correction for Champions Meeting events.
+# uma.moe timeline dates are sometimes inaccurate — override end date
+# by calculating it as start + this many days instead of trusting the scraped end.
+# Change this value if the game updates the CM duration again.
+CM_CORRECTED_DURATION_DAYS = 10
+
 # Logger
 uma_handler_logger = logging.getLogger("uma_handler")
 uma_handler_logger.setLevel(logging.INFO)
@@ -892,12 +898,14 @@ async def process_events(raw_events):
             details = "\n".join(detail_lines) if detail_lines else ""
             print(f"[UMA HANDLER] Champions Meeting '{cup_name}' details: {detail_lines}")
             
+            event_start = int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60)
+            corrected_end = event_start + (CM_CORRECTED_DURATION_DAYS * 24 * 60 * 60) - 60  # end at HH:59 like other events
             processed.append({
                 "title": cup_name,
-                "start": int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60),
-                "end": int(end_date.timestamp()),
+                "start": event_start,
+                "end": corrected_end,
                 "image": img_url,
-                "category": "Event",
+                "category": "Champions Meeting",
                 "description": details if details else ""
             })
             continue
