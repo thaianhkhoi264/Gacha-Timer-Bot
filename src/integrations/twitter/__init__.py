@@ -1,19 +1,11 @@
 """
-Twitter/X integration module.
+Twitter Integration - Event extraction from tweets.
 
-This package provides Twitter/X related functionality:
-- Tweet monitoring and scraping
-- Image extraction from tweets
-- Event detection from official game accounts
-
-Note: Full implementation to be migrated from twitter_handler.py and tweet_listener.py.
+This module provides Twitter integration for extracting game events from
+official announcement tweets using LLM-based parsing.
 """
 
-# Placeholder - to be implemented
-# from .listener import TweetListener
-# from .scraper import TwitterScraper
+from .handler import TwitterHandler
+from .extractors.base import BaseTweetExtractor
 
-__all__ = [
-    # 'TweetListener',
-    # 'TwitterScraper',
-]
+__all__ = ['TwitterHandler', 'BaseTweetExtractor']

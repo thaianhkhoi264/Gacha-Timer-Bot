@@ -2,18 +2,16 @@
 Machine Learning integration module.
 
 This package provides ML-related functionality:
-- LLM inference for event extraction from images
-- Text parsing and date extraction
-- Event classification
-
-Note: Full implementation to be migrated from ml_handler.py.
+- LLM inference for event extraction from images/text
+- Claude API support (Haiku, Sonnet, Opus)
+- Local GGUF model fallback
+- Vision support for image analysis
 """
 
-# Placeholder - to be implemented
-# from .inference import run_llm_inference
-# from .extractors import EventExtractor
+from .service import MLService, CLAUDE_MODELS, ModelConfig
 
 __all__ = [
-    # 'run_llm_inference',
-    # 'EventExtractor',
+    'MLService',
+    'CLAUDE_MODELS',
+    'ModelConfig',
 ]
