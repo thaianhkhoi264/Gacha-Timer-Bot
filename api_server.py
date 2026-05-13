@@ -17,7 +17,8 @@ from shadowverse_handler import (
     get_recent_matches,
     CRAFTS
 )
-from global_config import DEV_SERVER_ID
+from global_config import DEV_SERVER_ID, OWNER_USER_ID
+import event_manager
 import logging
 
 # Configure logging
@@ -26,6 +27,13 @@ api_logger.setLevel(logging.INFO)
 
 # Bot instance will be set by main.py to avoid circular imports
 bot_instance = None
+
+# Try to import aiohttp_cors (Plan C requirement)
+try:
+    import aiohttp_cors
+except ImportError:
+    aiohttp_cors = None
+    api_logger.warning("aiohttp-cors not installed. CORS will be disabled.")
 
 # Track active API match notifications (temporary messages that auto-delete after 30s)
 # Format: {user_id: {"message": discord.Message, "count": int, "timer": asyncio.Task}}
@@ -1013,11 +1021,530 @@ async def handle_list_matches(request):
             status=500
         )
 
+# --- Plan C: Event Management Routes ---
+
+async def handle_list_events(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+    
+    try:
+        events = await event_manager.get_events(profile)
+        # Convert local image paths to API-accessible URLs
+        _base = os.path.dirname(os.path.abspath(__file__))
+        for ev in events:
+            img = ev.get('image')
+            if img and not img.startswith(('http://', 'https://')):
+                img_clean = img.replace('\\', '/')
+                # Prefer horizontal combined image for the web control panel
+                if 'combined_v_' in img_clean:
+                    h_img = img_clean.replace('combined_v_', 'combined_h_')
+                    if os.path.exists(os.path.join(_base, h_img)):
+                        img_clean = h_img
+                ev['image'] = '/' + img_clean
+        return web.json_response({"success": True, "events": events})
+    except Exception as e:
+        api_logger.error(f"Error listing events: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_get_event(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        event = await event_manager.get_event_by_id(profile, event_id)
+        if not event:
+            return web.json_response({"success": False, "error": "Event not found"}, status=404)
+        img = event.get('image')
+        if img and not img.startswith(('http://', 'https://')):
+            img_clean = img.replace('\\', '/')
+            if 'combined_v_' in img_clean:
+                h_img = img_clean.replace('combined_v_', 'combined_h_')
+                _base = os.path.dirname(os.path.abspath(__file__))
+                if os.path.exists(os.path.join(_base, h_img)):
+                    img_clean = h_img
+            event['image'] = '/' + img_clean
+        return web.json_response({"success": True, "event": event})
+    except Exception as e:
+        api_logger.error(f"Error getting event: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_add_event(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        data = await request.json()
+        # Validate required fields
+        required = ["title", "category", "start_unix", "end_unix"]
+        if not all(k in data for k in required):
+             return web.json_response({"success": False, "error": "Missing fields"}, status=400)
+
+        # Construct event_data for add_event
+        event_data = {
+            "title": data["title"],
+            "category": data["category"],
+            "start": str(data["start_unix"]),
+            "end": str(data["end_unix"]),
+            "image": data.get("image"),
+            "description": data.get("description", "")
+        }
+
+        # Create a dummy context for add_event (it expects ctx.author.id)
+        class DummyCtx:
+            class Author:
+                id = str(OWNER_USER_ID)
+            author = Author()
+            async def send(self, msg, **kwargs):
+                pass # Suppress output
+
+        await event_manager.PROFILE_CONFIG[profile]["add_event"](DummyCtx(), event_data)
+        return web.json_response({"success": True, "message": "Event added"})
+    except Exception as e:
+        api_logger.error(f"Error adding event: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_update_event(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        data = await request.json()
+        await event_manager.update_event(
+            profile,
+            event_id,
+            data["title"], 
+            data["category"], 
+            str(data["start_unix"]), 
+            str(data["end_unix"]), 
+            data.get("image")
+        )
+        return web.json_response({"success": True, "message": "Event updated"})
+    except Exception as e:
+        api_logger.error(f"Error updating event: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_remove_event(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        success = await event_manager.remove_event_by_id(profile, event_id)
+        if success:
+            return web.json_response({"success": True, "message": "Event removed"})
+        else:
+            return web.json_response({"success": False, "error": "Event not found"}, status=404)
+    except Exception as e:
+        api_logger.error(f"Error removing event: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_list_notifications(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        notifs = await event_manager.get_pending_notifications_for_event(profile, event_id)
+        return web.json_response({"success": True, "notifications": notifs})
+    except Exception as e:
+        api_logger.error(f"Error listing notifications: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_remove_notification(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    notif_id = request.match_info["notif_id"]
+    try:
+        await event_manager.remove_pending_notification(int(notif_id))
+        return web.json_response({"success": True, "message": "Notification removed"})
+    except Exception as e:
+        api_logger.error(f"Error removing notification: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_update_notification(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    notif_id = request.match_info["notif_id"]
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON body"}, status=400)
+
+    try:
+        if "custom_message" in data:
+            await event_manager.update_notification_message(int(notif_id), data["custom_message"] or None)
+        return web.json_response({"success": True, "message": "Notification updated"})
+    except Exception as e:
+        api_logger.error(f"Error updating notification: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_fire_notification(request):
+    """POST /api/notifications/{notif_id}/fire — send immediately and mark sent=1."""
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    notif_id = int(request.match_info["notif_id"])
+    cols = [
+        "id", "profile", "title", "category", "timing_type",
+        "notify_unix", "event_time_unix", "region",
+        "message_template", "custom_message", "phase", "character_name",
+    ]
+    async with aiosqlite.connect(event_manager.NOTIF_DB_PATH) as conn:
+        async with conn.execute(
+            f"SELECT {','.join(cols)} FROM pending_notifications WHERE id=?",
+            (notif_id,)
+        ) as cursor:
+            raw = await cursor.fetchone()
+        if not raw:
+            return web.json_response({"success": False, "error": "Notification not found"}, status=404)
+
+        row = dict(zip(cols, raw))
+        from notification_handler import send_notification_webhook
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, send_notification_webhook, row)
+
+        if success:
+            await conn.execute("UPDATE pending_notifications SET sent=1 WHERE id=?", (notif_id,))
+            await conn.commit()
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({"success": False, "error": "Webhook POST failed — check logs"}, status=500)
+
+
+async def handle_refresh_notifications(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    event_id = request.match_info["event_id"]
+    
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        await event_manager.refresh_pending_notifications_for_event(profile, event_id)
+        return web.json_response({"success": True, "message": "Notifications refreshed"})
+    except Exception as e:
+        api_logger.error(f"Error refreshing notifications: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_refresh_all_notifications(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        events = await event_manager.get_events(profile)
+        seen_keys = set()
+        refreshed = 0
+        for ev in events:
+            key = (ev['title'], ev['category'])
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            await event_manager.refresh_pending_notifications_for_event(profile, ev["id"])
+            refreshed += 1
+        return web.json_response({"success": True, "refreshed": refreshed})
+    except Exception as e:
+        api_logger.error(f"Error refreshing all notifications: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_refresh_dashboard(request):
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    profile = request.match_info["profile"].upper()
+    if profile not in event_manager.PROFILE_CONFIG:
+        return web.json_response({"success": False, "error": "Invalid profile"}, status=404)
+
+    try:
+        await event_manager.PROFILE_CONFIG[profile]["update_timers"]()
+        return web.json_response({"success": True, "message": "Dashboard refreshed"})
+    except Exception as e:
+        api_logger.error(f"Error refreshing dashboard: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+async def handle_restart(request):
+    """POST /api/restart — git pull + systemctl restart kanami-bot (owner-only via API key)."""
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    import subprocess, asyncio
+    try:
+        await web.json_response({"success": True, "message": "Restarting…"}).prepare(request)
+    except Exception:
+        pass
+
+    async def _do_restart():
+        try:
+            subprocess.run(
+                ["git", "-C", "/home/piberry/Gacha-Timer-Bot", "pull"],
+                check=True
+            )
+        except Exception:
+            pass
+        subprocess.Popen(["sudo", "systemctl", "restart", "kanami-bot"])
+
+    asyncio.ensure_future(_do_restart())
+    return web.json_response({"success": True, "message": "Restarting…"})
+
+
+def _parse_maintenance_text(text):
+    """Parse a UMA maintenance announcement (tweet text or stripped HTML) and return event fields.
+
+    Matches patterns like: "7:00 a.m. - 9:00 a.m., Mar 3, 2026 (UTC)"
+    Returns {"title": ..., "start_unix": ..., "end_unix": ...} or None.
+    """
+    import re as _re, datetime as _dt
+    pattern = (r'(\d{1,2}):(\d{2})\s*([ap]\.m\.)\s*[-\u2013]\s*'
+               r'(\d{1,2}):(\d{2})\s*([ap]\.m\.),?\s*'
+               r'([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})\s*\(UTC\)')
+    m = _re.search(pattern, text, _re.IGNORECASE)
+    if not m:
+        return None
+    sh, sm, sap, eh, em, eap, mon, day, year = m.groups()
+
+    def to_24h(h, m, ap):
+        h, m = int(h), int(m)
+        if 'p' in ap.lower() and h != 12:
+            h += 12
+        elif 'a' in ap.lower() and h == 12:
+            h = 0
+        return h, m
+
+    sh24, sm24 = to_24h(sh, sm, sap)
+    eh24, em24 = to_24h(eh, em, eap)
+    try:
+        base = _dt.datetime.strptime(f"{mon} {int(day)} {year}", "%b %d %Y").replace(tzinfo=_dt.timezone.utc)
+    except ValueError:
+        return None
+    start = base.replace(hour=sh24, minute=sm24)
+    end   = base.replace(hour=eh24, minute=em24)
+    if end <= start:
+        end += _dt.timedelta(days=1)
+    title = f"{base.strftime('%b')} {int(day)} Maintenance"  # e.g. "Mar 3 Maintenance"
+    return {"title": title, "start_unix": int(start.timestamp()), "end_unix": int(end.timestamp())}
+
+
+async def handle_parse_maintenance(request):
+    """POST /api/uma/parse-maintenance — parse tweet text or URL and return maintenance event fields."""
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+    try:
+        data = await request.json()
+        raw = data.get("input", "").strip()
+        if not raw:
+            return web.json_response({"success": False, "error": "No input provided"}, status=400)
+
+        text = raw
+        if raw.startswith("http"):
+            import aiohttp as _aiohttp, re as _re
+            try:
+                async with _aiohttp.ClientSession() as session:
+                    async with session.get(raw, timeout=_aiohttp.ClientTimeout(total=10),
+                                           headers={"User-Agent": "KanamiBot/1.0"}) as resp:
+                        html = await resp.text()
+                text = _re.sub(r'<[^>]+>', ' ', html)
+            except Exception as fetch_err:
+                return web.json_response({"success": False, "error": f"Failed to fetch URL: {fetch_err}"}, status=502)
+
+        result = _parse_maintenance_text(text)
+        if not result:
+            return web.json_response(
+                {"success": False, "error": "Could not find a maintenance time window in the text. "
+                 "Expected format: '7:00 a.m. - 9:00 a.m., Mar 3, 2026 (UTC)'"},
+                status=422
+            )
+        return web.json_response({"success": True, **result})
+    except Exception as e:
+        api_logger.error(f"Error parsing maintenance: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_run_scraper(request):
+    """POST /api/scraper/uma/run — kick off uma_scraper.py in the background."""
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    import sys, os
+    scraper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uma_scraper.py")
+    if not os.path.exists(scraper_path):
+        return web.json_response({"success": False, "error": "uma_scraper.py not found"}, status=500)
+
+    async def _run():
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, scraper_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                api_logger.error(f"[Scraper] exited {proc.returncode}: {stderr.decode('utf-8', errors='replace')}")
+            else:
+                api_logger.info("[Scraper] finished successfully")
+        except Exception as e:
+            api_logger.error(f"[Scraper] failed to run: {e}")
+
+    asyncio.ensure_future(_run())
+    return web.json_response({"success": True, "message": "Scraper started"})
+
+
+async def handle_voice_event(request):
+    """
+    POST /api/empire/voice_event
+
+    Receives a voice join/leave event from the EmpireTracker Vencord plugin
+    and forwards it to the configured Discord webhook.
+
+    Headers:
+        X-API-Key: <key>
+
+    Body (JSON):
+        {
+            "event":        "join" | "leave",
+            "username":     "Narisurii",
+            "channel_name": "Audience Chamber",
+            "user_id":      "...",   // optional
+            "channel_id":   "...",   // optional
+            "guild_id":     "..."    // optional
+        }
+
+    Response:
+        { "success": true }
+        { "success": false, "error": "..." }
+    """
+    # Auth
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    # Parse body
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"success": False, "error": "Invalid JSON"}, status=400)
+
+    required = {"event", "username", "channel_name"}
+    missing = required - data.keys()
+    if missing:
+        return web.json_response(
+            {"success": False, "error": f"Missing fields: {', '.join(missing)}"},
+            status=400,
+        )
+
+    event = data["event"]
+    username = data["username"]
+    channel_name = data["channel_name"]
+
+    if event not in ("join", "leave"):
+        return web.json_response(
+            {"success": False, "error": "Field 'event' must be 'join' or 'leave'"},
+            status=400,
+        )
+
+    # Format message
+    action = "Joined" if event == "join" else "Left"
+    content = f"Tore-chan, **{username}** has {action} **{channel_name}**."
+
+    # Resolve webhook URL from env
+    webhook_url = os.getenv("WEBHOOK_EMPIRE", "")
+    if not webhook_url:
+        api_logger.warning("[EmpireTracker] WEBHOOK_EMPIRE not set, skipping voice event.")
+        return web.json_response(
+            {"success": False, "error": "WEBHOOK_EMPIRE not configured on the server"},
+            status=503,
+        )
+
+    # POST to Discord webhook (async — avoids blocking the event loop)
+    import aiohttp as _aiohttp
+    try:
+        async with _aiohttp.ClientSession() as session:
+            async with session.post(
+                webhook_url,
+                json={"content": content},
+                headers={"User-Agent": "KanamiBot/1.0"},
+                timeout=_aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                ok = resp.status in (200, 204)
+    except Exception as e:
+        api_logger.error(f"[EmpireTracker] Webhook POST failed: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=502)
+
+    api_logger.info(
+        f"[EmpireTracker] Voice event '{event}' for {username} in {channel_name} forwarded."
+    )
+    return web.json_response({"success": ok})
+
+
 def create_app():
     """
     Creates and configures the aiohttp web application.
     """
     app = web.Application()
+
+    # Configure CORS if available
+    if aiohttp_cors:
+        cors = aiohttp_cors.setup(app, defaults={
+            "*": aiohttp_cors.ResourceOptions(
+                allow_credentials=True,
+                expose_headers="*",
+                allow_headers="*",
+                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            )
+        })
+    else:
+        cors = None
 
     # Add routes
     app.router.add_post('/api/shadowverse/log_match', handle_log_match)
@@ -1026,6 +1553,36 @@ def create_app():
     app.router.add_get('/api/shadowverse/matches', handle_list_matches)
     app.router.add_get('/api/health', handle_health_check)
     app.router.add_get('/api/validate_key', handle_validate_key)
+    
+    # Plan C Routes
+    app.router.add_get('/api/events/{profile}', handle_list_events)
+    app.router.add_get('/api/events/{profile}/{event_id}', handle_get_event)
+    app.router.add_post('/api/events/{profile}', handle_add_event)
+    app.router.add_put('/api/events/{profile}/{event_id}', handle_update_event)
+    app.router.add_delete('/api/events/{profile}/{event_id}', handle_remove_event)
+    
+    app.router.add_get('/api/events/{profile}/{event_id}/notifications', handle_list_notifications)
+    app.router.add_delete('/api/notifications/{notif_id}', handle_remove_notification)
+    app.router.add_patch('/api/notifications/{notif_id}', handle_update_notification)
+    app.router.add_post('/api/notifications/{notif_id}/fire', handle_fire_notification)
+    app.router.add_post('/api/events/{profile}/{event_id}/notifications/refresh', handle_refresh_notifications)
+    app.router.add_post('/api/notifications/{profile}/refresh_all', handle_refresh_all_notifications)
+    
+    app.router.add_post('/api/dashboard/{profile}/refresh', handle_refresh_dashboard)
+    app.router.add_post('/api/scraper/uma/run', handle_run_scraper)
+    app.router.add_post('/api/uma/parse-maintenance', handle_parse_maintenance)
+    app.router.add_post('/api/restart', handle_restart)
+    app.router.add_post('/api/empire/voice_event', handle_voice_event)
+
+    # Serve local event images (combined banners etc.)
+    _data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+    if os.path.isdir(_data_dir):
+        app.router.add_static('/data', _data_dir)
+
+    # Add CORS to all routes
+    if cors:
+        for route in list(app.router.routes()):
+            cors.add(route)
 
     return app
 

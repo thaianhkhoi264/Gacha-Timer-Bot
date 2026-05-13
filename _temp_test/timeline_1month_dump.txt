@@ -1,0 +1,462 @@
+Run: 2026-02-23T07:31:26.475126+00:00
+Window: now -> 2026-03-26
+
+======================================================================
+DEDUP COLLISIONS (188 total)
+======================================================================
+  scroll=1  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=2  start=2026-01-22  title='Tamamo Cross'
+    new_type=CHARACTER BANNER  existing[3]=CHARACTER BANNER
+  scroll=2  start=2026-01-22  title='Oguri Cap + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[4]=SUPPORT CARD BANNER
+  scroll=2  start=2026-01-22  title='Arima Kinen Legend Race'
+    new_type=LEGEND RACE  existing[5]=LEGEND RACE
+  scroll=2  start=2026-01-29  title='Haru Urara + 1 more'
+    new_type=CHARACTER BANNER  existing[6]=CHARACTER BANNER
+  scroll=2  start=2026-01-29  title='Admire Vega + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[7]=SUPPORT CARD BANNER
+  scroll=2  start=2026-01-29  title="Blossoming New Year's Karuta Contest"
+    new_type=STORY EVENT  existing[8]=STORY EVENT
+  scroll=2  start=2026-02-05  title='Special Week + 46 more'
+    new_type=CHARACTER BANNER  existing[9]=CHARACTER BANNER
+  scroll=2  start=2026-02-05  title='Tamamo Cross + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[10]=SUPPORT CARD BANNER
+  scroll=2  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=2  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=2  start=2026-02-09  title='Champions Meeting: Capricorn Cup'
+    new_type=CHAMPIONS MEETING  existing[12]=CHAMPIONS MEETING
+  scroll=2  start=2026-02-11  title='Sakura Chiyono O'
+    new_type=CHARACTER BANNER  existing[13]=CHARACTER BANNER
+  scroll=2  start=2026-02-11  title='Tazuna Hayakawa + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[14]=SUPPORT CARD BANNER
+  scroll=3  start=2026-01-22  title='Arima Kinen Legend Race'
+    new_type=LEGEND RACE  existing[5]=LEGEND RACE
+  scroll=3  start=2026-01-29  title='Haru Urara + 1 more'
+    new_type=CHARACTER BANNER  existing[6]=CHARACTER BANNER
+  scroll=3  start=2026-01-29  title='Admire Vega + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[7]=SUPPORT CARD BANNER
+  scroll=3  start=2026-01-29  title="Blossoming New Year's Karuta Contest"
+    new_type=STORY EVENT  existing[8]=STORY EVENT
+  scroll=3  start=2026-02-05  title='Special Week + 46 more'
+    new_type=CHARACTER BANNER  existing[9]=CHARACTER BANNER
+  scroll=3  start=2026-02-05  title='Tamamo Cross + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[10]=SUPPORT CARD BANNER
+  scroll=3  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=3  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=3  start=2026-02-09  title='Champions Meeting: Capricorn Cup'
+    new_type=CHAMPIONS MEETING  existing[12]=CHAMPIONS MEETING
+  scroll=3  start=2026-02-11  title='Sakura Chiyono O'
+    new_type=CHARACTER BANNER  existing[13]=CHARACTER BANNER
+  scroll=3  start=2026-02-11  title='Tazuna Hayakawa + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[14]=SUPPORT CARD BANNER
+  scroll=3  start=2026-02-18  title='Mihono Bourbon + 1 more'
+    new_type=CHARACTER BANNER  existing[15]=CHARACTER BANNER
+  scroll=3  start=2026-02-18  title='Nishino Flower + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[16]=SUPPORT CARD BANNER
+  scroll=3  start=2026-02-18  title='Patisserie Grandeur'
+    new_type=STORY EVENT  existing[17]=STORY EVENT
+  scroll=4  start=2026-01-29  title='Admire Vega + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[7]=SUPPORT CARD BANNER
+  scroll=4  start=2026-01-29  title="Blossoming New Year's Karuta Contest"
+    new_type=STORY EVENT  existing[8]=STORY EVENT
+  scroll=4  start=2026-02-05  title='Special Week + 46 more'
+    new_type=CHARACTER BANNER  existing[9]=CHARACTER BANNER
+  scroll=4  start=2026-02-05  title='Tamamo Cross + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[10]=SUPPORT CARD BANNER
+  scroll=4  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=4  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=4  start=2026-02-09  title='Champions Meeting: Capricorn Cup'
+    new_type=CHAMPIONS MEETING  existing[12]=CHAMPIONS MEETING
+  scroll=4  start=2026-02-11  title='Sakura Chiyono O'
+    new_type=CHARACTER BANNER  existing[13]=CHARACTER BANNER
+  scroll=4  start=2026-02-11  title='Tazuna Hayakawa + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[14]=SUPPORT CARD BANNER
+  scroll=4  start=2026-02-18  title='Mihono Bourbon + 1 more'
+    new_type=CHARACTER BANNER  existing[15]=CHARACTER BANNER
+  scroll=4  start=2026-02-18  title='Nishino Flower + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[16]=SUPPORT CARD BANNER
+  scroll=4  start=2026-02-18  title='Patisserie Grandeur'
+    new_type=STORY EVENT  existing[17]=STORY EVENT
+  scroll=5  start=2026-02-05  title='Special Week + 46 more'
+    new_type=CHARACTER BANNER  existing[9]=CHARACTER BANNER
+  scroll=5  start=2026-02-05  title='Tamamo Cross + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[10]=SUPPORT CARD BANNER
+  scroll=5  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=5  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=5  start=2026-02-09  title='Champions Meeting: Capricorn Cup'
+    new_type=CHAMPIONS MEETING  existing[12]=CHAMPIONS MEETING
+  scroll=5  start=2026-02-11  title='Sakura Chiyono O'
+    new_type=CHARACTER BANNER  existing[13]=CHARACTER BANNER
+  scroll=5  start=2026-02-11  title='Tazuna Hayakawa + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[14]=SUPPORT CARD BANNER
+  scroll=5  start=2026-02-18  title='Mihono Bourbon + 1 more'
+    new_type=CHARACTER BANNER  existing[15]=CHARACTER BANNER
+  scroll=5  start=2026-02-18  title='Nishino Flower + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[16]=SUPPORT CARD BANNER
+  scroll=5  start=2026-02-18  title='Patisserie Grandeur'
+    new_type=STORY EVENT  existing[17]=STORY EVENT
+  scroll=5  start=2026-02-25  title='Mejiro Ardan'
+    new_type=CHARACTER BANNER  existing[18]=CHARACTER BANNER
+  scroll=5  start=2026-02-25  title='Ines Fujin + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[19]=SUPPORT CARD BANNER
+  scroll=5  start=2026-02-26  title='Hanshin Juvenile Fillies Legend Race'
+    new_type=LEGEND RACE  existing[20]=LEGEND RACE
+  scroll=6  start=2026-02-05  title='Paid Banner'
+    new_type=PAID BANNER  existing[11]=PAID BANNER
+  scroll=6  start=2026-02-11  title='Sakura Chiyono O'
+    new_type=CHARACTER BANNER  existing[13]=CHARACTER BANNER
+  scroll=6  start=2026-02-11  title='Tazuna Hayakawa + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[14]=SUPPORT CARD BANNER
+  scroll=6  start=2026-02-18  title='Mihono Bourbon + 1 more'
+    new_type=CHARACTER BANNER  existing[15]=CHARACTER BANNER
+  scroll=6  start=2026-02-18  title='Nishino Flower + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[16]=SUPPORT CARD BANNER
+  scroll=6  start=2026-02-18  title='Patisserie Grandeur'
+    new_type=STORY EVENT  existing[17]=STORY EVENT
+  scroll=6  start=2026-02-25  title='Mejiro Ardan'
+    new_type=CHARACTER BANNER  existing[18]=CHARACTER BANNER
+  scroll=6  start=2026-02-25  title='Ines Fujin + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[19]=SUPPORT CARD BANNER
+  scroll=6  start=2026-02-26  title='Hanshin Juvenile Fillies Legend Race'
+    new_type=LEGEND RACE  existing[20]=LEGEND RACE
+  scroll=6  start=2026-03-03  title='Admire Vega'
+    new_type=CHARACTER BANNER  existing[21]=CHARACTER BANNER
+  scroll=6  start=2026-03-03  title='Fine Motion + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[22]=SUPPORT CARD BANNER
+  scroll=6  start=2026-03-05  title='Champions Meeting: Aquarius Cup'
+    new_type=CHAMPIONS MEETING  existing[23]=CHAMPIONS MEETING
+  scroll=7  start=2026-02-18  title='Mihono Bourbon + 1 more'
+    new_type=CHARACTER BANNER  existing[15]=CHARACTER BANNER
+  scroll=7  start=2026-02-18  title='Nishino Flower + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[16]=SUPPORT CARD BANNER
+  scroll=7  start=2026-02-18  title='Patisserie Grandeur'
+    new_type=STORY EVENT  existing[17]=STORY EVENT
+  scroll=7  start=2026-02-25  title='Mejiro Ardan'
+    new_type=CHARACTER BANNER  existing[18]=CHARACTER BANNER
+  scroll=7  start=2026-02-25  title='Ines Fujin + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[19]=SUPPORT CARD BANNER
+  scroll=7  start=2026-02-26  title='Hanshin Juvenile Fillies Legend Race'
+    new_type=LEGEND RACE  existing[20]=LEGEND RACE
+  scroll=7  start=2026-03-03  title='Admire Vega'
+    new_type=CHARACTER BANNER  existing[21]=CHARACTER BANNER
+  scroll=7  start=2026-03-03  title='Fine Motion + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[22]=SUPPORT CARD BANNER
+  scroll=7  start=2026-03-05  title='Champions Meeting: Aquarius Cup'
+    new_type=CHAMPIONS MEETING  existing[23]=CHAMPIONS MEETING
+  scroll=7  start=2026-03-08  title='Matikanetannhauser + 1 more'
+    new_type=CHARACTER BANNER  existing[24]=CHARACTER BANNER
+  scroll=7  start=2026-03-08  title='Mejiro Ryan + 3 more'
+    new_type=SUPPORT CARD BANNER  existing[25]=SUPPORT CARD BANNER
+  scroll=7  start=2026-03-08  title='Flapping Run-up!'
+    new_type=STORY EVENT  existing[26]=STORY EVENT
+  scroll=7  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=8  start=2026-02-18  title='Patisserie Grandeur'
+    new_type=STORY EVENT  existing[17]=STORY EVENT
+  scroll=8  start=2026-02-25  title='Mejiro Ardan'
+    new_type=CHARACTER BANNER  existing[18]=CHARACTER BANNER
+  scroll=8  start=2026-02-25  title='Ines Fujin + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[19]=SUPPORT CARD BANNER
+  scroll=8  start=2026-02-26  title='Hanshin Juvenile Fillies Legend Race'
+    new_type=LEGEND RACE  existing[20]=LEGEND RACE
+  scroll=8  start=2026-03-03  title='Admire Vega'
+    new_type=CHARACTER BANNER  existing[21]=CHARACTER BANNER
+  scroll=8  start=2026-03-03  title='Fine Motion + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[22]=SUPPORT CARD BANNER
+  scroll=8  start=2026-03-05  title='Champions Meeting: Aquarius Cup'
+    new_type=CHAMPIONS MEETING  existing[23]=CHAMPIONS MEETING
+  scroll=8  start=2026-03-08  title='Matikanetannhauser + 1 more'
+    new_type=CHARACTER BANNER  existing[24]=CHARACTER BANNER
+  scroll=8  start=2026-03-08  title='Mejiro Ryan + 3 more'
+    new_type=SUPPORT CARD BANNER  existing[25]=SUPPORT CARD BANNER
+  scroll=8  start=2026-03-08  title='Flapping Run-up!'
+    new_type=STORY EVENT  existing[26]=STORY EVENT
+  scroll=8  start=2026-03-16  title='Satono Diamond'
+    new_type=CHARACTER BANNER  existing[27]=CHARACTER BANNER
+  scroll=8  start=2026-03-16  title='Curren Chan + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[28]=SUPPORT CARD BANNER
+  scroll=8  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=8  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=8  start=2026-03-16  title='Satsuki Sho Legend Race'
+    new_type=LEGEND RACE  existing[30]=LEGEND RACE
+  scroll=9  start=2026-02-25  title='Ines Fujin + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[19]=SUPPORT CARD BANNER
+  scroll=9  start=2026-02-26  title='Hanshin Juvenile Fillies Legend Race'
+    new_type=LEGEND RACE  existing[20]=LEGEND RACE
+  scroll=9  start=2026-03-03  title='Admire Vega'
+    new_type=CHARACTER BANNER  existing[21]=CHARACTER BANNER
+  scroll=9  start=2026-03-03  title='Fine Motion + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[22]=SUPPORT CARD BANNER
+  scroll=9  start=2026-03-05  title='Champions Meeting: Aquarius Cup'
+    new_type=CHAMPIONS MEETING  existing[23]=CHAMPIONS MEETING
+  scroll=9  start=2026-03-08  title='Matikanetannhauser + 1 more'
+    new_type=CHARACTER BANNER  existing[24]=CHARACTER BANNER
+  scroll=9  start=2026-03-08  title='Mejiro Ryan + 3 more'
+    new_type=SUPPORT CARD BANNER  existing[25]=SUPPORT CARD BANNER
+  scroll=9  start=2026-03-08  title='Flapping Run-up!'
+    new_type=STORY EVENT  existing[26]=STORY EVENT
+  scroll=9  start=2026-03-16  title='Satono Diamond'
+    new_type=CHARACTER BANNER  existing[27]=CHARACTER BANNER
+  scroll=9  start=2026-03-16  title='Curren Chan + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[28]=SUPPORT CARD BANNER
+  scroll=9  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=9  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=9  start=2026-03-16  title='Satsuki Sho Legend Race'
+    new_type=LEGEND RACE  existing[30]=LEGEND RACE
+  scroll=10  start=2026-03-03  title='Fine Motion + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[22]=SUPPORT CARD BANNER
+  scroll=10  start=2026-03-05  title='Champions Meeting: Aquarius Cup'
+    new_type=CHAMPIONS MEETING  existing[23]=CHAMPIONS MEETING
+  scroll=10  start=2026-03-08  title='Matikanetannhauser + 1 more'
+    new_type=CHARACTER BANNER  existing[24]=CHARACTER BANNER
+  scroll=10  start=2026-03-08  title='Mejiro Ryan + 3 more'
+    new_type=SUPPORT CARD BANNER  existing[25]=SUPPORT CARD BANNER
+  scroll=10  start=2026-03-08  title='Flapping Run-up!'
+    new_type=STORY EVENT  existing[26]=STORY EVENT
+  scroll=10  start=2026-03-16  title='Satono Diamond'
+    new_type=CHARACTER BANNER  existing[27]=CHARACTER BANNER
+  scroll=10  start=2026-03-16  title='Curren Chan + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[28]=SUPPORT CARD BANNER
+  scroll=10  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=10  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=10  start=2026-03-16  title='Satsuki Sho Legend Race'
+    new_type=LEGEND RACE  existing[30]=LEGEND RACE
+  scroll=10  start=2026-03-23  title='Mejiro Bright'
+    new_type=CHARACTER BANNER  existing[31]=CHARACTER BANNER
+  scroll=10  start=2026-03-23  title='Zenno Rob Roy + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[32]=SUPPORT CARD BANNER
+  scroll=10  start=2026-03-26  title='Champions Meeting: Pisces Cup'
+    new_type=CHAMPIONS MEETING  existing[33]=CHAMPIONS MEETING
+  scroll=11  start=2026-03-08  title='Mejiro Ryan + 3 more'
+    new_type=SUPPORT CARD BANNER  existing[25]=SUPPORT CARD BANNER
+  scroll=11  start=2026-03-08  title='Flapping Run-up!'
+    new_type=STORY EVENT  existing[26]=STORY EVENT
+  scroll=11  start=2026-03-16  title='Satono Diamond'
+    new_type=CHARACTER BANNER  existing[27]=CHARACTER BANNER
+  scroll=11  start=2026-03-16  title='Curren Chan + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[28]=SUPPORT CARD BANNER
+  scroll=11  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=11  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=11  start=2026-03-16  title='Satsuki Sho Legend Race'
+    new_type=LEGEND RACE  existing[30]=LEGEND RACE
+  scroll=11  start=2026-03-23  title='Mejiro Bright'
+    new_type=CHARACTER BANNER  existing[31]=CHARACTER BANNER
+  scroll=11  start=2026-03-23  title='Zenno Rob Roy + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[32]=SUPPORT CARD BANNER
+  scroll=11  start=2026-03-26  title='Champions Meeting: Pisces Cup'
+    new_type=CHAMPIONS MEETING  existing[33]=CHAMPIONS MEETING
+  scroll=11  start=2026-03-30  title='Seiun Sky + 1 more'
+    new_type=CHARACTER BANNER  existing[34]=CHARACTER BANNER
+  scroll=11  start=2026-03-30  title='Symboli Rudolf + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[35]=SUPPORT CARD BANNER
+  scroll=11  start=2026-03-30  title='Tonight at the Ligne Droite'
+    new_type=STORY EVENT  existing[36]=STORY EVENT
+  scroll=12  start=2026-03-16  title='Satono Diamond'
+    new_type=CHARACTER BANNER  existing[27]=CHARACTER BANNER
+  scroll=12  start=2026-03-16  title='Curren Chan + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[28]=SUPPORT CARD BANNER
+  scroll=12  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=12  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=12  start=2026-03-16  title='Satsuki Sho Legend Race'
+    new_type=LEGEND RACE  existing[30]=LEGEND RACE
+  scroll=12  start=2026-03-23  title='Mejiro Bright'
+    new_type=CHARACTER BANNER  existing[31]=CHARACTER BANNER
+  scroll=12  start=2026-03-23  title='Zenno Rob Roy + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[32]=SUPPORT CARD BANNER
+  scroll=12  start=2026-03-26  title='Champions Meeting: Pisces Cup'
+    new_type=CHAMPIONS MEETING  existing[33]=CHAMPIONS MEETING
+  scroll=12  start=2026-03-30  title='Seiun Sky + 1 more'
+    new_type=CHARACTER BANNER  existing[34]=CHARACTER BANNER
+  scroll=12  start=2026-03-30  title='Symboli Rudolf + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[35]=SUPPORT CARD BANNER
+  scroll=12  start=2026-03-30  title='Tonight at the Ligne Droite'
+    new_type=STORY EVENT  existing[36]=STORY EVENT
+  scroll=13  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=13  start=2026-03-16  title='Paid Banner'
+    new_type=PAID BANNER  existing[29]=PAID BANNER
+  scroll=13  start=2026-03-16  title='Satsuki Sho Legend Race'
+    new_type=LEGEND RACE  existing[30]=LEGEND RACE
+  scroll=13  start=2026-03-23  title='Mejiro Bright'
+    new_type=CHARACTER BANNER  existing[31]=CHARACTER BANNER
+  scroll=13  start=2026-03-23  title='Zenno Rob Roy + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[32]=SUPPORT CARD BANNER
+  scroll=13  start=2026-03-26  title='Champions Meeting: Pisces Cup'
+    new_type=CHAMPIONS MEETING  existing[33]=CHAMPIONS MEETING
+  scroll=13  start=2026-03-30  title='Seiun Sky + 1 more'
+    new_type=CHARACTER BANNER  existing[34]=CHARACTER BANNER
+  scroll=13  start=2026-03-30  title='Symboli Rudolf + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[35]=SUPPORT CARD BANNER
+  scroll=13  start=2026-03-30  title='Tonight at the Ligne Droite'
+    new_type=STORY EVENT  existing[36]=STORY EVENT
+  scroll=13  start=2026-04-08  title='Nishino Flower'
+    new_type=CHARACTER BANNER  existing[37]=CHARACTER BANNER
+  scroll=13  start=2026-04-08  title='Sweep Tosho + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[38]=SUPPORT CARD BANNER
+  scroll=13  start=2026-04-13  title='Yaeno Muteki'
+    new_type=CHARACTER BANNER  existing[39]=CHARACTER BANNER
+  scroll=13  start=2026-04-13  title='Ines Fujin + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[40]=SUPPORT CARD BANNER
+  scroll=14  start=2026-03-23  title='Zenno Rob Roy + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[32]=SUPPORT CARD BANNER
+  scroll=14  start=2026-03-26  title='Champions Meeting: Pisces Cup'
+    new_type=CHAMPIONS MEETING  existing[33]=CHAMPIONS MEETING
+  scroll=14  start=2026-03-30  title='Seiun Sky + 1 more'
+    new_type=CHARACTER BANNER  existing[34]=CHARACTER BANNER
+  scroll=14  start=2026-03-30  title='Symboli Rudolf + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[35]=SUPPORT CARD BANNER
+  scroll=14  start=2026-03-30  title='Tonight at the Ligne Droite'
+    new_type=STORY EVENT  existing[36]=STORY EVENT
+  scroll=14  start=2026-04-08  title='Nishino Flower'
+    new_type=CHARACTER BANNER  existing[37]=CHARACTER BANNER
+  scroll=14  start=2026-04-08  title='Sweep Tosho + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[38]=SUPPORT CARD BANNER
+  scroll=14  start=2026-04-13  title='Yaeno Muteki'
+    new_type=CHARACTER BANNER  existing[39]=CHARACTER BANNER
+  scroll=14  start=2026-04-13  title='Ines Fujin + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[40]=SUPPORT CARD BANNER
+  scroll=14  start=2026-04-15  title='Champions Meeting: Aries Cup'
+    new_type=CHAMPIONS MEETING  existing[41]=CHAMPIONS MEETING
+  scroll=15  start=2026-03-30  title='Seiun Sky + 1 more'
+    new_type=CHARACTER BANNER  existing[34]=CHARACTER BANNER
+  scroll=15  start=2026-03-30  title='Symboli Rudolf + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[35]=SUPPORT CARD BANNER
+  scroll=15  start=2026-03-30  title='Tonight at the Ligne Droite'
+    new_type=STORY EVENT  existing[36]=STORY EVENT
+  scroll=15  start=2026-04-08  title='Nishino Flower'
+    new_type=CHARACTER BANNER  existing[37]=CHARACTER BANNER
+  scroll=15  start=2026-04-08  title='Sweep Tosho + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[38]=SUPPORT CARD BANNER
+  scroll=15  start=2026-04-13  title='Yaeno Muteki'
+    new_type=CHARACTER BANNER  existing[39]=CHARACTER BANNER
+  scroll=15  start=2026-04-13  title='Ines Fujin + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[40]=SUPPORT CARD BANNER
+  scroll=15  start=2026-04-15  title='Champions Meeting: Aries Cup'
+    new_type=CHAMPIONS MEETING  existing[41]=CHAMPIONS MEETING
+  scroll=15  start=2026-04-19  title='Nice Nature + 1 more'
+    new_type=CHARACTER BANNER  existing[42]=CHARACTER BANNER
+  scroll=15  start=2026-04-19  title='Bamboo Memory + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[43]=SUPPORT CARD BANNER
+  scroll=15  start=2026-04-19  title='Roar, Tracen Academy Cheerleading Squad!'
+    new_type=STORY EVENT  existing[44]=STORY EVENT
+  scroll=16  start=2026-04-08  title='Nishino Flower'
+    new_type=CHARACTER BANNER  existing[37]=CHARACTER BANNER
+  scroll=16  start=2026-04-08  title='Sweep Tosho + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[38]=SUPPORT CARD BANNER
+  scroll=16  start=2026-04-13  title='Yaeno Muteki'
+    new_type=CHARACTER BANNER  existing[39]=CHARACTER BANNER
+  scroll=16  start=2026-04-13  title='Ines Fujin + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[40]=SUPPORT CARD BANNER
+  scroll=16  start=2026-04-15  title='Champions Meeting: Aries Cup'
+    new_type=CHAMPIONS MEETING  existing[41]=CHAMPIONS MEETING
+  scroll=16  start=2026-04-19  title='Nice Nature + 1 more'
+    new_type=CHARACTER BANNER  existing[42]=CHARACTER BANNER
+  scroll=16  start=2026-04-19  title='Bamboo Memory + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[43]=SUPPORT CARD BANNER
+  scroll=16  start=2026-04-19  title='Roar, Tracen Academy Cheerleading Squad!'
+    new_type=STORY EVENT  existing[44]=STORY EVENT
+  scroll=16  start=2026-04-27  title='Ines Fujin'
+    new_type=CHARACTER BANNER  existing[45]=CHARACTER BANNER
+  scroll=16  start=2026-04-27  title='Tokai Teio + 1 more'
+    new_type=SUPPORT CARD BANNER  existing[46]=SUPPORT CARD BANNER
+  scroll=16  start=2026-04-27  title='Tenno Sho (Spring) Legend Race'
+    new_type=LEGEND RACE  existing[47]=LEGEND RACE
+
+======================================================================
+RAW EVENTS — next 1 month (33)
+======================================================================
+  [00] CHARACTER BANNER        2026-01-15  title='Fine Motion'
+  [01] SUPPORT CARD BANNER     2026-01-15  title='Inari One + 1 more'
+  [02] CHAMPIONS MEETING       2026-01-19  title='Champions Meeting: Sagittarius Cup'
+  [03] CHARACTER BANNER        2026-01-22  title='Tamamo Cross'
+  [04] SUPPORT CARD BANNER     2026-01-22  title='Oguri Cap + 1 more'
+  [05] LEGEND RACE             2026-01-22  title='Arima Kinen Legend Race'
+  [06] CHARACTER BANNER        2026-01-29  title='Haru Urara + 1 more'
+  [07] SUPPORT CARD BANNER     2026-01-29  title='Admire Vega + 1 more'
+  [08] STORY EVENT             2026-01-29  title="Blossoming New Year's Karuta Contest"
+  [09] CHARACTER BANNER        2026-02-05  title='Special Week + 46 more'
+  [10] SUPPORT CARD BANNER     2026-02-05  title='Tamamo Cross + 1 more'
+  [11] PAID BANNER             2026-02-05  title='Paid Banner'
+  [12] CHAMPIONS MEETING       2026-02-09  title='Champions Meeting: Capricorn Cup'
+  [13] CHARACTER BANNER        2026-02-11  title='Sakura Chiyono O'
+  [14] SUPPORT CARD BANNER     2026-02-11  title='Tazuna Hayakawa + 1 more'
+  [15] CHARACTER BANNER        2026-02-18  title='Mihono Bourbon + 1 more'
+  [16] SUPPORT CARD BANNER     2026-02-18  title='Nishino Flower + 1 more'
+  [17] STORY EVENT             2026-02-18  title='Patisserie Grandeur'
+  [18] CHARACTER BANNER        2026-02-25  title='Mejiro Ardan'
+  [19] SUPPORT CARD BANNER     2026-02-25  title='Ines Fujin + 1 more'
+  [20] LEGEND RACE             2026-02-26  title='Hanshin Juvenile Fillies Legend Race'
+  [21] CHARACTER BANNER        2026-03-03  title='Admire Vega'
+  [22] SUPPORT CARD BANNER     2026-03-03  title='Fine Motion + 1 more'
+  [23] CHAMPIONS MEETING       2026-03-05  title='Champions Meeting: Aquarius Cup'
+  [24] CHARACTER BANNER        2026-03-08  title='Matikanetannhauser + 1 more'
+  [25] SUPPORT CARD BANNER     2026-03-08  title='Mejiro Ryan + 3 more'
+  [26] STORY EVENT             2026-03-08  title='Flapping Run-up!'
+  [27] CHARACTER BANNER        2026-03-16  title='Satono Diamond'
+  [28] SUPPORT CARD BANNER     2026-03-16  title='Curren Chan + 1 more'
+  [29] PAID BANNER             2026-03-16  title='Paid Banner'
+  [30] LEGEND RACE             2026-03-16  title='Satsuki Sho Legend Race'
+  [31] CHARACTER BANNER        2026-03-23  title='Mejiro Bright'
+  [32] SUPPORT CARD BANNER     2026-03-23  title='Zenno Rob Roy + 1 more'
+
+======================================================================
+PROCESSED EVENTS — next 1 month (13)
+======================================================================
+  [00] Offer           2026-02-05  title='Paid Banner'
+  [01] Banner          2026-02-18  title='Mihono Bourbon Banner'
+  [02] Event           2026-02-18  title='Patisserie Grandeur'
+  [03] Banner          2026-02-25  title='Mejiro Ardan Banner'
+  [04] Event           2026-02-26  title='Hanshin Juvenile Fillies Legend Race'
+  [05] Banner          2026-03-03  title='Admire Vega Banner'
+  [06] Event           2026-03-05  title='Champions Meeting: Aquarius Cup'
+  [07] Banner          2026-03-08  title='Matikanetannhauser Banner'
+  [08] Event           2026-03-08  title='Flapping Run-up!'
+  [09] Banner          2026-03-16  title='Satono Diamond Banner'
+  [10] Offer           2026-03-16  title='Paid Banner'
+  [11] Event           2026-03-16  title='Satsuki Sho Legend Race'
+  [12] Banner          2026-03-23  title='Mejiro Bright Banner'
+
+======================================================================
+DIFF: raw events NOT found in processed output
+======================================================================
+  MISSING  CHARACTER BANNER        2026-01-15  title='Fine Motion'
+  MISSING  SUPPORT CARD BANNER     2026-01-15  title='Inari One + 1 more'
+  MISSING  CHAMPIONS MEETING       2026-01-19  title='Champions Meeting: Sagittarius Cup'
+  MISSING  CHARACTER BANNER        2026-01-22  title='Tamamo Cross'
+  MISSING  SUPPORT CARD BANNER     2026-01-22  title='Oguri Cap + 1 more'
+  MISSING  LEGEND RACE             2026-01-22  title='Arima Kinen Legend Race'
+  MISSING  CHARACTER BANNER        2026-01-29  title='Haru Urara + 1 more'
+  MISSING  SUPPORT CARD BANNER     2026-01-29  title='Admire Vega + 1 more'
+  MISSING  STORY EVENT             2026-01-29  title="Blossoming New Year's Karuta Contest"
+  MISSING  CHARACTER BANNER        2026-02-05  title='Special Week + 46 more'
+  MISSING  SUPPORT CARD BANNER     2026-02-05  title='Tamamo Cross + 1 more'
+  MISSING  CHAMPIONS MEETING       2026-02-09  title='Champions Meeting: Capricorn Cup'
+  MISSING  CHARACTER BANNER        2026-02-11  title='Sakura Chiyono O'
+  MISSING  SUPPORT CARD BANNER     2026-02-11  title='Tazuna Hayakawa + 1 more'
+  MISSING  CHARACTER BANNER        2026-02-18  title='Mihono Bourbon + 1 more'
+  MISSING  SUPPORT CARD BANNER     2026-02-18  title='Nishino Flower + 1 more'
+  MISSING  SUPPORT CARD BANNER     2026-02-25  title='Ines Fujin + 1 more'
+  MISSING  SUPPORT CARD BANNER     2026-03-03  title='Fine Motion + 1 more'
+  MISSING  CHARACTER BANNER        2026-03-08  title='Matikanetannhauser + 1 more'
+  MISSING  SUPPORT CARD BANNER     2026-03-08  title='Mejiro Ryan + 3 more'
+  MISSING  SUPPORT CARD BANNER     2026-03-16  title='Curren Chan + 1 more'
+  MISSING  SUPPORT CARD BANNER     2026-03-23  title='Zenno Rob Roy + 1 more'

@@ -11,17 +11,6 @@ from datetime import datetime, timezone, timedelta
 from global_config import ONGOING_EVENTS_CHANNELS, UPCOMING_EVENTS_CHANNELS, OWNER_USER_ID, MAIN_SERVER_ID
 import logging
 
-# Test PIL import early to catch errors
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-except ImportError as e:
-    print(f"[WARNING] PIL (Pillow) not available: {e}")
-    PIL_AVAILABLE = False
-
-import requests
-from io import BytesIO
-
 # Create logger for Uma Musume
 uma_logger = logging.getLogger("uma_musume")
 uma_logger.setLevel(logging.INFO)
@@ -65,6 +54,9 @@ print(f"[INIT] Database path set to: {UMA_DB_PATH}")
 
 # Background task for periodic updates
 UMA_UPDATE_TASK = None
+
+# Prevent concurrent uma_update_timers() calls from interleaving
+_update_timers_lock = asyncio.Lock()
 print("[INIT] Global variables initialized")
 print("[INIT] Defining async functions...")
 
@@ -116,7 +108,7 @@ async def init_uma_db():
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 user_id TEXT,
                 title TEXT,
                 start_date TEXT,
@@ -129,7 +121,7 @@ async def init_uma_db():
         ''')
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS event_messages (
-                event_id INTEGER,
+                event_id TEXT,
                 channel_id TEXT,
                 message_id TEXT,
                 PRIMARY KEY (event_id, channel_id)
@@ -137,154 +129,6 @@ async def init_uma_db():
         ''')
         await conn.commit()
         uma_logger.info(f"[DB Init] Database initialized successfully at: {UMA_DB_PATH}")
-
-def get_image_hash(urls):
-    """
-    Generate a consistent hash from image URLs to ensure same images always get same filename.
-    This prevents image mismatches after database resets.
-    """
-    import hashlib
-    combined = "|".join(sorted(urls))  # Sort to ensure consistent order
-    return hashlib.md5(combined.encode()).hexdigest()[:12]
-
-def is_url(path):
-    """Check if path is a URL or local file path."""
-    return path and (path.startswith('http://') or path.startswith('https://'))
-
-def combine_images_vertically(img_url1, img_url2):
-    """
-    Downloads two images and combines them vertically.
-    Returns the path to the saved combined image.
-    Uses content-based filename to ensure consistency after DB resets.
-    """
-    if not PIL_AVAILABLE:
-        uma_logger.warning("[Image] PIL not available, cannot combine images")
-        return img_url1  # Return first image URL as fallback
-    
-    try:
-        # Generate consistent filename based on input URLs
-        img_hash = get_image_hash([img_url1, img_url2])
-        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
-        filename = f"combined_v_{img_hash}.png"
-        filepath = os.path.join("data", "combined_images", filename)
-        
-        # If already exists, return existing file
-        if os.path.exists(filepath):
-            uma_logger.info(f"[Image] Using cached combined image: {filepath}")
-            return filepath
-
-        # Load images (either download from URL or open local file if it exists)
-        if is_url(img_url1):
-            response1 = requests.get(img_url1)
-            img1 = Image.open(BytesIO(response1.content)).convert('RGBA')
-        elif os.path.exists(img_url1):
-            img1 = Image.open(img_url1).convert('RGBA')
-        else:
-            uma_logger.warning(f"[Image] Local file not found, skipping: {img_url1}")
-            return img_url2  # Return second image as fallback
-
-        if is_url(img_url2):
-            response2 = requests.get(img_url2)
-            img2 = Image.open(BytesIO(response2.content)).convert('RGBA')
-        elif os.path.exists(img_url2):
-            img2 = Image.open(img_url2).convert('RGBA')
-        else:
-            uma_logger.warning(f"[Image] Local file not found, skipping: {img_url2}")
-            return img_url1  # Return first image as fallback
-        
-        # Get dimensions
-        width = max(img1.width, img2.width)
-        height = img1.height + img2.height
-        
-        # Create new image with transparency
-        combined = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        combined.paste(img1, (0, 0), img1 if img1.mode == 'RGBA' else None)
-        combined.paste(img2, (0, img1.height), img2 if img2.mode == 'RGBA' else None)
-        
-        # Save combined image
-        combined.save(filepath, 'PNG')
-        uma_logger.info(f"[Image] Combined images vertically saved to: {filepath}")
-        
-        return filepath
-    except Exception as e:
-        uma_logger.error(f"Failed to combine images vertically: {e}")
-        return None
-
-def combine_images_horizontally(img_urls):
-    """
-    Downloads multiple images and combines them horizontally.
-    Used for Legend Race character images.
-    Returns the path to the saved combined image.
-    """
-    if not PIL_AVAILABLE:
-        uma_logger.warning("[Image] PIL not available, cannot combine images")
-        return img_urls[0] if img_urls else None
-    
-    if not img_urls:
-        return None
-    
-    if len(img_urls) == 1:
-        return img_urls[0]  # Single image, just return URL
-    
-    try:
-        # Generate consistent filename based on input URLs
-        img_hash = get_image_hash(img_urls)
-        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
-        filename = f"combined_h_{img_hash}.png"
-        filepath = os.path.join("data", "combined_images", filename)
-        
-        # If already exists, return existing file
-        if os.path.exists(filepath):
-            uma_logger.info(f"[Image] Using cached horizontal combined image: {filepath}")
-            return filepath
-
-        # Load all images (either download from URL or open local file if it exists)
-        images = []
-        for url in img_urls:
-            try:
-                if is_url(url):
-                    response = requests.get(url)
-                    img = Image.open(BytesIO(response.content)).convert('RGBA')
-                    images.append(img)
-                elif os.path.exists(url):
-                    img = Image.open(url).convert('RGBA')
-                    images.append(img)
-                else:
-                    # Skip non-existent local files
-                    uma_logger.warning(f"[Image] Local file not found, skipping: {url}")
-                    continue
-            except Exception as e:
-                uma_logger.warning(f"[Image] Failed to load {url}: {e}")
-        
-        if not images:
-            return img_urls[0]  # Fallback to first URL
-        
-        if len(images) == 1:
-            return img_urls[0]  # Only one image downloaded successfully
-        
-        # Calculate total dimensions
-        total_width = sum(img.width for img in images)
-        max_height = max(img.height for img in images)
-        
-        # Create new image with transparency
-        combined = Image.new('RGBA', (total_width, max_height), (0, 0, 0, 0))
-        
-        # Paste images side by side
-        x_offset = 0
-        for img in images:
-            # Center vertically if heights differ
-            y_offset = (max_height - img.height) // 2
-            combined.paste(img, (x_offset, y_offset), img if img.mode == 'RGBA' else None)
-            x_offset += img.width
-        
-        # Save combined image
-        combined.save(filepath, 'PNG')
-        uma_logger.info(f"[Image] Combined {len(images)} images horizontally saved to: {filepath}")
-        
-        return filepath
-    except Exception as e:
-        uma_logger.error(f"Failed to combine images horizontally: {e}")
-        return img_urls[0] if img_urls else None
 
 async def post_event_embed(channel, event):
     """Posts an embed for the Uma Musume event."""
@@ -377,10 +221,12 @@ async def upsert_event_message(guild, channel, event, event_id):
                         if event["image"].startswith("http"):
                             new_image_url = event["image"]
                         else:
-                            # Local file path - will be uploaded as attachment://image.png
-                            # Check if old image is also an attachment
-                            if old_image_url and old_image_url.startswith("attachment://"):
-                                # Both are attachments, consider unchanged
+                            # Local file path — uploaded with its basename as the attachment filename.
+                            # Discord stores it as a CDN URL ending in that basename.
+                            # Check if the old embed's CDN URL already refers to the same file.
+                            basename = os.path.basename(event["image"])
+                            if old_image_url and (old_image_url.endswith(basename) or
+                                                  old_image_url.startswith("attachment://")):
                                 new_image_url = old_image_url
                     
                     # For Champions Meeting, ignore description changes (detail lines vary)
@@ -409,15 +255,19 @@ async def upsert_event_message(guild, channel, event, event_id):
                         embed.set_image(url=event["image"])
                         await msg.edit(embed=embed)
                     else:
-                        file = discord.File(event["image"], filename="image.png")
-                        embed.set_image(url=f"attachment://image.png")
+                        basename = os.path.basename(event["image"])
+                        file = discord.File(event["image"], filename=basename)
+                        embed.set_image(url=f"attachment://{basename}")
                         await msg.edit(embed=embed, attachments=[file])
                 else:
                     await msg.edit(embed=embed)
                 return
             except Exception as e:
-                print(f"[UMA] Failed to edit message: {e}")
-                pass
+                print(f"[UMA] Failed to edit/fetch message {row[0]}: {e}")
+                try:
+                    await channel.get_partial_message(int(row[0])).delete()
+                except Exception:
+                    pass
         
         # Send new message
         if event.get("image"):
@@ -425,8 +275,9 @@ async def upsert_event_message(guild, channel, event, event_id):
                 embed.set_image(url=event["image"])
                 msg = await channel.send(embed=embed)
             else:
-                file = discord.File(event["image"], filename="image.png")
-                embed.set_image(url=f"attachment://image.png")
+                basename = os.path.basename(event["image"])
+                file = discord.File(event["image"], filename=basename)
+                embed.set_image(url=f"attachment://{basename}")
                 msg = await channel.send(embed=embed, file=file)
         else:
             msg = await channel.send(embed=embed)
@@ -499,15 +350,79 @@ async def clear_channel_messages(channel, event_ids_to_keep):
         import traceback
         traceback.print_exc()
 
+async def ensure_channel_order(guild, channel, events_for_channel, db_path):
+    """
+    Checks that tracked event messages appear in start_date ascending order.
+    If any are out of order, deletes all and reposts in the correct order.
+    events_for_channel: list of event dicts for this channel, sorted by start ASC.
+    """
+    async with aiosqlite.connect(db_path) as conn:
+        async with conn.execute(
+            "SELECT event_id, message_id FROM event_messages WHERE channel_id=? "
+            "ORDER BY CAST(message_id AS INTEGER) ASC",
+            (str(channel.id),)
+        ) as cursor:
+            actual = [(r[0], r[1]) async for r in cursor]
+
+    if not actual:
+        return
+
+    actual_order  = [row[0] for row in actual]
+    tracked_ids   = set(actual_order)
+    desired_order = [e["id"] for e in events_for_channel if e["id"] in tracked_ids]
+
+    if actual_order == desired_order:
+        return  # Already in correct order
+
+    # Find the prefix that is already in the correct position.
+    # Only delete+repost messages from the first mismatch onward ("tail repost"),
+    # rather than nuking and reposting every message in the channel.
+    prefix_len = 0
+    for a_id, d_id in zip(actual_order, desired_order):
+        if a_id == d_id:
+            prefix_len += 1
+        else:
+            break
+
+    to_delete = actual[prefix_len:]         # (event_id, message_id) tuples to remove
+    to_repost = desired_order[prefix_len:]  # event_ids to repost in correct order
+
+    print(f"[UMA] #{channel.name} out of order — reposting {len(to_delete)} of {len(actual)} messages")
+
+    async with aiosqlite.connect(db_path) as conn:
+        for ev_id, msg_id in to_delete:
+            try:
+                await channel.get_partial_message(int(msg_id)).delete()
+            except Exception:
+                pass
+        if to_delete:
+            placeholders = ",".join("?" * len(to_delete))
+            await conn.execute(
+                f"DELETE FROM event_messages WHERE channel_id=? AND event_id IN ({placeholders})",
+                (str(channel.id),) + tuple(ev_id for ev_id, _ in to_delete)
+            )
+            await conn.commit()
+
+    event_map = {e["id"]: e for e in events_for_channel}
+    for ev_id in to_repost:
+        if ev_id in event_map:
+            await upsert_event_message(guild, channel, event_map[ev_id], ev_id)
+
+
 async def uma_update_timers(_guild=None, force_update=False):
     """
     Updates Uma Musume event dashboards.
     Only shows events within 1 month from now.
-    
+
     Args:
         _guild: Guild to update (unused, kept for compatibility)
         force_update: If True, forces update of all event embeds even if unchanged
     """
+    async with _update_timers_lock:
+        await _uma_update_timers_impl(_guild=_guild, force_update=force_update)
+
+
+async def _uma_update_timers_impl(_guild=None, force_update=False):
     uma_logger.info("[Update Timers] Starting dashboard update...")
     print("[UMA] Starting dashboard update...")
     
@@ -527,10 +442,36 @@ async def uma_update_timers(_guild=None, force_update=False):
         print(f"[UMA] ERROR: Main guild not found! MAIN_SERVER_ID={MAIN_SERVER_ID}")
         return
     
+    # Heal any events that were inserted without an id (NULL id) by the old broken code.
+    from uma_handler import _next_sequential_id
+    _heal_prefix_map = {
+        "Legend Race":      "LR",
+        "Champions Meeting": "CM",
+        "Offer":            "PD",
+        "Banner":           "CB",
+        "Event":            "SE",
+        "Maintenance":      "MT",
+    }
+    async with aiosqlite.connect(UMA_DB_PATH) as _conn:
+        async with _conn.execute(
+            "SELECT rowid, title, category FROM events WHERE id IS NULL AND profile='UMA'"
+        ) as _cur:
+            null_id_rows = await _cur.fetchall()
+        if null_id_rows:
+            for rowid, title, category in null_id_rows:
+                prefix = _heal_prefix_map.get(category, "UNK")
+                new_id = await _next_sequential_id(prefix, _conn)
+                await _conn.execute(
+                    "UPDATE events SET id=? WHERE rowid=?", (new_id, rowid)
+                )
+                uma_logger.info(f"[Update Timers] Healed NULL id for '{title}' ({category}) → {new_id}")
+                print(f"[UMA] Healed NULL id for '{title}' → {new_id}")
+            await _conn.commit()
+
     now = int(datetime.now(timezone.utc).timestamp())
     one_month_later = now + (30 * 24 * 60 * 60)  # 30 days (1 month)
     one_month_earlier = now - (30 * 24 * 60 * 60)  # 30 days in the past
-    
+
     ongoing_channel = main_guild.get_channel(ONGOING_EVENTS_CHANNELS["UMA"])
     upcoming_channel = main_guild.get_channel(UPCOMING_EVENTS_CHANNELS["UMA"])
     
@@ -637,18 +578,19 @@ async def uma_update_timers(_guild=None, force_update=False):
                     print(f"[UMA] Posted to upcoming channel: {event['title']}")
                 await delete_event_message(main_guild, ONGOING_EVENTS_CHANNELS["UMA"], event["id"])
         
+        # Ensure events appear in start_date order in each channel
+        ongoing_events_shown  = [e for e in events
+                                  if e["start"] <= now < e["end"]
+                                  and not (e["start"] > one_month_later and e["end"] > one_month_later)]
+        upcoming_events_shown = [e for e in events
+                                  if e["start"] > now and e["start"] <= one_month_later]
+        if ongoing_channel:
+            await ensure_channel_order(main_guild, ongoing_channel, ongoing_events_shown, UMA_DB_PATH)
+        if upcoming_channel:
+            await ensure_channel_order(main_guild, upcoming_channel, upcoming_events_shown, UMA_DB_PATH)
+
         uma_logger.info(f"[Update Timers] Summary - Ongoing: {ongoing_count}, Upcoming: {upcoming_count}, Deleted: {deleted_count}, Skipped (>1mo): {skipped_count}")
     
-    # Update control panel if events were deleted
-    if deleted_count > 0:
-        uma_logger.info("[uma_update_timers] Events were deleted, updating control panel...")
-        try:
-            from control_panel import update_control_panel_messages
-            await update_control_panel_messages("UMA")
-            uma_logger.info("[uma_update_timers] Control panel updated.")
-        except Exception as e:
-            uma_logger.error(f"[uma_update_timers] Failed to update control panel: {e}")
-
 async def add_uma_event(ctx, event_data):
     """Adds or updates an Uma Musume event in the database (only if changed)."""
     uma_logger.info(f"[Add Event] Processing event: {event_data.get('title', 'Unknown')}")
@@ -661,6 +603,9 @@ async def add_uma_event(ctx, event_data):
     elif "champions meeting" in title or "champion's meeting" in title:
         uma_logger.info(f"[Add Event] Auto-converting category to 'Champions Meeting' based on title")
         event_data["category"] = "Champions Meeting"
+    elif "maintenance" in title:
+        uma_logger.info(f"[Add Event] Auto-converting category to 'Maintenance' based on title")
+        event_data["category"] = "Maintenance"
     
     async with aiosqlite.connect(UMA_DB_PATH) as conn:
         # Check if event already exists
@@ -674,7 +619,27 @@ async def add_uma_event(ctx, event_data):
         
         if existing:
             event_id, old_start, old_end, old_image, old_desc = existing
-            
+
+            # Heal legacy events that were inserted with a NULL id (pre-fix bug).
+            if event_id is None:
+                from uma_handler import _next_sequential_id
+                _prefix_map = {
+                    "Legend Race":      "LR",
+                    "Champions Meeting": "CM",
+                    "Offer":            "PD",
+                    "Banner":           "CB",
+                    "Event":            "SE",
+                    "Maintenance":      "MT",
+                }
+                prefix = _prefix_map.get(event_data.get("category"), "UNK")
+                event_id = await _next_sequential_id(prefix, conn)
+                await conn.execute(
+                    "UPDATE events SET id=? WHERE title=? AND category=? AND profile='UMA' AND id IS NULL",
+                    (event_id, event_data["title"], event_data["category"])
+                )
+                await conn.commit()
+                uma_logger.info(f"[Add Event] Healed NULL id for existing event '{event_data['title']}' → {event_id}")
+
             # Check if anything changed
             changed = False
             
@@ -717,17 +682,28 @@ async def add_uma_event(ctx, event_data):
                 print(f"[UMA] Event unchanged: {event_data['title']}")
                 # Don't return - continue to check if notifications need to be scheduled
         else:
-            # Insert new event
-            cursor = await conn.execute(
-                '''INSERT INTO events (user_id, title, start_date, end_date, image, category, profile, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-                (str(ctx.author.id) if hasattr(ctx, 'author') else "0",
+            # Insert new event with a proper prefixed string ID
+            from uma_handler import _next_sequential_id
+            _prefix_map = {
+                "Legend Race":      "LR",
+                "Champions Meeting": "CM",
+                "Offer":            "PD",
+                "Banner":           "CB",
+                "Event":            "SE",
+                "Maintenance":      "MT",
+            }
+            prefix = _prefix_map.get(event_data.get("category"), "UNK")
+            event_id = await _next_sequential_id(prefix, conn)
+            await conn.execute(
+                '''INSERT INTO events (id, user_id, title, start_date, end_date, image, category, profile, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (event_id,
+                 str(ctx.author.id) if hasattr(ctx, 'author') else "0",
                  event_data["title"], event_data["start"], event_data["end"],
                  event_data.get("image"), event_data["category"], "UMA",
                  event_data.get("description", ""))
             )
             await conn.commit()
-            event_id = cursor.lastrowid  # Get the ID of the newly inserted event
             uma_logger.info(f"[Add Event] Inserted new event: {event_data['title']} (ID: {event_id})")
             print(f"[UMA] New event: {event_data['title']}")
     
@@ -743,14 +719,6 @@ async def add_uma_event(ctx, event_data):
     if notif_count > 0:
         print(f"[UMA] Notifications already exist for: {event_data['title']} ({notif_count} notifications), skipping schedule")
         uma_logger.info(f"[Add Event] Skipping notification schedule - already exists ({notif_count} notifications)")
-        # Update control panel to reflect any event changes (targeted update only)
-        uma_logger.info(f"[add_uma_event] Updating control panel panels for event {event_id}...")
-        try:
-            from control_panel import update_single_event_panels
-            await update_single_event_panels("UMA", event_id)
-            uma_logger.info(f"[add_uma_event] Control panel panels updated for event {event_id}.")
-        except Exception as e:
-            uma_logger.error(f"[add_uma_event] Failed to update control panel: {e}")
         return
     
     # Schedule notifications (for new or updated events)
@@ -771,16 +739,6 @@ async def add_uma_event(ctx, event_data):
         print(f"[UMA] ERROR scheduling notifications: {e}")
         uma_logger.error(f"Failed to schedule notifications for {event_data['title']}: {e}")
     
-    # Update control panel to show new event in Remove/Edit/Notif panels
-    # Only update the specific panels affected by this event (much faster!)
-    uma_logger.info(f"[add_uma_event] Updating control panel panels for event {event_id}...")
-    try:
-        from control_panel import update_single_event_panels
-        await update_single_event_panels("UMA", event_id)
-        uma_logger.info(f"[add_uma_event] Control panel panels updated for event {event_id}.")
-    except Exception as e:
-        uma_logger.error(f"[add_uma_event] Failed to update control panel: {e}")
-
 print("[INIT] Functions defined, now registering bot commands...")
 
 @commands.has_permissions(manage_guild=True)
@@ -790,11 +748,10 @@ async def uma_force_refresh(ctx):
     await ctx.send("🔄 Force refreshing Uma Musume events...")
     print("[UMA] Force refresh triggered by user command")
     
-    # Import and run the update
-    from uma_handler import update_uma_events
+    from uma_handler import scrape_and_save_events
     try:
-        await update_uma_events()
-        
+        await scrape_and_save_events()
+
         # Force refresh all embeds with new colors/titles
         print("[UMA] Force updating all event embeds...")
         await uma_update_timers(force_update=True)
@@ -857,7 +814,8 @@ async def uma_debug(ctx):
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
             await page.goto("https://uma.moe/timeline", timeout=60000)
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_load_state("load")
+            await asyncio.sleep(5)
             
             # Scroll to load events (simplified version)
             timeline = await page.query_selector('.timeline-container')
@@ -1005,16 +963,6 @@ async def uma_remove(ctx, *, title: str):
     uma_logger.info("[uma_remove] Refreshing dashboard after removing event...")
     await uma_update_timers()
     uma_logger.info("[uma_remove] Dashboard refresh completed.")
-    
-    # Update control panel to remove event from lists
-    uma_logger.info("[uma_remove] Updating control panel after removing event...")
-    try:
-        from control_panel import update_control_panel_messages
-        await update_control_panel_messages("UMA")
-        uma_logger.info("[uma_remove] Control panel updated.")
-    except Exception as e:
-        uma_logger.error(f"[uma_remove] Failed to update control panel: {e}")
-    await uma_update_timers()
 
 print("[INIT] uma_remove command registered")
 print("[INIT] Defining uma_edit command...")
@@ -1130,15 +1078,6 @@ async def uma_edit(ctx, title: str, item: str, *, value: str):
     await uma_update_timers()
     uma_logger.info("[uma_edit] Dashboard refresh completed.")
     
-    # Update control panel to reflect edits (targeted update only)
-    uma_logger.info(f"[uma_edit] Updating control panel panels for event {event_id}...")
-    try:
-        from control_panel import update_single_event_panels
-        await update_single_event_panels("UMA", event_id)
-        uma_logger.info(f"[uma_edit] Control panel panels updated for event {event_id}.")
-    except Exception as e:
-        uma_logger.error(f"[uma_edit] Failed to update control panel: {e}")
-
 print("[INIT] uma_edit command registered")
 print("[INIT] Defining uma_force_refresh command...")
 
@@ -1185,8 +1124,9 @@ async def uma_update(ctx):
     await ctx.send("🔄 Updating Uma Musume events from timeline... This may take a few minutes.")
     
     try:
-        from uma_handler import update_uma_events
-        await update_uma_events()
+        from uma_handler import scrape_and_save_events
+        await scrape_and_save_events()
+        await uma_update_timers()
         await ctx.send("✅ Uma Musume events updated! Use `!uma_refresh force` to update all embeds with new colors/titles.")
     except Exception as e:
         uma_logger.error(f"Failed to update Uma Musume events: {e}")
@@ -1203,8 +1143,9 @@ async def periodic_uma_update():
             await asyncio.sleep(259200)
             
             uma_logger.info("[Periodic Update] Starting scheduled Uma Musume event update...")
-            from uma_handler import update_uma_events
-            await update_uma_events()
+            from uma_handler import scrape_and_save_events
+            await scrape_and_save_events()
+            await uma_update_timers()
             uma_logger.info("[Periodic Update] Scheduled update completed successfully.")
             
         except asyncio.CancelledError:
@@ -1213,6 +1154,38 @@ async def periodic_uma_update():
         except Exception as e:
             uma_logger.error(f"[Periodic Update] Failed to update Uma Musume events: {e}")
             # Continue despite errors
+
+SCRAPER_LAST_RUN_FILE = os.path.join("data", "scraper_last_run.txt")
+
+async def scraper_file_watcher():
+    """
+    Background task: polls data/scraper_last_run.txt every 60 seconds.
+    When the timestamp changes (i.e. uma_scraper.py ran successfully),
+    refreshes the Discord event dashboards without re-scraping.
+    """
+    last_seen = None
+    uma_logger.info("[FileWatcher] Scraper file watcher started.")
+    while True:
+        try:
+            await asyncio.sleep(60)
+            if not os.path.exists(SCRAPER_LAST_RUN_FILE):
+                continue
+            with open(SCRAPER_LAST_RUN_FILE, "r", encoding="utf-8") as f:
+                timestamp = f.read().strip()
+            if timestamp != last_seen:
+                last_seen = timestamp
+                uma_logger.info(f"[FileWatcher] Detected new scraper run ({timestamp}), refreshing dashboards...")
+                try:
+                    await uma_update_timers()
+                    uma_logger.info("[FileWatcher] Dashboard refresh complete.")
+                except Exception as e:
+                    uma_logger.error(f"[FileWatcher] Dashboard refresh failed: {e}")
+        except asyncio.CancelledError:
+            uma_logger.info("[FileWatcher] Scraper file watcher cancelled.")
+            break
+        except Exception as e:
+            uma_logger.error(f"[FileWatcher] Error: {e}")
+
 
 async def start_uma_background_tasks():
     """Starts background tasks for Uma Musume (initial update + periodic updates)."""
@@ -1225,26 +1198,24 @@ async def start_uma_background_tasks():
         # Database already initialized in main.py before control panels
         # No need to initialize again here
         
-        # Run initial update on startup
+        # Refresh dashboards from existing DB data (cron runs uma_scraper.py for actual scraping)
         try:
-            uma_logger.info("[Startup] Running initial Uma Musume event update...")
-            print("[UMA STARTUP] Running initial event update (this may take 2-3 minutes)...")
-            from uma_handler import update_uma_events
-            await update_uma_events()
-            uma_logger.info("[Startup] Initial update completed successfully.")
-            print("[UMA STARTUP] Initial update completed successfully!")
+            uma_logger.info("[Startup] Refreshing dashboards from existing DB data...")
+            print("[UMA STARTUP] Refreshing dashboards from existing DB data...")
+            await uma_update_timers()
+            uma_logger.info("[Startup] Dashboard refresh completed.")
+            print("[UMA STARTUP] Dashboard refresh completed.")
         except Exception as e:
-            uma_logger.error(f"[Startup] Initial update failed: {e}")
-            print(f"[UMA ERROR] Initial update failed: {e}")
+            uma_logger.error(f"[Startup] Dashboard refresh failed: {e}")
+            print(f"[UMA ERROR] Dashboard refresh failed: {e}")
             import traceback
             uma_logger.error(traceback.format_exc())
             traceback.print_exc()
-        
-        # Start periodic update task (every 3 days)
-        if UMA_UPDATE_TASK is None or UMA_UPDATE_TASK.done():
-            UMA_UPDATE_TASK = asyncio.create_task(periodic_uma_update())
-            uma_logger.info("[Startup] Periodic update task scheduled (every 3 days).")
-            print("[UMA STARTUP] Periodic update task scheduled (every 3 days).")
+
+        # Start scraper file watcher (detects when uma_scraper.py has run)
+        asyncio.create_task(scraper_file_watcher())
+        uma_logger.info("[Startup] Scraper file watcher task started.")
+        print("[UMA STARTUP] Scraper file watcher started.")
     
     except Exception as e:
         uma_logger.error(f"[Startup] CRITICAL ERROR in start_uma_background_tasks: {e}")
@@ -1785,165 +1756,5 @@ async def uma_dump_db(ctx):
         import traceback
         error_msg = f"❌ Dump failed: {e}\n```{traceback.format_exc()[:1500]}```"
         await ctx.send(error_msg)
-
-
-# ============================================================================
-# UMA-SPECIFIC PARSING FUNCTIONS
-# ============================================================================
-
-def parse_champions_meeting_phases(event_description, event_start, event_end):
-    """
-    Calculate Champions Meeting phase times based on event end time.
-
-    Phases are calculated BACKWARDS from event end with standard durations:
-    - Finals: Last 1 day (ends when event ends)
-    - Final Registration: 1 day before Finals
-    - Round 2: 2 days before Final Registration
-    - Round 1: 2 days before Round 2
-    - League Selection: Remaining time from event start
-
-    Example: 10-day event (Dec 8-18)
-    - League Selection: Dec 8-12 (4 days)
-    - Round 1: Dec 12-14 (2 days)
-    - Round 2: Dec 14-16 (2 days)
-    - Final Registration: Dec 16-17 (1 day)
-    - Finals: Dec 17-18 (1 day)
-
-    Returns:
-        List of dicts: [{name, start_time, duration_days}, ...]
-    """
-    import re
-    phases = []
-
-    # Standard Champions Meeting phase durations (working backwards from end)
-    # These are the standard durations used in every Champions Meeting
-    phase_definitions = [
-        ("Finals", 1),              # Last 1 day
-        ("Final Registration", 1),   # 1 day before Finals
-        ("Round 2", 2),             # 2 days before Final Registration
-        ("Round 1", 2),             # 2 days before Round 2
-        ("League Selection", None)   # Remaining time from start
-    ]
-
-    # Try to parse custom durations from description if available
-    # (for future-proofing in case description format changes)
-    duration_map = {}
-    if event_description:
-        lines = event_description.split('\n')
-        for line in lines:
-            # Match patterns like "Round 1: ... (2 days)" or "**Round 1:** ... (2 days)"
-            if "Round 1" in line:
-                duration_match = re.search(r'\((\d+)\s+days?\)', line)
-                if duration_match:
-                    duration_map["Round 1"] = int(duration_match.group(1))
-            elif "Round 2" in line:
-                duration_match = re.search(r'\((\d+)\s+days?\)', line)
-                if duration_match:
-                    duration_map["Round 2"] = int(duration_match.group(1))
-
-    # Calculate backwards from event end
-    # Finals ENDS at event_end, so we start from there
-    current_end = event_end
-
-    for phase_name, default_duration in phase_definitions:
-        if phase_name == "League Selection":
-            # Remaining time from event start to current position
-            duration_seconds = current_end - event_start
-            phase_start = event_start
-        else:
-            # Get duration (from parsed data or use standard duration)
-            duration_days = duration_map.get(phase_name, default_duration)
-            duration_seconds = duration_days * 86400
-            phase_start = current_end - duration_seconds
-
-        phases.insert(0, {  # Insert at beginning to maintain chronological order
-            "name": phase_name,
-            "start_time": phase_start,
-            "duration_days": duration_seconds // 86400
-        })
-
-        # Move end time backwards for next phase
-        current_end = phase_start
-
-    return phases
-
-def parse_legend_race_characters(event_description, event_start, event_end):
-    """
-    Calculate Legend Race character times based on event timing.
-    
-    Characters are divided evenly across the event duration, each getting 3 days.
-    Calculated FORWARDS from event start (character 1 starts when event starts).
-    
-    Example: 9-day event with 3 characters
-    - Day 1-3: Character 1
-    - Day 4-6: Character 2
-    - Day 7-9: Character 3
-    
-    Returns:
-        List of dicts: [{name, start_time, end_time, duration_days}, ...]
-    """
-    import re
-    characters = []
-    lines = event_description.split('\n')
-    character_duration = 3 * 86400  # 3 days in seconds
-    
-    # Try to find character names in various formats
-    character_names = []
-    
-    # Format 1: Lines starting with "- " (simple format)
-    for line in lines:
-        line = line.strip()
-        if line.startswith('-') and '(' in line:
-            # Extract character name (before parentheses)
-            char_name = line[1:line.index('(')].strip()
-            if char_name:
-                character_names.append(char_name)
-    
-    # Format 2: Markdown links [Name](URL)
-    if not character_names:
-        # Look for **Characters:** line followed by markdown links
-        in_character_section = False
-        for line in lines:
-            if '**Characters:**' in line or '**characters:**' in line.lower():
-                in_character_section = True
-                # Extract from same line
-                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
-                character_names.extend(markdown_links)
-            elif in_character_section and '[' in line:
-                # Continue extracting from following lines
-                markdown_links = re.findall(r'\[([^\]]+)\]\([^\)]+\)', line)
-                character_names.extend(markdown_links)
-            elif in_character_section and line and not line.startswith('**'):
-                # Stop if we hit a new section
-                break
-    
-    # Format 3: Comma-separated list
-    if not character_names:
-        for line in lines:
-            if 'characters:' in line.lower():
-                # Try to extract comma-separated names
-                parts = line.split(':', 1)
-                if len(parts) > 1:
-                    names = parts[1].split(',')
-                    character_names.extend([n.strip() for n in names if n.strip()])
-    
-    # Build character list with timing - FORWARDS from event start
-    # Character 1 starts when event starts
-    current_start = event_start
-    
-    for char_name in character_names:
-        if char_name:
-            char_end = current_start + character_duration
-            characters.append({
-                "name": char_name,
-                "start_time": current_start,
-                "end_time": char_end,
-                "duration_days": 3
-            })
-            current_start = char_end  # Next character starts when previous ends
-    
-    return characters
-
-
 print("[INIT] uma_module.py fully loaded - all commands registered")
 print("=" * 60)

@@ -1,12 +1,21 @@
 import asyncio
 import os
-import requests
+import aiohttp
 import json
 import re
+import hashlib
+import aiosqlite
 from urllib.parse import urljoin, urlparse
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from playwright.async_api import async_playwright
 import logging
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
 BASE_URL = "https://uma.moe/"
 
@@ -19,6 +28,28 @@ CM_CORRECTED_DURATION_DAYS = 10
 # Logger
 uma_handler_logger = logging.getLogger("uma_handler")
 uma_handler_logger.setLevel(logging.INFO)
+
+# Matches YEAR_NNNNN in image URLs (e.g. 2022_30064.png) — captures the 5-digit ID only
+_BANNER_ID_RE = re.compile(r'/20\d{2}_(\d{5})\.')
+
+def extract_banner_id(image_url: str):
+    """Return the 5-digit banner ID string from a YEAR_NNNNN image URL, or None."""
+    if not image_url:
+        return None
+    m = _BANNER_ID_RE.search(image_url)
+    return m.group(1) if m else None
+
+
+async def _next_sequential_id(prefix: str, conn) -> str:
+    """Return the next unused prefixed sequential ID (e.g. LR0001, CM0002)."""
+    async with conn.execute(
+        "SELECT MAX(CAST(SUBSTR(id, ?) AS INTEGER)) FROM events WHERE id LIKE ?",
+        (len(prefix) + 1, prefix + "%")
+    ) as cur:
+        row = await cur.fetchone()
+    n = (row[0] or 0) + 1
+    return f"{prefix}{n:04d}"
+
 
 def parse_event_date(date_str):
     """
@@ -116,7 +147,9 @@ async def download_timeline():
             uma_handler_logger.info("Navigating to https://uma.moe/timeline ...")
             print("[UMA HANDLER] Navigating to https://uma.moe/timeline ...")
             await page.goto("https://uma.moe/timeline", timeout=60000)
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_load_state("load")
+            # Wait for Angular to finish rendering (site has background polling so networkidle never fires)
+            await asyncio.sleep(5)
 
             # Check for and close update popup if it exists
             try:
@@ -157,56 +190,67 @@ async def download_timeline():
 
             # === SCROLL LEFT FIRST (to find past events as reference) ===
             print("[UMA HANDLER] Phase 1: Scrolling LEFT to find past events...")
-            scroll_amount = -600
+            scroll_amount = -800
             max_left_scrolls = 10  # Only need a few scrolls to find past events
             found_past_event = False
 
             for i in range(max_left_scrolls):
                 await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(2.0)  # Shorter wait since we're just checking dates
-                event_items = await page.query_selector_all('.timeline-item.timeline-event')
+                await asyncio.sleep(1.0)  # Reduced wait time
 
-                # Check if any visible events have ended (quick date check)
-                # We just need to find ONE past event to establish our position
-                for item in event_items[:5]:  # Check first 5 events only
-                    date_tag = await item.query_selector('.event-date')
-                    if date_tag:
-                        date_str = (await date_tag.inner_text()).strip()
-                        # Quick check: if date contains a past month/year, we found a past event
-                        # Events ending in Nov/Dec 2025 or earlier are in the past (today is Jan 2026)
-                        if '2025' in date_str and any(month in date_str for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']):
-                            found_past_event = True
-                            print(f"[UMA HANDLER] LEFT scroll {i+1}: Found past event reference (2025), stopping LEFT scroll")
-                            break
+                # OPTIMIZED: Get dates of first 5 events via JS (1 roundtrip instead of N)
+                dates = await page.evaluate("""() => {
+                    return Array.from(document.querySelectorAll('.timeline-item.timeline-event'))
+                        .slice(0, 5)
+                        .map(el => {
+                            const d = el.querySelector('.event-date');
+                            return d ? d.innerText.trim() : "";
+                        });
+                }""")
+
+                for date_str in dates:
+                    if not date_str: continue
+                    # Check if this event has already ended (end date is in the past)
+                    _, end_dt = parse_event_date(date_str)
+                    if end_dt and end_dt < datetime.now(timezone.utc):
+                        found_past_event = True
+                        print(f"[UMA HANDLER] LEFT scroll {i+1}: Found past event reference, stopping LEFT scroll")
+                        break
 
                 if found_past_event:
                     break
 
-                print(f"[UMA HANDLER] Scroll LEFT {i+1}: {len(event_items)} events visible, looking for past events...")
+                print(f"[UMA HANDLER] Scroll LEFT {i+1}: Looking for past events...")
 
             if not found_past_event:
                 print(f"[UMA HANDLER] LEFT scroll complete: No past events found (all events might be future)")
 
-            current_count = len(event_items)
-
-            # === HELPER FUNCTION: Extract single event from DOM element ===
-            async def extract_single_event(item):
-                """Extract event data from a single timeline item DOM element."""
-                # Extract event title
-                title_tag = await item.query_selector('.event-title')
-                if not title_tag:
+            # === HELPER FUNCTION: Process raw data extracted by JS ===
+            def parse_raw_item_data(data):
+                """Process raw dictionary returned by JS extraction."""
+                full_title = data.get("full_title", "")
+                if not full_title:
                     return None
-                full_title = (await title_tag.inner_text()).strip()
+                
+                date_str = data.get("date_str", "")
+                if not date_str:
+                    return None
+                
+                start_date, end_date = parse_event_date(date_str)
+                
+                full_text = data.get("full_text", "")
+                description = data.get("description", "")
+                raw_image_urls = data.get("raw_image_urls", [])
 
                 # Extract character/event tags from text content
                 # Character names appear on separate lines after the event type and date
                 tags = []
-                full_text = await item.inner_text()
                 lines = [line.strip() for line in full_text.split('\n') if line.strip()]
 
                 # For CHARACTER BANNER or SUPPORT CARD BANNER:
                 # Structure is: [type] [title with +1 more] [date] [name1] [name2] ...
-                if "CHARACTER BANNER" in full_text or "SUPPORT CARD BANNER" in full_text:
+                full_text_upper = full_text.upper()
+                if "CHARACTER BANNER" in full_text_upper or "SUPPORT CARD BANNER" in full_text_upper:
                     # Find the date line (contains " – " and year)
                     date_idx = None
                     for i, line in enumerate(lines):
@@ -228,36 +272,27 @@ async def download_timeline():
                             tags.append(name)
 
                 # Extract event description/subtitle
-                description = ""
-                desc_tag = await item.query_selector('.event-description')
-                if desc_tag:
-                    description = (await desc_tag.inner_text()).strip()
-
                 # Extract ALL event images (Legend Race can have 3-4 character images)
                 img_urls = []
 
-                # Get ALL img tags within this event item
-                all_imgs = await item.query_selector_all('img')
-
-                for img_tag in all_imgs:
-                    img_src = await img_tag.get_attribute("src")
-                    if img_src:
-                        full_url = urljoin(BASE_URL, img_src)
-                        # Add all relevant game images (banner IDs, character images)
-                        if any(pattern in img_src for pattern in ['chara_stand_', '2021_', '2022_', '2023_', '2024_', '2025_', 'img_bnr_', '/story/', '/paid/', '/support/']):
-                            if full_url not in img_urls:  # Avoid duplicates
-                                img_urls.append(full_url)
+                for img_src in raw_image_urls:
+                    # JS returns absolute URLs for img.src, so urljoin is usually redundant but safe
+                    full_url = urljoin(BASE_URL, img_src)
+                    # Add all relevant game images (banner IDs, character images)
+                    if any(pattern in img_src for pattern in ['chara_stand_', '2021_', '2022_', '2023_', '2024_', '2025_', '2026_', 'img_bnr_', '/story/', '/paid/', '/support/']):
+                        if full_url not in img_urls:  # Avoid duplicates
+                            img_urls.append(full_url)
 
                 # Primary image URL (first one, for backwards compatibility)
                 img_url = img_urls[0] if img_urls else None
 
-                # Extract event date
-                date_tag = await item.query_selector('.event-date')
-                if not date_tag:
-                    return None
-                date_str = (await date_tag.inner_text()).strip()
-
-                start_date, end_date = parse_event_date(date_str)
+                # Extract banner ID from the first YEAR_NNNNN image URL
+                banner_id = None
+                for url in img_urls:
+                    bid = extract_banner_id(url)
+                    if bid:
+                        banner_id = bid
+                        break
 
                 # Return event data
                 return {
@@ -267,6 +302,7 @@ async def download_timeline():
                     "description": description,
                     "image_url": img_url,  # Primary image (first one)
                     "image_urls": img_urls,  # ALL images for this event
+                    "banner_id": banner_id,  # 5-digit ID from YEAR_NNNNN filename, or None
                     "start_date": start_date,
                     "end_date": end_date,
                     "date_str": date_str
@@ -300,29 +336,58 @@ async def download_timeline():
 
             # === THEN SCROLL RIGHT (to future/newer events) ===
             print("[UMA HANDLER] Phase 2: Scrolling RIGHT to load future events and extracting during scroll...")
-            scroll_amount = 600  # Scroll RIGHT (increased from 400)
+            scroll_amount = 800  # Scroll RIGHT (increased for speed)
             max_scrolls = 200  # Max iterations for RIGHT scroll
             no_new_events_count = 0
 
             # Track unique events by (start_date, title) to avoid duplicates
             seen_events = set()
             raw_events = []
+            
+            # JS function to extract all visible events in one go
+            extract_js = """
+            () => {
+                const items = Array.from(document.querySelectorAll('.timeline-item.timeline-event'));
+                return items.map(item => {
+                    const titleEl = item.querySelector('.event-title');
+                    const descEl = item.querySelector('.event-description');
+                    const dateEl = item.querySelector('.event-date');
+                    const imgEls = Array.from(item.querySelectorAll('img'));
+                    const imgSrcs = imgEls.map(img => img.src).filter(src => src);
+                    
+                    return {
+                        full_title: titleEl ? titleEl.innerText.trim() : "",
+                        full_text: item.innerText,
+                        description: descEl ? descEl.innerText.trim() : "",
+                        date_str: dateEl ? dateEl.innerText.trim() : "",
+                        raw_image_urls: imgSrcs
+                    };
+                });
+            }
+            """
 
             for i in range(max_scrolls):
-                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
-                await asyncio.sleep(3.0)  # Wait for lazy loading + DOM updates
+                # Capture scroll position before scrolling to detect end-of-timeline
+                prev_scroll = await timeline.evaluate("el => el.scrollLeft")
 
-                # Extract events from current visible DOM
-                event_items = await page.query_selector_all('.timeline-item.timeline-event')
+                await timeline.evaluate(f"el => el.scrollBy({scroll_amount}, 0)")
+                await asyncio.sleep(1.5)  # Reduced wait time (JS extraction is instant)
+
+                curr_scroll = await timeline.evaluate("el => el.scrollLeft")
+
+                # ALWAYS extract before checking for end-of-timeline so the last
+                # viewport is never skipped (fixes break-before-extract bug)
+                raw_items_data = await page.evaluate(extract_js)
 
                 new_count = 0
-                for item in event_items:
-                    event_data = await extract_single_event(item)
+                for item_data in raw_items_data:
+                    event_data = parse_raw_item_data(item_data)
                     if not event_data:
                         continue
 
-                    # Create unique key (start_date, title)
-                    event_key = (event_data['start_date'], event_data['full_title'])
+                    # Use banner_id as dedup key when available (guaranteed unique per release);
+                    # fall back to (start_date, title) for events without a banner image ID.
+                    event_key = event_data['banner_id'] if event_data.get('banner_id') else (event_data['start_date'], event_data['full_title'])
 
                     # Check if this is a new unique event
                     if event_key not in seen_events:
@@ -335,15 +400,19 @@ async def download_timeline():
                         date_str = event_data.get('date_str', 'NO DATE')
                         print(f"[UMA SCROLL] Found new event: {proper_title} (date: {date_str})")
 
-                # Update counter
+                if curr_scroll == prev_scroll:
+                    print(f"[UMA HANDLER] Timeline end reached (scroll position unchanged). Total unique: {len(seen_events)}")
+                    break
+
+                # Update counter (secondary safety net: stop after 3 consecutive empty scrolls)
                 if new_count > 0:
                     print(f"[UMA HANDLER] Scroll RIGHT {i+1}: Found {new_count} new events (total unique: {len(seen_events)})")
                     no_new_events_count = 0
                 else:
                     no_new_events_count += 1
                     print(f"[UMA HANDLER] Scroll RIGHT {i+1}: No new events (total unique: {len(seen_events)})")
-                    if no_new_events_count >= 30:
-                        print(f"[UMA HANDLER] No new events after 30 RIGHT scrolls. Total unique events: {len(seen_events)}")
+                    if no_new_events_count >= 3:
+                        print(f"[UMA HANDLER] No new events after 3 RIGHT scrolls. Total unique events: {len(seen_events)}")
                         break
 
             print(f"[UMA HANDLER] Scrolling complete. Captured {len(raw_events)} unique events.")
@@ -624,7 +693,13 @@ async def process_events(raw_events):
             event_type = "CHAMPIONS_MEETING"
         elif "PAID BANNER" in full_text_upper:
             event_type = "PAID_BANNER"
-        
+        elif "MISSION CAMPAIGN" in full_text_upper:
+            event_type = "MISSION_CAMPAIGN"
+
+        if event_type == "MISSION_CAMPAIGN":
+            print(f"[UMA HANDLER] Skipping Mission Campaign: {full_title[:50]}")
+            continue
+
         print(f"[UMA HANDLER] Processing: {full_title[:50]}... | Type: {event_type} | Tags: {tags}")
         
         # === SUPPORT BANNER (standalone or for combination) ===
@@ -659,9 +734,14 @@ async def process_events(raw_events):
                 _, enriched_supports, best_img = await enrich_with_gametora_data(
                     "", support_names, img_url
                 )
-                
+
+                # Use GameTora name for title; asterisk if not enriched (no GameTora match)
+                was_enriched = "](" in enriched_supports
+                plain_supports = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_supports)
+
                 processed.append({
-                    "title": f"{support_names} Support Banner",
+                    "id": event.get("banner_id"),
+                    "title": f"{plain_supports}{'*' if not was_enriched else ''} Support Banner",
                     "start": int(start_date.timestamp()),
                     "end": int(end_date.timestamp()),
                     "image": best_img,  # Use GameTora image if available
@@ -734,22 +814,26 @@ async def process_events(raw_events):
             # (EN from GameTora if exists, otherwise original JP from uma.moe)
             final_img = enriched_char_img
             if enriched_support_img:
-                from uma_module import combine_images_vertically
-                combined_path = combine_images_vertically(enriched_char_img, enriched_support_img)
+                combined_path = await combine_images_vertically(enriched_char_img, enriched_support_img)
                 if combined_path:
                     final_img = combined_path
                     uma_handler_logger.info(f"[Process] ✓ Combined enriched images: {combined_path}")
+                    # Pre-generate horizontal version for the web control panel
+                    await combine_images_horizontally([enriched_char_img, enriched_support_img])
                 else:
                     uma_handler_logger.warning(f"[Process] ✗ Image combination failed, using character image only")
 
-            # Create combined event
-            title = f"{char_names} Banner"  # Keep original names in title
+            # Create combined event — use GameTora name for title
+            was_enriched = "](" in enriched_chars
+            plain_chars = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_chars)
+            title = f"{plain_chars}{'*' if not was_enriched else ''} Banner"
             event_desc = f"**Characters:** {enriched_chars}\n**Support Cards:** {enriched_supports}" if enriched_supports else f"**Characters:** {enriched_chars}"
 
             print(f"[UMA HANDLER] Created banner - Chars: {enriched_chars[:60]}...")
             print(f"[UMA HANDLER] Supports: {enriched_supports[:60] if enriched_supports else 'None'}...")
-            
+
             processed.append({
+                "id": event.get("banner_id"),
                 "title": title,
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
@@ -776,13 +860,15 @@ async def process_events(raw_events):
             # Combine images if paired
             combined_img = img_url
             if img_url and paired_img:
-                from uma_module import combine_images_vertically
-                combined_path = combine_images_vertically(img_url, paired_img)
+                combined_path = await combine_images_vertically(img_url, paired_img)
                 if combined_path:
                     combined_img = combined_path
+                    # Pre-generate horizontal version for the web control panel
+                    await combine_images_horizontally([img_url, paired_img])
             
             processed.append({
-                "title": "Paid Banner",
+                "id": event.get("banner_id"),
+                "title": f"Paid Banner ({start_date.strftime('%b %d')})",
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
                 "image": combined_img,
@@ -800,6 +886,7 @@ async def process_events(raw_events):
             event_desc = description if description else ""
             
             processed.append({
+                "id": None,
                 "title": story_name,
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
@@ -808,7 +895,7 @@ async def process_events(raw_events):
                 "description": event_desc
             })
             continue
-        
+
         # === LEGEND RACE ===
         if event_type == "LEGEND_RACE":
             # Extract race details from lines (e.g., "1600m - Mile - Turf")
@@ -851,8 +938,7 @@ async def process_events(raw_events):
             # Combine images horizontally if multiple
             combined_img = img_url
             if len(legend_images) > 1:
-                from uma_module import combine_images_horizontally
-                combined_path = combine_images_horizontally(legend_images)
+                combined_path = await combine_images_horizontally(legend_images)
                 if combined_path:
                     combined_img = combined_path
                     print(f"[UMA HANDLER] Combined {len(legend_images)} Legend Race images into: {combined_path}")
@@ -860,15 +946,16 @@ async def process_events(raw_events):
                 combined_img = legend_images[0]
             
             processed.append({
+                "id": None,
                 "title": race_name,
                 "start": int(start_date.timestamp()),
                 "end": int(end_date.timestamp()),
                 "image": combined_img,
-                "category": "Event",
+                "category": "Legend Race",
                 "description": event_desc
             })
             continue
-        
+
         # === CHAMPIONS MEETING ===
         if event_type == "CHAMPIONS_MEETING":
             # Title is directly the cup name (e.g., "Champions Meeting: Virgo Cup")
@@ -901,6 +988,7 @@ async def process_events(raw_events):
             event_start = int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60)
             corrected_end = event_start + (CM_CORRECTED_DURATION_DAYS * 24 * 60 * 60) - 60  # end at HH:59 like other events
             processed.append({
+                "id": None,
                 "title": cup_name,
                 "start": event_start,
                 "end": corrected_end,
@@ -909,10 +997,11 @@ async def process_events(raw_events):
                 "description": details if details else ""
             })
             continue
-        
+
         # === FALLBACK: Store all other events with their original titles ===
         # This ensures we don't lose events that don't match specific patterns
         processed.append({
+            "id": None,
             "title": full_title[:100],  # Limit title length
             "start": int(start_date.timestamp()) if start_date else int(end_date.timestamp()) - (7*24*60*60),
             "end": int(end_date.timestamp()),
@@ -926,64 +1015,436 @@ async def process_events(raw_events):
     
     return processed
 
-async def update_uma_events():
+
+# ==================== IMAGE UTILITIES ====================
+
+UMA_DB_PATH = os.path.join("data", "uma_musume_data.db")
+
+def get_image_hash(urls):
+    """Generate a consistent hash from image URLs."""
+    combined = "|".join(sorted(urls))
+    return hashlib.md5(combined.encode()).hexdigest()[:12]
+
+def is_url(path):
+    """Check if path is a URL or local file path."""
+    return path and (path.startswith('http://') or path.startswith('https://'))
+
+async def combine_images_vertically(img_url1, img_url2):
+    """Downloads two images and combines them vertically."""
+    if not PIL_AVAILABLE:
+        uma_handler_logger.warning("[Image] PIL not available, cannot combine images")
+        return img_url1
+
+    try:
+        img_hash = get_image_hash([img_url1, img_url2])
+        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
+        filename = f"combined_v_{img_hash}.png"
+        filepath = os.path.join("data", "combined_images", filename)
+
+        if os.path.exists(filepath):
+            uma_handler_logger.info(f"[Image] Using cached combined image: {filepath}")
+            return filepath
+
+        if is_url(img_url1):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(img_url1) as resp:
+                    if resp.status != 200:
+                        return img_url2
+                    img1 = Image.open(BytesIO(await resp.read())).convert('RGBA')
+        elif os.path.exists(img_url1):
+            img1 = Image.open(img_url1).convert('RGBA')
+        else:
+            uma_handler_logger.warning(f"[Image] Local file not found, skipping: {img_url1}")
+            return img_url2
+
+        if is_url(img_url2):
+            async with aiohttp.ClientSession() as session:
+                async with session.get(img_url2) as resp:
+                    if resp.status != 200:
+                        return img_url1
+                    img2 = Image.open(BytesIO(await resp.read())).convert('RGBA')
+        elif os.path.exists(img_url2):
+            img2 = Image.open(img_url2).convert('RGBA')
+        else:
+            uma_handler_logger.warning(f"[Image] Local file not found, skipping: {img_url2}")
+            return img_url1
+
+        width = max(img1.width, img2.width)
+        height = img1.height + img2.height
+        combined = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        combined.paste(img1, (0, 0), img1 if img1.mode == 'RGBA' else None)
+        combined.paste(img2, (0, img1.height), img2 if img2.mode == 'RGBA' else None)
+        combined.save(filepath, 'PNG')
+        uma_handler_logger.info(f"[Image] Combined images vertically saved to: {filepath}")
+        return filepath
+    except Exception as e:
+        uma_handler_logger.error(f"Failed to combine images vertically: {e}")
+        return None
+
+async def combine_images_horizontally(img_urls):
+    """Downloads multiple images and combines them horizontally."""
+    if not PIL_AVAILABLE:
+        uma_handler_logger.warning("[Image] PIL not available, cannot combine images")
+        return img_urls[0] if img_urls else None
+
+    if not img_urls:
+        return None
+    if len(img_urls) == 1:
+        return img_urls[0]
+
+    try:
+        img_hash = get_image_hash(img_urls)
+        os.makedirs(os.path.join("data", "combined_images"), exist_ok=True)
+        filename = f"combined_h_{img_hash}.png"
+        filepath = os.path.join("data", "combined_images", filename)
+
+        if os.path.exists(filepath):
+            uma_handler_logger.info(f"[Image] Using cached horizontal combined image: {filepath}")
+            return filepath
+
+        images = []
+        async with aiohttp.ClientSession() as session:
+            for url in img_urls:
+                try:
+                    if is_url(url):
+                        async with session.get(url) as resp:
+                            if resp.status == 200:
+                                img = Image.open(BytesIO(await resp.read())).convert('RGBA')
+                                images.append(img)
+                    elif os.path.exists(url):
+                        img = Image.open(url).convert('RGBA')
+                        images.append(img)
+                    else:
+                        uma_handler_logger.warning(f"[Image] Local file not found, skipping: {url}")
+                except Exception as e:
+                    uma_handler_logger.warning(f"[Image] Failed to load {url}: {e}")
+
+        if not images:
+            return img_urls[0]
+        if len(images) == 1:
+            return img_urls[0]
+
+        total_width = sum(img.width for img in images)
+        max_height = max(img.height for img in images)
+        combined = Image.new('RGBA', (total_width, max_height), (0, 0, 0, 0))
+        x_offset = 0
+        for img in images:
+            y_offset = (max_height - img.height) // 2
+            combined.paste(img, (x_offset, y_offset), img if img.mode == 'RGBA' else None)
+            x_offset += img.width
+        combined.save(filepath, 'PNG')
+        uma_handler_logger.info(f"[Image] Combined {len(images)} images horizontally saved to: {filepath}")
+        return filepath
+    except Exception as e:
+        uma_handler_logger.error(f"Failed to combine images horizontally: {e}")
+        return img_urls[0] if img_urls else None
+
+
+# ==================== UMA-SPECIFIC PARSING ====================
+
+def parse_champions_meeting_phases(event_description, event_start, event_end):
+    """Calculate Champions Meeting phase times based on event end time."""
+    phases = []
+    phase_definitions = [
+        ("Finals", 1),
+        ("Final Registration", 1),
+        ("Round 2", 2),
+        ("Round 1", 2),
+        ("League Selection", None)
+    ]
+    duration_map = {}
+    if event_description:
+        lines = event_description.split('\n')
+        for line in lines:
+            if "Round 1" in line:
+                m = re.search(r'\((\d+)\s+days?\)', line)
+                if m:
+                    duration_map["Round 1"] = int(m.group(1))
+            elif "Round 2" in line:
+                m = re.search(r'\((\d+)\s+days?\)', line)
+                if m:
+                    duration_map["Round 2"] = int(m.group(1))
+    current_end = event_end
+    for phase_name, default_duration in phase_definitions:
+        if phase_name == "League Selection":
+            duration_seconds = current_end - event_start
+            phase_start = event_start
+        else:
+            duration_days = duration_map.get(phase_name, default_duration)
+            duration_seconds = duration_days * 86400
+            phase_start = current_end - duration_seconds
+        phases.insert(0, {
+            "name": phase_name,
+            "start_time": phase_start,
+            "duration_days": duration_seconds // 86400
+        })
+        current_end = phase_start
+    return phases
+
+def parse_legend_race_characters(event_description, event_start, event_end):
+    """Calculate Legend Race character times based on event timing."""
+    characters = []
+    lines = event_description.split('\n')
+    character_duration = 3 * 86400
+    character_names = []
+
+    for line in lines:
+        line = line.strip()
+        if line.startswith('-') and '(' in line:
+            char_name = line[1:line.index('(')].strip()
+            if char_name:
+                character_names.append(char_name)
+
+    if not character_names:
+        in_character_section = False
+        for line in lines:
+            if '**Characters:**' in line or '**characters:**' in line.lower():
+                in_character_section = True
+                character_names.extend(re.findall(r'\[([^\]]+)\]\([^\)]+\)', line))
+            elif in_character_section and '[' in line:
+                character_names.extend(re.findall(r'\[([^\]]+)\]\([^\)]+\)', line))
+            elif in_character_section and line and not line.startswith('**'):
+                break
+
+    if not character_names:
+        for line in lines:
+            if 'characters:' in line.lower():
+                parts = line.split(':', 1)
+                if len(parts) > 1:
+                    character_names.extend([n.strip() for n in parts[1].split(',') if n.strip()])
+
+    current_start = event_start
+    for char_name in character_names:
+        if char_name:
+            char_end = current_start + character_duration
+            characters.append({
+                "name": char_name,
+                "start_time": current_start,
+                "end_time": char_end,
+                "duration_days": 3
+            })
+            current_start = char_end
+    return characters
+
+
+# ==================== UMA EVENT DATABASE WRITER ====================
+
+async def add_uma_event(event_data, user_id="0"):
+    """Adds or updates an Uma Musume event in the database (only if changed).
+
+    This is a pure-DB function with no Discord dependency, safe to call from
+    standalone scripts (uma_scraper.py) as well as from the bot.
     """
-    Main function to download timeline and update database.
-    This should be called periodically or manually to refresh Uma Musume events.
+    uma_handler_logger.info(f"[Add Event] Processing event: {event_data.get('title', 'Unknown')}")
+
+    title = event_data.get("title", "").lower()
+    if "legend race" in title:
+        event_data["category"] = "Legend Race"
+    elif "champions meeting" in title or "champion's meeting" in title:
+        event_data["category"] = "Champions Meeting"
+
+    async with aiosqlite.connect(UMA_DB_PATH) as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS events (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                title TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                image TEXT,
+                category TEXT,
+                profile TEXT,
+                description TEXT
+            )
+        ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS event_messages (
+                event_id TEXT,
+                channel_id TEXT,
+                message_id TEXT,
+                PRIMARY KEY (event_id, channel_id)
+            )
+        ''')
+        await conn.commit()
+
+        # Resolve the event ID: use banner_id from scrape, or find/generate a sequential prefix ID.
+        event_id = event_data.get("id")
+        if not event_id:
+            prefix_map = {
+                "Legend Race":      "LR",
+                "Champions Meeting": "CM",
+                "Offer":            "PD",
+                "Banner":           "CB",
+                "Event":            "SE",
+                "Maintenance":      "MT",
+            }
+            prefix = prefix_map.get(event_data.get("category"), "UNK")
+
+            # Look up by title + start_date first to avoid creating a new sequential ID
+            # on every scraper run for the same event (which caused exponential duplication).
+            async with conn.execute(
+                "SELECT id FROM events WHERE title=? AND start_date=? AND profile='UMA' ORDER BY id ASC",
+                (event_data["title"], str(event_data["start"]))
+            ) as _cur:
+                existing_ids = [row[0] async for row in _cur]
+
+            if not existing_ids:
+                # ── Fallback: detect date-shifted events ──────────────────────────────
+                # The exact title+start_date lookup found nothing, but the event may have
+                # been rescheduled on uma.moe.  Try fuzzy matching so we UPDATE the existing
+                # row (and edit the Discord embed in-place) instead of inserting a new one.
+                _category = event_data.get("category", "")
+                _new_start = int(event_data["start"])
+                _TWO_MONTHS = 60 * 24 * 3600  # 60 days in seconds
+
+                if _category in ("Event", "Legend Race", "Champions Meeting", "Maintenance"):
+                    # Story Events / Legend Races / Champions Meetings / Maintenance keep
+                    # the same title when rescheduled.  Match by exact title + category,
+                    # then confirm the existing start_date is within 2 months of the new one.
+                    async with conn.execute(
+                        "SELECT id, start_date FROM events "
+                        "WHERE title=? AND category=? AND profile='UMA' ORDER BY id ASC",
+                        (event_data["title"], _category)
+                    ) as _cur:
+                        _candidates = [(row[0], row[1]) async for row in _cur if row[0]]
+
+                    for _cand_id, _cand_start in _candidates:
+                        if _cand_start and abs(int(_cand_start) - _new_start) <= _TWO_MONTHS:
+                            existing_ids = [_cand_id]
+                            print(f"[UMA HANDLER] Date-shift match for '{event_data['title']}': "
+                                  f"reusing {_cand_id} (was start {_cand_start}, now {_new_start})")
+                            break
+
+                elif _category == "Offer":
+                    # Paid Banners: title encodes start date ("Paid Banner (Mar 16)"), so
+                    # title matching is useless after a shift.  Same banner always has the
+                    # same image even when dates change — match on image URL instead.
+                    _img = event_data.get("image") or ""
+                    if _img:
+                        async with conn.execute(
+                            "SELECT id FROM events "
+                            "WHERE image=? AND category='Offer' AND profile='UMA' ORDER BY id ASC",
+                            (_img,)
+                        ) as _cur:
+                            existing_ids = [row[0] async for row in _cur if row[0]]
+                        if existing_ids:
+                            print(f"[UMA HANDLER] Image match for Paid Banner: "
+                                  f"reusing {existing_ids[0]}")
+                # ── End fallback ───────────────────────────────────────────────────────
+
+            if existing_ids:
+                event_id = existing_ids[0]  # reuse the canonical (earliest) id
+                # Delete any duplicates that accumulated before this fix
+                for dup_id in existing_ids[1:]:
+                    await conn.execute("DELETE FROM events WHERE id=?", (dup_id,))
+                    await conn.execute("DELETE FROM event_messages WHERE event_id=?", (dup_id,))
+                if len(existing_ids) > 1:
+                    await conn.commit()
+                    print(f"[UMA HANDLER] Cleaned {len(existing_ids) - 1} duplicate(s) for: {event_data['title']}")
+            else:
+                event_id = await _next_sequential_id(prefix, conn)  # genuinely new event
+
+        async with conn.execute(
+            "SELECT id, title, start_date, end_date, image, category, description FROM events WHERE id = ?",
+            (event_id,)
+        ) as cursor:
+            existing = await cursor.fetchone()
+
+        if existing:
+            _, old_title, old_start, old_end, old_image, old_category, old_desc = existing
+            title_changed = old_title != event_data["title"]
+            category_changed = old_category != event_data.get("category")
+            changed = False
+            if "Champions Meeting" in event_data["title"] or "champions meeting" in event_data["title"].lower():
+                if (str(event_data["start"]) != str(old_start) or
+                        str(event_data["end"]) != str(old_end) or
+                        event_data.get("image") != old_image):
+                    changed = True
+            else:
+                if (str(event_data["start"]) != str(old_start) or
+                        str(event_data["end"]) != str(old_end) or
+                        event_data.get("image") != old_image or
+                        event_data.get("description", "") != old_desc):
+                    changed = True
+
+            if changed or title_changed or category_changed:
+                await conn.execute(
+                    '''UPDATE events
+                       SET title = ?, start_date = ?, end_date = ?, image = ?, category = ?, description = ?, user_id = ?
+                       WHERE id = ?''',
+                    (event_data["title"], event_data["start"], event_data["end"], event_data.get("image"),
+                     event_data.get("category"), event_data.get("description", ""), user_id, event_id)
+                )
+                await conn.commit()
+                uma_handler_logger.info(f"[Add Event] Updated existing event: {event_data['title']} (ID: {event_id})")
+                print(f"[UMA HANDLER] Updated event: {event_data['title']} (ID: {event_id})")
+                # Delete by OLD title so orphaned notifications don't linger if the title changed
+                from notification_handler import delete_notifications_for_event
+                await delete_notifications_for_event(old_title, event_data['category'], "UMA")
+            else:
+                uma_handler_logger.info(f"[Add Event] Event unchanged: {event_data['title']} (ID: {event_id})")
+                print(f"[UMA HANDLER] Event unchanged: {event_data['title']} (ID: {event_id})")
+        else:
+            await conn.execute(
+                '''INSERT INTO events (id, user_id, title, start_date, end_date, image, category, profile, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (event_id, user_id, event_data["title"], event_data["start"], event_data["end"],
+                 event_data.get("image"), event_data["category"], "UMA",
+                 event_data.get("description", ""))
+            )
+            await conn.commit()
+            uma_handler_logger.info(f"[Add Event] Inserted new event: {event_data['title']} (ID: {event_id})")
+            print(f"[UMA HANDLER] New event: {event_data['title']} (ID: {event_id})")
+
+    event_for_notification = {
+        'category': event_data['category'],
+        'profile': "UMA",
+        'title': event_data['title'],
+        'start_date': event_data['start'],
+        'end_date': event_data['end'],
+        'description': event_data.get('description', '')
+    }
+    from notification_handler import schedule_notifications_db_only
+    print(f"[UMA HANDLER] Scheduling notifications for: {event_data['title']}")
+    try:
+        await schedule_notifications_db_only(event_for_notification)
+        print(f"[UMA HANDLER] Notifications scheduled for: {event_data['title']}")
+    except Exception as e:
+        uma_handler_logger.error(f"Failed to schedule notifications for {event_data['title']}: {e}")
+        print(f"[UMA HANDLER] ERROR scheduling notifications: {e}")
+
+
+async def scrape_and_save_events():
+    """
+    Downloads the uma.moe timeline and writes events to the database.
+    Pure scrape + DB write — no Discord calls.
+    Dashboard refresh (uma_update_timers) is the caller's responsibility.
     """
     uma_handler_logger.info("Starting Uma Musume event update...")
     print("[UMA HANDLER] Starting Uma Musume event update...")
-    
-    # Download and process events
+
     print("[UMA HANDLER] Downloading timeline from uma.moe...")
     events = await download_timeline()
-    
+
     if not events:
         uma_handler_logger.warning("No events downloaded.")
         print("[UMA HANDLER] WARNING: No events downloaded!")
         return
-    
+
     print(f"[UMA HANDLER] Downloaded {len(events)} events, adding to database...")
-    
-    # Import module functions
-    from uma_module import add_uma_event, uma_update_timers
-    
-    # Create a dummy context for add_uma_event
-    class DummyCtx:
-        author = type('obj', (object,), {'id': '0'})()
-        async def send(self, msg, **kwargs):
-            uma_handler_logger.info(f"[Event Added] {msg}")
-    
-    ctx = DummyCtx()
-    
-    # Add or update events in database
+
     added_count = 0
-    updated_count = 0
-    skipped_count = 0
-    
     for event_data in events:
         try:
-            result = await add_uma_event(ctx, event_data)
+            await add_uma_event(event_data)
             added_count += 1
         except Exception as e:
             uma_handler_logger.error(f"Failed to process event '{event_data.get('title', 'Unknown')}': {e}")
             import traceback
             uma_handler_logger.error(traceback.format_exc())
-    
+
     uma_handler_logger.info(f"Processed {added_count}/{len(events)} events.")
     print(f"[UMA HANDLER] Processed {added_count}/{len(events)} events.")
-    
-    # Refresh dashboard to display new events
-    print(f"[UMA HANDLER] Refreshing dashboard to display events...")
-    try:
-        await uma_update_timers()
-        print(f"[UMA HANDLER] Dashboard refreshed successfully!")
-    except Exception as e:
-        uma_handler_logger.error(f"Failed to refresh dashboard: {e}")
-        print(f"[UMA HANDLER] ERROR: Failed to refresh dashboard: {e}")
-        import traceback
-        traceback.print_exc()
-    
     print(f"[UMA HANDLER] Event update complete!")
 
 # ==================== GAMETORA DATABASE SCRAPING ====================
@@ -1218,6 +1679,27 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                 initial_containers = await page.query_selector_all('.sc-37bc0b3c-0')
                 print(f"[GameTora] Initial banners loaded: {len(initial_containers)}")
                 
+                # === OPTIMIZATION: Check if we need to scroll ===
+                if not force_full_scan:
+                    # Extract IDs from current page state without scrolling
+                    visible_banner_ids = await page.evaluate('''() => {
+                        const imgs = Array.from(document.querySelectorAll('img[src*="img_bnr_gacha_"]'));
+                        return imgs.map(img => {
+                            const match = img.src.match(/img_bnr_gacha_(\d+)\.png/);
+                            return match ? match[1] : null;
+                        }).filter(id => id !== null);
+                    }''')
+                    
+                    existing_banner_ids = await get_existing_banner_ids("JP")
+                    new_visible = [bid for bid in visible_banner_ids if bid not in existing_banner_ids]
+                    
+                    if not new_visible:
+                        print(f"[GameTora] No new banners found in initial load ({len(visible_banner_ids)} checked). Skipping scroll.")
+                        uma_handler_logger.info("[GameTora] No new banners found in initial load. Skipping scroll.")
+                        await browser.close()
+                        return {"banners": 0, "characters": 0, "support_cards": 0, "skipped": True}
+                    print(f"[GameTora] Found {len(new_visible)} new banners in initial load. Proceeding with scan.")
+
                 # Scroll DOWN progressively to load all banners (lazy loading)
                 print("[GameTora] Scrolling to load all banners...")
                 
@@ -1489,119 +1971,77 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                 
                 print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
                 await page.goto(url, timeout=90000, wait_until="domcontentloaded")
-                
-                # Wait for page to load
-                await asyncio.sleep(5)
-                
+
+                # Wait for character boxes to be in DOM.
+                # Most boxes are hidden (duKLID class), so use state="attached" not "visible".
+                try:
+                    await page.wait_for_selector('.sc-77f9d665-1', state="attached", timeout=30000)
+                except Exception:
+                    await asyncio.sleep(5)  # Fallback if selector not found
+
                 # Enable "Show Upcoming Characters" checkbox to get JP-exclusive characters
                 try:
-                    checkboxes = await page.query_selector_all('input[type="checkbox"]')
-                    print(f"[GameTora] Found {len(checkboxes)} checkboxes")
-                    
-                    for cb in checkboxes:
-                        # Get parent element to check label text
-                        parent = await cb.evaluate_handle('el => el.parentElement')
-                        parent_text = await parent.inner_text() if parent else ""
-                        
-                        if "upcoming" in parent_text.lower() or "show" in parent_text.lower():
-                            is_checked = await cb.is_checked()
-                            if not is_checked:
+                    # Single JS call to find which checkbox to click (avoids per-checkbox roundtrips)
+                    checkbox_info = await page.evaluate("""() => {
+                        const cbs = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+                        return cbs.map((cb, i) => ({
+                            index: i,
+                            text: cb.parentElement ? cb.parentElement.innerText.toLowerCase() : '',
+                            checked: cb.checked
+                        }));
+                    }""")
+                    print(f"[GameTora] Found {len(checkbox_info)} checkboxes")
+                    for info in checkbox_info:
+                        if 'upcoming' in info['text'] or 'show' in info['text']:
+                            if not info['checked']:
                                 print("[GameTora] Enabling 'Show Upcoming Characters' checkbox")
-                                await cb.click()
-                                await asyncio.sleep(3)
-                                break
+                                all_checkboxes = await page.query_selector_all('input[type="checkbox"]')
+                                await all_checkboxes[info['index']].click()
+                                await asyncio.sleep(2)
+                            break
                 except Exception as e:
                     print(f"[GameTora] Could not find/toggle upcoming characters checkbox: {e}")
                 
-                # Scroll to load all characters (lazy loading)
-                print("[GameTora] Scrolling to load all characters...")
-                previous_count = 0
-                no_change_count = 0
-                scroll_iteration = 0
-                max_iterations = 30
-                
-                while scroll_iteration < max_iterations:
-                    # Find all character links
-                    char_links = await page.query_selector_all('a[href*="/umamusume/characters/"]')
-                    current_count = len(char_links)
-                    
-                    if scroll_iteration % 5 == 0:  # Log every 5 iterations
-                        print(f"[GameTora] Scroll iteration {scroll_iteration + 1}: {current_count} characters found")
-                    
-                    if current_count == previous_count:
-                        no_change_count += 1
-                        if no_change_count >= 3:
-                            print(f"[GameTora] No new characters after 3 attempts, stopping scroll")
-                            break
-                    else:
-                        no_change_count = 0
-                    
-                    previous_count = current_count
-                    
-                    # Scroll to bottom
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    await asyncio.sleep(2)
-                    scroll_iteration += 1
-                
-                print(f"[GameTora] Found {current_count} total character links, extracting data...")
-                
-                # Extract character data
-                char_links = await page.query_selector_all('a[href*="/umamusume/characters/"]')
-                
+                # All characters are in the DOM immediately (most are hidden but attached).
+                # Use base class to get both visible (gpkuqF) and hidden (duKLID) boxes.
+                char_boxes = await page.query_selector_all('.sc-77f9d665-1')
+
                 characters_data = []
-                for link_elem in char_links:
+                for box in char_boxes:
                     try:
-                        # Get link href
-                        href = await link_elem.get_attribute('href')
+                        href = await box.get_attribute('href')
                         if not href or '/profiles' in href:
                             continue
-                        
-                        # Extract character ID from URL (e.g., /umamusume/characters/101801-air-groove)
-                        match = re.search(r'/characters/(\d+)-', href)
+
+                        # Character ID from URL
+                        match = re.search(r'/characters/(\d+)', href)
                         if not match:
                             continue
-                        
                         character_id = match.group(1)
-                        
-                        # Get full link text (includes stars and name)
-                        full_text = (await link_elem.inner_text()).strip()
-                        
-                        # Text format can be:
-                        # 1. "⭐⭐⭐\nCharacter Name" (base characters with stars)
-                        # 2. "Event Type\nCharacter Name" (alternate versions like "Festival\nSymboli Rudolf")
-                        # 3. "Character Name" (some characters without prefix)
-                        
-                        # Remove star emojis first
-                        text_without_stars = re.sub(r'⭐+', '', full_text).strip()
-                        
-                        # Split by newlines and get the last non-empty line (that's the actual character name)
-                        lines = [line.strip() for line in text_without_stars.split('\n') if line.strip()]
-                        
-                        if not lines:
+
+                        # Name from the dedicated name element
+                        name_elem = await box.query_selector('.sc-af488da5-0.iWKoPF')
+                        if not name_elem:
                             continue
-                        
-                        # The character name is always the last line
-                        # For "Festival\nSymboli Rudolf" -> "Symboli Rudolf"
-                        # For "Eishin Flash" -> "Eishin Flash"
-                        name = lines[-1]
-                        
-                        # If there's a prefix (like "Festival"), include it: "Symboli Rudolf (Festival)"
-                        if len(lines) > 1:
-                            prefix = lines[0]  # "Festival", "Halloween", "Christmas", etc.
-                            name = f"{name} ({prefix})"
-                        
+                        raw = await name_elem.inner_text()
+                        # "Matikane-\nfukukitaru" → hyphen is a display line-break, not real punctuation
+                        name = raw.replace('-\n', '').replace('\n', ' ').strip()
                         if not name:
                             continue
-                        
-                        # Use href as-is (already has full path)
-                        full_link = href if href.startswith('/') else f"/{href}"
-                        
+
+                        # Variant label — only present for alternate versions (New Year, Festival, …)
+                        version_elem = await box.query_selector('.characters_list_char_version__CVHa7')
+                        if version_elem:
+                            version = (await version_elem.inner_text()).strip()
+                            if version:
+                                name = f"{name} ({version})"
+
                         characters_data.append({
                             'character_id': character_id,
                             'name': name,
-                            'link': full_link
+                            'link': href if href.startswith('/') else f"/{href}",
                         })
-                        
+
                     except Exception as e:
                         print(f"[GameTora] Error extracting character: {e}")
                         continue
@@ -1753,6 +2193,7 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                 images_saved = 0
                 
                 async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
+                  async with aiohttp.ClientSession() as session:
                     for container in banner_containers:
                         try:
                             # Get banner image
@@ -1803,24 +2244,24 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                                     # Check website image size to see if it's different
                                     try:
                                         # HEAD request to get content-length without downloading full image
-                                        head_response = requests.head(full_img_url, timeout=10)
-                                        if head_response.status_code == 200 and 'content-length' in head_response.headers:
-                                            website_size = int(head_response.headers['content-length'])
+                                        async with session.head(full_img_url, timeout=10) as head_response:
+                                            if head_response.status == 200 and 'content-length' in head_response.headers:
+                                                website_size = int(head_response.headers['content-length'])
                                             
-                                            if website_size != file_size:
-                                                should_download = True
-                                                reason = f"size_mismatch (local: {file_size} bytes, website: {website_size} bytes)"
-                                        else:
-                                            # If HEAD fails, try GET to check size
-                                            uma_handler_logger.debug(f"[GameTora] HEAD request failed for {banner_id}, will check during download")
+                                                if website_size != file_size:
+                                                    should_download = True
+                                                    reason = f"size_mismatch (local: {file_size} bytes, website: {website_size} bytes)"
+                                            else:
+                                                # If HEAD fails, try GET to check size
+                                                uma_handler_logger.debug(f"[GameTora] HEAD request failed for {banner_id}, will check during download")
                                     except Exception as size_check_err:
                                         uma_handler_logger.debug(f"[GameTora] Size check failed for {banner_id}: {size_check_err}")
                             
                             if should_download:
                                 try:
-                                    response = requests.get(full_img_url, timeout=30)
-                                    if response.status_code == 200:
-                                        new_content = response.content
+                                    async with session.get(full_img_url, timeout=30) as response:
+                                      if response.status == 200:
+                                        new_content = await response.read()
                                         website_size = len(new_content)
                                         
                                         # Check if content is actually different
@@ -1851,8 +2292,8 @@ async def scrape_gametora_global_images(force_full_scan: bool = False, max_retri
                                             f.write(new_content)
                                         
                                         images_saved += 1
-                                    else:
-                                        uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: HTTP {response.status_code}")
+                                      else:
+                                        uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: HTTP {response.status}")
                                         continue
                                 except Exception as dl_err:
                                     uma_handler_logger.warning(f"[GameTora] Failed to download {full_img_url}: {dl_err}")
@@ -2015,4 +2456,4 @@ async def get_banner_support_cards(banner_id: str):
             return [{"id": row[0], "name": row[1], "link": row[2]} for row in rows]
 
 if __name__ == "__main__":
-    asyncio.run(update_uma_events())
+    asyncio.run(scrape_and_save_events())

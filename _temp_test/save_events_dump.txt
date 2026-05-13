@@ -1,0 +1,413 @@
+Run: 2026-02-23T07:43:39.179191+00:00
+Raw scraped: 37 | Processed: 25 | Errors: 0
+
+ERRORS DURING SAVE
+============================================================
+  None.
+
+UMA EVENTS IN DB
+============================================================
+Total: 201
+
+  [3] Banner           2025-12-08  Manhattan Cafe Banner
+       image: https://uma.moe/assets/images/character/banner/2021_30048.png
+  [4] Banner           2025-12-14  Symboli Rudolf & Gold City Banner
+       image: https://uma.moe/assets/images/character/banner/combined.png
+  [5] Event            2025-12-14  The Sounds of Autumn
+       image: https://uma.moe/assets/images/story/10_the_sounds_of_autumn_banner.png
+  [6] Banner           2025-12-18  Tosen Jordan Banner
+       image: https://uma.moe/assets/images/character/banner/combined2.png
+  [8] Banner           2025-12-21  Mejiro Dober Banner
+       image: https://uma.moe/assets/images/character/banner/combined3.png
+  [193] Banner           2026-01-15  Fine Motion Banner
+       image: data\JP_Data\banner_images\banner_30058.png
+  [69] Champions Meeting 2026-01-19  Champions Meeting: Sagittarius Cup
+       image: None
+  [71] Legend Race      2026-01-22  Arima Kinen Legend Race
+       image: data\combined_images\combined_h_3a3d9167c91e.png
+  [194] Banner           2026-01-22  Tamamo Cross Banner
+       image: data\JP_Data\banner_images\banner_30060.png
+  [195] Banner           2026-01-29  Haru Urara Banner
+       image: data\JP_Data\banner_images\banner_30062.png
+  [196] Event            2026-01-29  Blossoming New Year's Karuta Contest
+       image: https://uma.moe/assets/images/story/12_blossoming_new_years_karuta_contest_banner.png
+  [197] Banner           2026-02-05  Special Week Banner
+       image: data\JP_Data\banner_images\banner_30064.png
+  [75] Champions Meeting 2026-02-09  Champions Meeting: Capricorn Cup
+       image: None
+  [198] Banner           2026-02-11  Sakura Chiyono O Banner
+       image: data\JP_Data\banner_images\banner_30066.png
+  [11] Banner           2026-02-18  Mihono Bourbon & Eishin Flash Banner
+       image: data\combined_images\combined_v_44230e680553.png
+  [12] Event            2026-02-18  Patisserie Grandeur
+       image: https://uma.moe/assets/images/story/01_patisserie_grandeur_banner.png
+  [199] Banner           2026-02-18  Mihono Bourbon Banner
+       image: data\JP_Data\banner_images\banner_30068.png
+  [13] Banner           2026-02-25  Mejiro Ardan Banner
+       image: https://uma.moe/assets/images/character/banner/2022_30070.png
+  [14] Legend Race      2026-02-26  Hanshin Juvenile Fillies Legend Race
+       image: data\combined_images\combined_h_f15023a6608f.png
+  [15] Banner           2026-03-03  Admire Vega Banner
+       image: https://uma.moe/assets/images/character/banner/2022_30072.png
+  [16] Champions Meeting 2026-03-05  Champions Meeting: Aquarius Cup
+       image: None
+  [17] Banner           2026-03-08  Matikanetannhauser & Kitasan Black Banner
+       image: data\combined_images\combined_v_4ef0b7e2b460.png
+  [18] Event            2026-03-08  Flapping Run-up!
+       image: https://uma.moe/assets/images/story/02_flapping_run_up_banner.png
+  [200] Banner           2026-03-08  Matikanetannhauser Banner
+       image: https://uma.moe/assets/images/character/banner/2022_30074.png
+  [10] Offer            2026-03-16  Paid Banner
+       image: https://uma.moe/assets/images/paid/banner/50007.png
+  [19] Banner           2026-03-16  Satono Diamond Banner <-- FOUND
+       image: https://uma.moe/assets/images/character/banner/2022_30076.png
+  [20] Legend Race      2026-03-16  Satsuki Sho Legend Race
+       image: data\combined_images\combined_h_73faf0f4c63f.png
+  [21] Banner           2026-03-23  Mejiro Bright Banner
+       image: https://uma.moe/assets/images/character/banner/2022_30078.png
+  [22] Champions Meeting 2026-03-26  Champions Meeting: Pisces Cup
+       image: None
+  [23] Banner           2026-03-30  Seiun Sky & Fuji Kiseki Banner
+       image: data\combined_images\combined_v_0926538a3e08.png
+  [24] Event            2026-03-30  Tonight at the Ligne Droite
+       image: https://uma.moe/assets/images/story/03_tonight_at_the_ligne_droite_banner.png
+  [201] Banner           2026-03-30  Seiun Sky Banner
+       image: https://uma.moe/assets/images/character/banner/2022_30080.png
+  [25] Banner           2026-04-08  Nishino Flower Banner
+       image: data\combined_images\combined_v_260bdb4c8795.png
+  [26] Banner           2026-04-13  Yaeno Muteki Banner
+       image: data\combined_images\combined_v_ed31bd3e8483.png
+  [28] Banner           2026-04-19  Nice Nature & King Halo Banner
+       image: data\combined_images\combined_v_beb9fd734154.png
+  [29] Event            2026-04-19  Roar, Tracen Academy Cheerleading Squad!
+       image: https://uma.moe/assets/images/story/04_roar_tracen_cheerleading_squad_banner.png
+  [30] Banner           2026-04-27  Ines Fujin Banner
+       image: data\combined_images\combined_v_4a856951b569.png
+  [32] Banner           2026-05-03  Mejiro Palmer Banner
+       image: data\combined_images\combined_v_c073c25de502.png
+  [33] Champions Meeting 2026-05-06  Champions Meeting: Taurus Cup
+       image: None
+  [34] Banner           2026-05-10  Curren Chan & Fine Motion Banner
+       image: data\combined_images\combined_v_85b07c2b4785.png
+  [35] Event            2026-05-10  The Promised Time: Silks & Three Riddles
+       image: https://uma.moe/assets/images/story/05_silks_and_three_riddles_banner.png
+  [36] Banner           2026-05-17  Inari One Banner
+       image: data\combined_images\combined_v_13239bb4b9f0.png
+  [37] Champions Meeting 2026-05-20  Champions Meeting: Gemini Cup
+       image: None
+  [38] Banner           2026-05-24  Sweep Tosho Banner
+       image: data\combined_images\combined_v_aab03015d987.png
+  [40] Banner           2026-05-30  Taiki Shuttle & Mejiro Dober Banner
+       image: data\combined_images\combined_v_29ebb3acbf2c.png
+  [41] Event            2026-05-30  Seek, Solve, Summer Walk!
+       image: https://uma.moe/assets/images/story/06_seek_solve_summer_walk_banner.png
+  [42] Banner           2026-06-06  Air Shakur Banner
+       image: data\combined_images\combined_v_da2a38ef936a.png
+  [43] Champions Meeting 2026-06-08  Champions Meeting: Cancer Cup
+       image: None
+  [44] Banner           2026-06-12  Narita Brian & Seiun Sky Banner
+       image: data\combined_images\combined_v_dde266c3152a.png
+  [45] Banner           2026-06-18  Mejiro McQueen & Gold Ship Banner
+       image: data\combined_images\combined_v_3ed8f69d2f80.png
+  [46] Event            2026-06-18  Super Smashing☆Summer Vacation
+       image: https://uma.moe/assets/images/story/07_super_smashing_summer_vacation_banner.png
+  [47] Banner           2026-06-26  Bamboo Memory Banner
+       image: data\combined_images\combined_v_6af5644a5bc8.png
+  [48] Champions Meeting 2026-06-28  Champions Meeting: Leo Cup
+       image: None
+  [49] Banner           2026-07-02  Copano Rickey Banner
+       image: data\combined_images\combined_v_79c8d2572873.png
+  [50] Banner           2026-07-05  Smart Falcon Banner
+       image: data\combined_images\combined_v_dc1d00e6fc7b.png
+  [51] Banner           2026-07-08  Winning Ticket & Narita Taishin Banner
+       image: data\combined_images\combined_v_f03a6df11834.png
+  [52] Event            2026-07-08  Wings of Iron: Hazy Tales
+       image: https://uma.moe/assets/images/story/08_wings_of_iron_banner.png
+  [53] Banner           2026-07-18  Yukino Bijin Banner
+       image: data\combined_images\combined_v_fd3895ed6a32.png
+  [54] Champions Meeting 2026-07-20  Champions Meeting: Virgo Cup
+       image: None
+  [57] Banner           2026-07-29  Agnes Digital & Meisho Doto Banner
+       image: data\combined_images\combined_v_24ca17156a20.png
+  [58] Event            2026-07-29  Days in a Flash
+       image: https://uma.moe/assets/images/story/09_days_in_a_flash_banner.png
+  [59] Banner           2026-08-06  Aston Machan Banner
+       image: data\combined_images\combined_v_75cc5f8da186.png
+  [2] Champions Meeting 2026-08-08  Champions Meeting: Libra Cup
+       image: None
+  [55] Banner           2026-08-10  Seeking the Pearl Banner
+       image: data\combined_images\combined_v_6bc0119e8db7.png
+  [60] Banner           2026-08-11  Yamanin Zephyr Banner
+       image: data\combined_images\combined_v_20c32b99be52.png
+  [61] Legend Race      2026-08-13  Shuuka Sho Legend Race
+       image: data\combined_images\combined_h_c2f0a2528632.png
+  [62] Banner           2026-08-17  Tamamo Cross & Inari One Banner
+       image: data\combined_images\combined_v_d02912c65f0f.png
+  [63] Event            2026-08-17  Intertwined Memories, Galloping Thoughts
+       image: https://uma.moe/assets/images/story/10_intertwined_memories_banner.png
+  [64] Banner           2026-08-25  Nakayama Festa Banner
+       image: data\combined_images\combined_v_dc6cad6dc97c.png
+  [7] Champions Meeting 2026-08-27  Champions Meeting: Scorpio Cup
+       image: None
+  [65] Banner           2026-08-30  Wonder Acute Banner
+       image: data\combined_images\combined_v_edfd4265c50a.png
+  [66] Banner           2026-09-06  Vodka & Daiwa Scarlet Banner
+       image: data\combined_images\combined_v_b67d92c08db8.png
+  [67] Event            2026-09-06  Illuminate the Heart
+       image: https://uma.moe/assets/images/story/11_illuminate_the_heart_banner.png
+  [68] Banner           2026-09-15  Zenno Rob Roy Banner
+       image: data\combined_images\combined_v_de91f0deff1c.png
+  [70] Banner           2026-09-21  Narita Brian Banner
+       image: data\combined_images\combined_v_1bca50a94e7f.png
+  [72] Banner           2026-09-26  Kitasan Black & Satono Diamond Banner <-- FOUND
+       image: data\combined_images\combined_v_72b023cf2bbb.png
+  [73] Event            2026-09-26  Happy New Future: Bonds Dyed in the Sunrise
+       image: https://uma.moe/assets/images/story/12_happy_new_future_banner.png
+  [74] Banner           2026-10-04  Hokko Tarumae Banner
+       image: data\combined_images\combined_v_a11903b142cf.png
+  [76] Banner           2026-10-11  Daitaku Helios Banner
+       image: data\combined_images\combined_v_015a2471919c.png
+  [77] Banner           2026-10-11  Rice Shower & Haru Urara Banner
+       image: data\combined_images\combined_v_3326c8318439.png
+  [78] Banner           2026-10-17  Ines Fujin & Mejiro Ryan Banner
+       image: data\combined_images\combined_v_b9497341d863.png
+  [79] Event            2026-10-17  Sweet Memories ♥ Tea Time
+       image: https://uma.moe/assets/images/story/01_sweet_memories_banner.png
+  [80] Banner           2026-10-27  Shinko Windy Banner
+       image: data\combined_images\combined_v_e69a1b2f0de2.png
+  [81] Banner           2026-11-03  Twin Turbo & Mr. C.B. Banner
+       image: data\combined_images\combined_v_ed9ed78a1df7.png
+  [82] Event            2026-11-03  Leap Into a New World!
+       image: https://uma.moe/assets/images/story/02_leap_into_a_new_world_banner.png
+  [83] Banner           2026-11-12  Daiichi Ruby Banner
+       image: data\combined_images\combined_v_641bf96be11c.png
+  [84] Banner           2026-11-19  Symboli Kris S Banner
+       image: data\combined_images\combined_v_0eab43bce473.png
+  [85] Banner           2026-11-24  Mejiro Ardan & Sakura Chiyono O Banner
+       image: data\combined_images\combined_v_211e92525bad.png
+  [86] Event            2026-11-24  Wherefore I Adore You
+       image: https://uma.moe/assets/images/story/03_wherefore_i_adore_you_banner.png
+  [87] Banner           2026-12-02  Sakura Laurel Banner
+       image: data\combined_images\combined_v_c42af04377b3.png
+  [27] Champions Meeting 2026-12-04  Champions Meeting: Aries Cup
+       image: None
+  [88] Banner           2026-12-08  Neo Universe Banner
+       image: data\combined_images\combined_v_6b6ee8bda9bd.png
+  [89] Legend Race      2026-12-10  Osaka Hai Legend Race
+       image: data\combined_images\combined_h_c513721a992a.png
+  [90] Banner           2026-12-14  Matikanetannhauser & Sakura Bakushin O Banner
+       image: data\combined_images\combined_v_c0aff9482ad3.png
+  [91] Banner           2026-12-14  Gold City & Tosen Jordan & Mejiro Palmer & Daitaku Helios Banner
+       image: https://uma.moe/assets/images/character/banner/2023_30164.png
+  [92] Event            2026-12-14  Tagball Rumble: Witty Warfare!
+       image: https://uma.moe/assets/images/story/04_tagball_rumble_banner.png
+  [93] Banner           2026-12-22  Hishi Miracle Banner
+       image: data\combined_images\combined_v_7356cf4bd6b2.png
+  [94] Banner           2026-12-28  Tanino Gimlet Banner
+       image: data\combined_images\combined_v_909b82adc78a.png
+  [95] Banner           2027-01-03  Nishino Flower & Hishi Amazon Banner
+       image: data\combined_images\combined_v_b94311ebf2e1.png
+  [96] Event            2027-01-03  An Oath to My Dear Challengers
+       image: https://uma.moe/assets/images/story/05_an_oath_to_my_dear_challengers_banner.png
+  [97] Legend Race      2027-01-08  Yasuda Kinen Legend Race
+       image: data\combined_images\combined_h_29ce571b9e34.png
+  [98] Banner           2027-01-11  Taiki Shuttle & Yamanin Zephyr Banner
+       image: data\combined_images\combined_v_15c32523ed4f.png
+  [100] Banner           2027-01-17  Marvelous Sunday Banner
+       image: data\combined_images\combined_v_3574fe2828f9.png
+  [101] Banner           2027-01-24  Bamboo Memory & Tosen Jordan Banner
+       image: data\combined_images\combined_v_a0a64f9fe3a7.png
+  [102] Event            2027-01-24  #summer #besties
+       image: https://uma.moe/assets/images/story/06_summer_besties_banner.png
+  [39] Legend Race      2027-01-28  Takarazuka Kinen Legend Race
+       image: data\combined_images\combined_h_f8939f1471e7.png
+  [103] Banner           2027-01-31  Katsuragi Ace Banner
+       image: data\combined_images\combined_v_dd7e74ed1d06.png
+  [105] Banner           2027-02-14  Agnes Tachyon & Silence Suzuka Banner
+       image: data\combined_images\combined_v_981da805ab26.png
+  [106] Event            2027-02-14  Summer's Sunlight Fades to Blue
+       image: https://uma.moe/assets/images/story/07_summers_sunlight_fades_to_blue_banner.png
+  [107] Legend Race      2027-02-20  Teio Sho Legend Race
+       image: data\combined_images\combined_h_937e6355b3ed.png
+  [108] Banner           2027-02-23  Copano Rickey & Hokko Tarumae Banner
+       image: data\combined_images\combined_v_e17f8d229402.png
+  [109] Champions Meeting 2027-02-25  Champions Meeting: DIRT
+       image: None
+  [110] Banner           2027-03-01  Narita Top Road Banner
+       image: data\combined_images\combined_v_b9908ca0cd73.png
+  [111] Banner           2027-03-06  Gold Ship Banner
+       image: data\combined_images\combined_v_fc94a8314497.png
+  [56] Legend Race      2027-03-10  Sprinters Stakes Legend Race
+       image: data\combined_images\combined_h_3b8cf205c0aa.png
+  [112] Banner           2027-03-19  K.S.Miracle Banner
+       image: data\combined_images\combined_v_e371bfa7fa90.png
+  [113] Banner           2027-03-25  Air Shakur & Symboli Kris S Banner
+       image: data\combined_images\combined_v_6c9c1be4c185.png
+  [114] Event            2027-03-25  A Patchwork's Farewell
+       image: https://uma.moe/assets/images/story/09_patchworks_farewell_banner.png
+  [1] Legend Race      2027-03-29  Kikka Sho Legend Race
+       image: data\combined_images\combined_h_48446b2091c1.png
+  [115] Champions Meeting 2027-04-03  Champions Meeting: CLASSIC
+       image: None
+  [116] Banner           2027-04-07  Mejiro Ramonu Banner
+       image: data\combined_images\combined_v_1cfe854b6b5e.png
+  [117] Banner           2027-04-14  Kawakami Princess & Tokai Teio Banner
+       image: data\combined_images\combined_v_39f0b97a9c4d.png
+  [118] Event            2027-04-14  As the Leaves Rust, Feelings Blossom
+       image: https://uma.moe/assets/images/story/10_as_the_leaves_rust_feelings_blossom_banner.png
+  [9] Legend Race      2027-04-19  Tenno Sho (Autumn) Legend Race
+       image: data\combined_images\combined_h_6c55319fff07.png
+  [119] Banner           2027-04-21  Matikanetannhauser & Mejiro McQueen Support Banner
+       image: https://uma.moe/assets/images/support/banner/2023_30203.png
+  [120] Banner           2027-04-28  Tap Dance City Banner
+       image: data\combined_images\combined_v_76e12fbb65ad.png
+  [121] Banner           2027-05-05  Mejiro Palmer & Mejiro Bright Banner
+       image: data\combined_images\combined_v_146845f13ccb.png
+  [122] Event            2027-05-05  A Gleaming Mejiro Gala
+       image: https://uma.moe/assets/images/story/11_a_gleaming_mejiro_gala_banner.png
+  [123] Banner           2027-05-12  Satono Crown Banner <-- FOUND
+       image: https://uma.moe/assets/images/character/banner/2023_30208.png
+  [124] Champions Meeting 2027-05-14  Champions Meeting: LONG
+       image: None
+  [125] Banner           2027-05-18  Cheval Grand Banner
+       image: data\combined_images\combined_v_2bee37002a40.png
+  [126] Banner           2027-05-23  Kitasan Black Banner
+       image: data\combined_images\combined_v_29218c25b3dc.png
+  [127] Event            2027-05-23  Together with Everyone
+       image: https://uma.moe/assets/images/story/12_together_with_everyone_banner.png
+  [128] Legend Race      2027-05-28  Asahi Hai Futurity Stakes Legend Race
+       image: data\combined_images\combined_h_1d611638e239.png
+  [129] Banner           2027-05-31  Nice Nature Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30214.png
+  [130] Banner           2027-06-06  Vivlos Banner
+       image: data\combined_images\combined_v_a6c1f253ec5c.png
+  [131] Banner           2027-06-14  Yukino Bijin & Manhattan Cafe Banner
+       image: data\combined_images\combined_v_7ba4364646c6.png
+  [132] Event            2027-06-14  Come One, Come All, To Calming Koumian!
+       image: https://uma.moe/assets/images/story/01_calming_koumian_banner.png
+  [133] Legend Race      2027-06-20  Takamatsunomiya Kinen Legend Race
+       image: data\combined_images\combined_h_2ab4135a9c42.png
+  [134] Banner           2027-06-23  Biko Pegasus Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30220.png
+  [135] Champions Meeting 2027-06-26  Champions Meeting: SPRINT
+       image: None
+  [136] Banner           2027-06-30  Ikuno Dictus & Duramente Banner
+       image: data\combined_images\combined_v_060fe3225c13.png
+  [137] Banner           2027-07-11  Transcend Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30224.png
+  [138] Banner           2027-07-17  Rhein Kraft Banner
+       image: data\combined_images\combined_v_9241b46ce2cf.png
+  [139] Banner           2027-07-22  Daiichi Ruby & Daitaku Helios Banner
+       image: data\combined_images\combined_v_942320986dc9.png
+  [140] Event            2027-07-22  Dear Comet Orchid: Let's Dance Now!
+       image: https://uma.moe/assets/images/story/03_dear_comet_orchid_banner.png
+  [31] Legend Race      2027-07-26  Tenno Sho (Spring) Legend Race
+       image: data\combined_images\combined_h_8a43e13bf3c0.png
+  [141] Banner           2027-07-30  Winning Ticket Banner
+       image: data\combined_images\combined_v_bbd1e15a7e2a.png
+  [99] Champions Meeting 2027-08-01  Champions Meeting: MILE
+       image: None
+  [142] Banner           2027-08-05  Sounds of Earth Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30234.png
+  [143] Banner           2027-08-12  Super Creek & Yaeno Muteki Banner
+       image: data\combined_images\combined_v_8134a27e1bd8.png
+  [144] Banner           2027-08-12  Hishi Amazon & Sakura Chiyono O & Hishi Amazon & Katsuragi Ace Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30238.png
+  [145] Event            2027-08-12  Uprising: The Soldiers' Battle Cry
+       image: https://uma.moe/assets/images/story/04_uprising_the_soldiers_battle_cry_banner.png
+  [146] Legend Race      2027-08-16  Tokyo Yushun (Japan Derby) Legend Race
+       image: data\combined_images\combined_h_2c5d700d3fcb.png
+  [147] Banner           2027-08-19  Agnes Tachyon Banner
+       image: data\combined_images\combined_v_bf77f1c3d623.png
+  [148] Banner           2027-08-25  North Flight Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30244.png
+  [149] Banner           2027-09-01  King Halo & Sweep Tosho Banner
+       image: data\combined_images\combined_v_96e9996c153f.png
+  [150] Event            2027-09-01  A Letter From the Baroque Pearl
+       image: https://uma.moe/assets/images/story/05_a_letter_from_the_baroque_pearl_banner.png
+  [151] Banner           2027-09-10  Jungle Pocket Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30250.png
+  [152] Banner           2027-09-19  Dream Journey Banner
+       image: data\combined_images\combined_v_362e197e2d80.png
+  [153] Banner           2027-09-27  Rice Shower Banner
+       image: data\combined_images\combined_v_aec90c65ffd5.png
+  [154] Banner           2027-10-04  Calstone Light O Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30258.png
+  [155] Banner           2027-10-10  Eishin Flash & Hokko Tarumae Banner
+       image: data\combined_images\combined_v_753dd2836321.png
+  [156] Event            2027-10-10  Sunset-Lit Jugend by the Shore
+       image: https://uma.moe/assets/images/story/07_sunset_lit_jugend_banner.png
+  [157] Banner           2027-10-21  Character Banner Banner
+       image: data\combined_images\combined_v_fbfeecc89a9a.png
+  [158] Banner           2027-10-27  Gentildonna Banner
+       image: data\combined_images\combined_v_01b4b6443124.png
+  [159] Banner           2027-10-31  Neo Universe & Zenno Rob Roy Banner
+       image: data\combined_images\combined_v_f4db2b37160b.png
+  [160] Event            2027-10-31  Gazing at the Harvest Moon With You
+       image: https://uma.moe/assets/images/story/08_gazing_at_the_harvest_moon_banner.png
+  [161] Banner           2027-11-08  Cesario Banner
+       image: data\combined_images\combined_v_8071c1129f02.png
+  [162] Banner           2027-11-14  Durandal Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30276.png
+  [163] Banner           2027-11-21  Seeking the Pearl & Mayano Top Gun Banner
+       image: data\combined_images\combined_v_5c4e9527055b.png
+  [164] Event            2027-11-21  Slapstick Crash!
+       image: https://uma.moe/assets/images/story/09_slapstick_crash_banner.png
+  [165] Banner           2027-11-28  Bubble Gum Fellow Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30282.png
+  [166] Banner           2027-12-10  Biwa Hayahide Banner
+       image: data\combined_images\combined_v_5e74b00955ec.png
+  [167] Banner           2027-12-16  Narita Taishin Banner
+       image: data\combined_images\combined_v_14b161d8d705.png
+  [168] Banner           2027-12-23  Air Messiah Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30290.png
+  [169] Banner           2027-12-29  Narita Top Road & Admire Vega Banner
+       image: data\combined_images\combined_v_5098c8876166.png
+  [170] Event            2027-12-29  Gather and Sing, Stars of the Sky!
+       image: https://uma.moe/assets/images/story/11_gather_and_sing_banner.png
+  [171] Banner           2028-01-06  Win Variation Banner
+       image: data\combined_images\combined_v_559303ff17cb.png
+  [172] Banner           2028-01-12  Grass Wonder Banner
+       image: https://uma.moe/assets/images/character/banner/2024_30298.png
+  [173] Banner           2028-01-17  Katsuragi Ace & Mr. C.B. Banner
+       image: data\combined_images\combined_v_6d9258961e67.png
+  [174] Event            2028-01-17  The Painted Dragon Heralds Dawn
+       image: https://uma.moe/assets/images/story/12_the_painted_dragon_banner.png
+  [175] Banner           2028-01-26  Maruzensky Banner
+       image: data\combined_images\combined_v_c190f0291a3e.png
+  [176] Banner           2028-02-02  Furioso Banner
+       image: https://uma.moe/assets/images/character/banner/2025_30306.png
+  [177] Banner           2028-02-09  Aston Machan & Yamanin Zephyr Banner
+       image: data\combined_images\combined_v_f4a0202f8ff1.png
+  [178] Event            2028-02-09  Melty♡ for U
+       image: https://uma.moe/assets/images/story/01_melty_for_u_banner.png
+  [179] Banner           2028-02-18  Tsurumaru Tsuyoshi Banner
+       image: https://uma.moe/assets/images/character/banner/2025_30312.png
+  [180] Banner           2028-02-25  Orfevre Banner
+       image: data\combined_images\combined_v_cbc32d31fd8c.png
+  [181] Banner           2028-03-06  Gran Alegria Banner
+       image: data\combined_images\combined_v_2ea3c9c6d392.png
+  [183] Banner           2028-03-19  Tap Dance City & Tanino Gimlet Banner
+       image: data\combined_images\combined_v_9e20daebde49.png
+  [184] Event            2028-03-19  Phantasmagoria: Phantom Step
+       image: https://uma.moe/assets/images/story/03_phantasmagoria_banner.png
+  [104] Banner           2028-03-25  Sirius Symboli Banner
+       image: data\combined_images\combined_v_1804ce5b4bce.png
+  [182] Banner           2028-03-25  No Reason Banner
+       image: https://uma.moe/assets/images/character/banner/2025_30338.png
+  [185] Banner           2028-04-02  Fenomeno Banner
+       image: https://uma.moe/assets/images/character/banner/2025_30328.png
+  [186] Banner           2028-04-08  Copano Rickey & Smart Falcon Banner
+       image: data\combined_images\combined_v_4e238797f183.png
+  [187] Banner           2028-04-08  Oguri Cap & Mejiro McQueen & Biwa Hayahide & Mejiro McQueen Banner
+       image: https://uma.moe/assets/images/character/banner/2025_30332.png
+  [188] Event            2028-04-08  Illuminate the Skies, Dreamy Night Parade
+       image: https://uma.moe/assets/images/story/04_dreamy_night_parade_banner.png
+  [189] Banner           2028-04-15  Verxina Banner
+       image: data\combined_images\combined_v_8aa6b330a884.png
+  [190] Banner           2028-04-21  Loves Only You Banner
+       image: https://uma.moe/assets/images/character/banner/2025_30340.png
+  [191] Banner           2028-04-27  Mejiro Ramonu & Cesario Banner
+       image: data\combined_images\combined_v_f48b9cb5a696.png
+  [192] Event            2028-04-27  June's Vibrant Statices
+       image: https://uma.moe/assets/images/story/05_junes_vibrant_statices_banner.png

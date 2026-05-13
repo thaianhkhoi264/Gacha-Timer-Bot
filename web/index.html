@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kanami Control Panel</title>
+  <link rel="icon" type="image/png" href="/web/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    /* ── Uma Musume asset URLs ── */
+    :root {
+      --uma-bg:          url('https://umamusume.com/_app/immutable/assets/bg.B9VZMSei.jpeg');
+      --uma-bg-title:    url('https://umamusume.com/_app/immutable/assets/bg_title.HYB_fX5K.png');
+      --uma-deco-base:   url('https://umamusume.com/_app/immutable/assets/decoration_base.ax2DgMiQ.svg');
+      --uma-deco-square: url('https://umamusume.com/_app/immutable/assets/decoration_square.CPV5Y4-u.svg');
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Roboto', system-ui, sans-serif;
+      background-color: #ebf0f9;
+      background-image: var(--uma-bg);
+      background-size: 256px;
+      background-blend-mode: luminosity;
+      color: #4d4d4d;
+      min-height: 100vh;
+    }
+
+    /* ── Setup screen ── */
+    #setup {
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; gap: 1rem; padding: 2rem;
+    }
+    #setup h1 { font-size: 1.5rem; margin-bottom: 0.5rem; color: #141414; font-weight: 700; }
+    #setup label { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: #898989; }
+    #setup input { padding: 0.5rem 0.75rem; background: #fff; border: 1px solid #b9bed2; border-radius: 4px; color: #4d4d4d; font-size: 1rem; }
+    #setup .btn-connect {
+      padding: 0.5rem 2rem; border: none; border-radius: 999px; color: #fff; cursor: pointer;
+      font-size: 1rem; font-weight: 700; font-style: italic; letter-spacing: 0.04em;
+      background: linear-gradient(135deg, #ff79d0 0%, #2a5dfa 100%);
+      position: relative; overflow: hidden;
+      transition: transform 0.3s cubic-bezier(.175,.885,.32,1.275);
+      filter: drop-shadow(0 3px 8px rgba(42,93,250,0.35));
+    }
+    #setup .btn-connect::before, #setup .btn-connect::after {
+      content: ''; position: absolute; top: 0; height: 100%; width: 28px;
+      background: var(--uma-deco-base) no-repeat center / auto 100%;
+      filter: brightness(0) invert(1); opacity: 0.4;
+    }
+    #setup .btn-connect::before { left: 0; }
+    #setup .btn-connect::after  { right: 0; transform: rotate(180deg); }
+    #setup .btn-connect:hover { transform: scale(0.95); }
+    #setup .err { color: #ff0000; font-size: 0.85rem; min-height: 1.2em; }
+
+    /* ── App layout ── */
+    #app { display: none; flex-direction: column; min-height: 100vh; }
+    header {
+      background-color: #ff79d0;
+      background-image: var(--uma-bg-title), linear-gradient(135deg, #ff79d0 0%, #2a5dfa 100%);
+      background-size: auto 100%, cover;
+      background-position: left center, center;
+      background-blend-mode: multiply, normal;
+      background-repeat: no-repeat, no-repeat;
+      padding: 0.75rem 1.5rem;
+      display: flex; align-items: center; justify-content: space-between;
+      position: relative; overflow: hidden;
+    }
+    header h1 { font-size: 1.1rem; color: #fff; font-weight: 700; letter-spacing: 0.04em; position: relative; }
+    header button {
+      background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4);
+      padding: 0.25rem 0.75rem; border-radius: 999px; color: #fff; cursor: pointer; font-size: 0.8rem;
+      position: relative;
+      transition: background 0.2s;
+    }
+    header button:hover { background: rgba(255,255,255,0.35); }
+
+    /* ── Profile tabs ── */
+    nav { background: #fff; display: flex; border-bottom: 1px solid #b9bed2; }
+    nav button { padding: 0.7rem 1.5rem; background: transparent; border: none; border-bottom: 3px solid transparent; color: #898989; cursor: pointer; font-size: 0.9rem; font-weight: 500; }
+    nav button.active { color: #ff79d0; border-bottom-color: #ff79d0; }
+    nav button:hover:not(.active) { color: #4d4d4d; background: #f8f8f8; }
+
+    /* ── Main content ── */
+    main { padding: 1.5rem; flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; }
+
+    /* ── Toolbar ── */
+    .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 0.35rem 0.9rem; border: none; border-radius: 999px; cursor: pointer;
+      font-size: 0.85rem; font-weight: 700; font-style: italic; letter-spacing: 0.02em;
+      position: relative; overflow: hidden;
+      transition: transform 0.3s cubic-bezier(.175,.885,.32,1.275);
+    }
+    .btn::before, .btn::after {
+      content: ''; position: absolute; top: 0; height: 100%; width: 24px;
+      background: var(--uma-deco-base) no-repeat center / auto 100%;
+      filter: brightness(0) invert(1); opacity: 0.35; pointer-events: none;
+    }
+    .btn::before { left: 0; }
+    .btn::after  { right: 0; transform: rotate(180deg); }
+    .btn:hover   { transform: scale(0.95); }
+    .btn-primary { background: #2a5dfa; color: #fff; }
+    .btn-danger  { background: #e74c3c; color: #fff; }
+    .btn-amber   { background: #f39c12; color: #fff; }
+    .btn-teal    { background: #27ae60; color: #fff; }
+    .btn-purple  { background: #8e44ad; color: #fff; }
+    .btn-orange  { background: #d35400; color: #fff; }
+    .btn-grey    { background: #e7e7e7; color: #4d4d4d; }
+    .btn-grey::before, .btn-grey::after { filter: none; opacity: 0.15; }
+    .btn-sm { padding: 0.15rem 0.6rem; font-size: 0.78rem; }
+    .btn-sm::before, .btn-sm::after { width: 16px; }
+
+    /* ── Form card ── */
+    .form-card {
+      background: #fff; border: 1px solid #b9bed2; border-radius: 8px;
+      padding: 1.25rem; margin-bottom: 1.25rem; box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      position: relative; overflow: hidden;
+    }
+    .form-card::after {
+      content: ''; position: absolute; top: 0; right: 0; width: 60px; height: 84px;
+      background: var(--uma-deco-square) no-repeat center / contain;
+      opacity: 0.12; pointer-events: none;
+    }
+    .form-card h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: #898989; margin-bottom: 1rem; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .form-group { display: flex; flex-direction: column; gap: 0.25rem; }
+    .form-group.full { grid-column: 1 / -1; }
+    .form-group label { font-size: 0.78rem; color: #898989; }
+    .form-group input, .form-group select {
+      padding: 0.4rem 0.6rem; background: #f8f8f8; border: 1px solid #b9bed2;
+      border-radius: 4px; color: #4d4d4d; font-size: 0.875rem;
+    }
+    .form-group input:focus { outline: none; border-color: #2a5dfa; background: #fff; }
+    .form-actions { display: flex; gap: 0.5rem; margin-top: 0.9rem; }
+
+    /* ── Table (used for notifications) ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.45rem 0.75rem; color: #898989; font-weight: 500; border-bottom: 1px solid #b9bed2; }
+    td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #e7e7e7; vertical-align: middle; color: #4d4d4d; }
+    tr:hover td { background: #ebf0f9; }
+    tr.selected td { background: #fdf0f9; }
+    .actions { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+
+    /* ── Event Cards ── */
+    .event-card {
+      background: #fff;
+      background-image: var(--uma-bg);
+      background-size: 128px;
+      background-blend-mode: luminosity;
+      border: 1px solid #b9bed2;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      transition: transform 0.3s cubic-bezier(.175,.885,.32,1.275), box-shadow 0.3s, border-color 0.3s;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+      position: relative; overflow: hidden;
+    }
+    .event-card::after {
+      content: ''; position: absolute; bottom: 0; right: 0; width: 70px; height: 98px;
+      background: var(--uma-deco-square) no-repeat bottom right / contain;
+      opacity: 0.1; pointer-events: none; transform: rotate(180deg);
+    }
+    .event-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 20px rgba(42,93,250,0.15);
+      border-color: #a6c0ff;
+    }
+    .event-card.selected {
+      border-color: #ff79d0;
+      box-shadow: 0 0 0 2px rgba(255,121,208,0.3);
+    }
+    .event-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ebf0f9; padding-bottom: 0.6rem; }
+    .event-title-wrap { display: flex; align-items: baseline; gap: 0.6rem; }
+    .event-id { font-family: monospace; color: #b9bed2; font-size: 0.8rem; }
+    .event-title { font-weight: 700; font-size: 1.05rem; color: #141414; }
+    .event-time { font-size: 0.8rem; color: #898989; }
+    .event-body { display: flex; gap: 0.75rem; align-items: stretch; }
+    .event-image { flex: 1; height: 160px; background: #ebf0f9; border-radius: 6px; border: 1px solid #b9bed2; display: flex; align-items: center; justify-content: center; overflow: hidden; color: #b9bed2; font-size: 0.75rem; }
+    .event-image img { width: 100%; height: 100%; object-fit: contain; }
+    .event-actions { display: flex; flex-direction: column; gap: 0.5rem; justify-content: center; min-width: 90px; position: relative; z-index: 1; }
+    .event-notifs { border-top: 1px solid #b9bed2; padding-top: 0.75rem; position: relative; z-index: 1; }
+    .notif-heading { font-size: 0.9rem; font-weight: 600; color: #4d4d4d; margin-bottom: 0.5rem; }
+
+    /* ── Notifications panel ── */
+    .notif-footer { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
+    .notif-msg-cell { max-width: 260px; word-break: break-word; font-size: 0.82rem; }
+
+    /* ── Edit message modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center; z-index: 100;
+    }
+    .modal-card {
+      background: #fff; border-radius: 10px; padding: 1.5rem;
+      width: min(560px, 95vw); box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      display: flex; flex-direction: column; gap: 0.75rem;
+    }
+    .modal-card h3 { font-size: 1rem; font-weight: 700; color: #141414; }
+    .modal-hint { font-size: 0.8rem; color: #898989; }
+    .placeholder-table { font-size: 0.8rem; border-collapse: collapse; width: 100%; }
+    .placeholder-table td { padding: 0.2rem 0.5rem; }
+    .placeholder-table td:first-child { width: 110px; }
+    .placeholder-table code { background: #ebf0f9; border-radius: 3px; padding: 0.1rem 0.3rem; font-size: 0.78rem; }
+    .msg-textarea {
+      width: 100%; min-height: 80px; padding: 0.5rem 0.6rem;
+      border: 1px solid #b9bed2; border-radius: 4px;
+      font-family: inherit; font-size: 0.875rem; color: #4d4d4d; resize: vertical;
+    }
+    .msg-textarea:focus { outline: none; border-color: #2a5dfa; }
+    .modal-preview-label { font-size: 0.78rem; color: #898989; }
+    .modal-preview {
+      background: #ebf0f9; border-radius: 4px; padding: 0.5rem 0.75rem;
+      font-size: 0.85rem; color: #4d4d4d; min-height: 2rem; word-break: break-word;
+    }
+    .modal-actions { display: flex; gap: 0.5rem; margin-top: 0.25rem; }
+
+    /* ── States ── */
+    .empty   { padding: 2rem; text-align: center; color: #b9bed2; font-size: 0.85rem; }
+    .loading { color: #b9bed2; font-size: 0.85rem; padding: 1.5rem 0; text-align: center; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 1.25rem; right: 1.25rem;
+      padding: 0.5rem 1.25rem; border-radius: 999px; font-size: 0.85rem; font-style: italic;
+      opacity: 0; pointer-events: none; transition: opacity 0.25s;
+    }
+    #toast.show  { opacity: 1; }
+    #toast.ok    { background: #27ae60; color: #fff; }
+    #toast.error { background: #e74c3c; color: #fff; }
+  </style>
+</head>
+<body>
+
+<!-- ── Setup Screen ─────────────────────────────────────────────────── -->
+<div id="setup">
+  <h1>Kanami Control Panel</h1>
+  <label>
+    API Key
+    <input type="password" id="cfgKey" autocomplete="off">
+  </label>
+  <button class="btn-connect" onclick="saveConfig()">Connect</button>
+  <div id="setupErr" class="err"></div>
+</div>
+
+<!-- ── Main App ─────────────────────────────────────────────────────── -->
+<div id="app">
+  <header>
+    <h1>Kanami Control Panel</h1>
+    <button onclick="logout()">Change Config</button>
+  </header>
+
+  <nav id="profileTabs"></nav>
+
+  <main>
+    <div class="toolbar">
+      <button class="btn btn-primary" onclick="showAddForm()">+ Add Event</button>
+      <button class="btn btn-amber"   onclick="refreshDashboard()">↻ Refresh Dashboard</button>
+      <button class="btn btn-teal"    onclick="refreshAllNotifications()">↻ Regenerate All Notifications</button>
+      <button class="btn btn-purple"  onclick="runScraper()" id="btn-run-scraper" style="display:none">▶ Run Scraper</button>
+      <button class="btn btn-orange"  onclick="openMaintenanceModal()" id="btn-add-maintenance" style="display:none">🔧 Add Maintenance</button>
+      <button class="btn btn-danger"  onclick="restartBot()" style="margin-left:auto">⟳ Restart Bot</button>
+    </div>
+
+    <!-- Add / Edit form -->
+    <div id="event-form" class="form-card" style="display:none">
+      <h3 id="form-title">Add Event</h3>
+      <input type="hidden" id="editId">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Title</label>
+          <input type="text" id="fTitle" placeholder="Event title">
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <input type="text" id="fCategory" placeholder="e.g. Banner, Event, Login Bonus">
+        </div>
+        <div class="form-group">
+          <label>Image URL (optional)</label>
+          <input type="text" id="fImage" placeholder="https://...">
+        </div>
+        <div class="form-group">
+          <label>Start (UTC)</label>
+          <input type="datetime-local" id="fStart">
+        </div>
+        <div class="form-group">
+          <label>End (UTC)</label>
+          <input type="datetime-local" id="fEnd">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="submitForm()">Save</button>
+        <button class="btn btn-grey"    onclick="hideForm()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Events list -->
+    <div id="events-list"><div class="loading">Loading…</div></div>
+  </main>
+</div>
+
+<!-- Edit notification message modal -->
+<div id="edit-msg-modal" style="display:none" class="modal-overlay" onclick="if(event.target===this)closeEditMsgModal()">
+  <div class="modal-card">
+    <h3>Edit Notification Message</h3>
+    <p class="modal-hint">Leave blank to restore the default. Supported placeholders:</p>
+    <table class="placeholder-table">
+      <tr><td><code>{role}</code></td><td>Role ping for this game</td></tr>
+      <tr><td><code>{name}</code></td><td>Event title</td></tr>
+      <tr><td><code>{time}</code></td><td>Relative Discord timestamp (e.g. "in 2 hours")</td></tr>
+      <tr><td><code>{category}</code></td><td>Event category</td></tr>
+      <tr><td><code>{character}</code></td><td>Character name (Legend Race only)</td></tr>
+      <tr><td><code>{phase}</code></td><td>Phase name (Champions Meeting only)</td></tr>
+    </table>
+    <textarea id="editMsgText" class="msg-textarea" placeholder="Leave blank to restore default…" oninput="updateMsgPreview()"></textarea>
+    <div class="modal-preview-label">Preview:</div>
+    <div id="editMsgPreview" class="modal-preview"></div>
+    <input type="hidden" id="editMsgId">
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveEditMsg()">Save</button>
+      <button class="btn btn-grey"    onclick="closeEditMsgModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Maintenance from tweet/announcement modal -->
+<div id="maintenance-modal" style="display:none" class="modal-overlay" onclick="if(event.target===this)closeMaintenanceModal()">
+  <div class="modal-card" style="max-width:480px">
+    <h3>Add Maintenance Event</h3>
+    <p class="modal-hint">Paste the maintenance tweet text or a link to the announcement page. The time window will be extracted automatically.</p>
+    <textarea id="maintenanceInput" class="msg-textarea" rows="6"
+              placeholder="7:00 a.m. - 9:00 a.m., Mar 3, 2026 (UTC)&#10;&#10;or&#10;&#10;https://umamusume.com/news/..."></textarea>
+    <div id="maintenanceError" style="color:#c0392b;font-size:0.85rem;margin-top:0.25rem;display:none"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="parseMaintenance()">Parse &amp; Add Event</button>
+      <button class="btn btn-grey"    onclick="closeMaintenanceModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

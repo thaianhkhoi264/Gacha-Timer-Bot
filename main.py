@@ -15,9 +15,9 @@ from global_config import *
 
 from arknights_module import *
 # import reminder_module
-import control_panel
 import uma_module
 import api_server  # Import API server
+import event_manager
 
 import sys
 import aiosqlite
@@ -317,12 +317,6 @@ async def send_daily_report():
         except Exception as e:
             print(f"[Daily Report] Failed to send DM: {e}")
 
-# Notification loop function to load and schedule pending notifications
-async def notification_loop():
-    while True:
-        await notification_handler.load_and_schedule_pending_notifications(bot)
-        await asyncio.sleep(30)  # Check every 30 seconds
-
 # Get latest git commit message for version info
 def get_latest_commit_message():
     try:
@@ -351,8 +345,9 @@ async def on_ready():
     # Start API server if enabled
     if API_ENABLED:
         try:
-            # Set bot instance in api_server to avoid circular import
+            # Set bot instance in api_server and event_manager to avoid circular import
             api_server.bot_instance = bot
+            event_manager.set_bot(bot)
             api_runner = await api_server.start_api_server(host=API_HOST, port=API_PORT)
             print(f'\n{"="*50}')
             print(f'API Server Status: ENABLED')
@@ -399,7 +394,7 @@ async def on_ready():
         bot._notif_db_initialized = True
         await notification_handler.init_notification_db()
 
-    # Initialize Uma Musume database FIRST (before control panel tries to read from it)
+    # Initialize Uma Musume database
     print("[DEBUG] Initializing Uma Musume database...")
     try:
         await uma_module.init_uma_db()
@@ -409,53 +404,15 @@ async def on_ready():
         import traceback
         traceback.print_exc()
 
-    # Initialize control panel database and load message IDs
-    print("[DEBUG] Initializing control panel database...")
-    await control_panel.init_control_panel_db()
-    await control_panel.load_control_panel_message_ids()
-    print("[DEBUG] Control panel database initialized and message IDs loaded.")
-
-    # Register persistent views BEFORE ensure_control_panels
-    print("[DEBUG] Registering persistent views...")
-    events_ak = await control_panel.get_events("AK")
-    events_uma = await control_panel.get_events("UMA")
-    
-    # Register views for each profile
-    for profile in CONTROL_PANEL_CHANNELS:
-        bot.add_view(control_panel.AddEventView(profile))
-        
-        # Get events for this profile
-        events = events_ak if profile == "AK" else events_uma
-        
-        # Register Remove/Edit views with current events
-        if events:
-            bot.add_view(control_panel.RemoveEventView(profile, events))
-            bot.add_view(control_panel.EditEventView(profile, events))
-            
-            # Register notification views for each event
-            for event in events:
-                notifs = await control_panel.get_pending_notifications_for_event(profile, event["id"])
-                if notifs:
-                    bot.add_view(control_panel.PendingNotifView(profile, event, notifs))
-    
-    print("[DEBUG] Persistent views registered.")
-
     # Create background tasks FIRST (so they start immediately)
     print("[DEBUG] Creating background tasks...")
     # asyncio.create_task(reminder_module.daily_reminder_task())
     # print("[DEBUG] Reminder task created.")
-    asyncio.create_task(notification_loop())
-    print("[DEBUG] Notification loop task created.")
     # asyncio.create_task(send_daily_report())
     # print("[DEBUG] Daily report task created.")
     # asyncio.create_task(hsr_scraper.periodic_hsr_scraping_task())
     # print("[DEBUG] HSR periodic scraping task created.")
 
-    # Now initialize control panels (UMA DB already initialized above)
-    print("[DEBUG] About to call ensure_control_panels...")
-    await control_panel.ensure_control_panels()
-    print("[DEBUG] ensure_control_panels completed.")
-    
     # Cleanup ghost notifications and validate event notifications
     print("[DEBUG] Running notification maintenance...")
     await notification_handler.cleanup_ghost_notifications()
