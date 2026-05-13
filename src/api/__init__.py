@@ -35,6 +35,7 @@ from src.api.middleware import (
 from src.api.routes import (
     setup_routes,
     ShadowverseRoutes,
+    NotificationRoutes,
 )
 from src.api.models import (
     ShadowverseCraft,
@@ -219,6 +220,7 @@ __all__ = [
     # Routes
     'setup_routes',
     'ShadowverseRoutes',
+    'NotificationRoutes',
     # Models
     'ShadowverseCraft',
     'MatchResult',

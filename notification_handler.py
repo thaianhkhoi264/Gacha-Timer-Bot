@@ -1,5 +1,4 @@
 from modules import *
-from bot import bot
 
 from collections import deque
 import asyncio
@@ -110,12 +109,15 @@ UMA_NOTIFICATION_TIMINGS = {
     # Champions Meeting and Legend Race: Custom handling (will be handled separately)
     "Champions Meeting": {"start": [], "end": []},
     "Legend Race": {"start": [], "end": []},
+
+    # Maintenance: 1 hour before start, notify at end (server back up)
+    "Maintenance": {"start": [60], "end": [0]},
 }
 
 # Notification message templates
 MESSAGE_TEMPLATES = {
     # Default template (used when no specific template exists)
-    "default": "{role}, The {category} {name} is {action} {time}!",
+    "default": "{role}, The {name} is {action} {time}!",
     
     # Uma Musume - Champions Meeting phases
     "uma_champions_meeting_registration_start": "{role}, {name} Registration has started!",
@@ -285,9 +287,8 @@ async def schedule_champions_meeting_notifications(event):
     Schedule notifications for Champions Meeting event.
     Creates 7 notifications: 1 reminder + 5 phases + 1 end
     """
-    # Import here to avoid circular dependency
-    from uma_module import parse_champions_meeting_phases
-    
+    from uma_handler import parse_champions_meeting_phases
+
     send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduling notifications for: {event['title']}")
     
     # Parse phases from description
@@ -304,17 +305,24 @@ async def schedule_champions_meeting_notifications(event):
     send_log(MAIN_SERVER_ID, f"[Champions Meeting] Parsed {len(phases)} phases")
     
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+
         # 1. Reminder: 1 day before event starts
         reminder_time = int(event['start_date']) - 86400
-        if reminder_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-            await conn.execute("""
-                INSERT INTO pending_notifications 
-                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            """, (event['category'], event['profile'], event['title'], 'reminder', 
-                  reminder_time, int(event['start_date']), 'uma_champions_meeting_reminder'))
-            send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled reminder at <t:{reminder_time}:F>")
-        
+        if reminder_time > now:
+            async with conn.execute(
+                "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                (event['category'], event['profile'], event['title'], 'reminder', reminder_time)
+            ) as _cur:
+                if not await _cur.fetchone():
+                    await conn.execute("""
+                        INSERT INTO pending_notifications
+                        (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                    """, (event['category'], event['profile'], event['title'], 'reminder',
+                          reminder_time, int(event['start_date']), 'uma_champions_meeting_reminder'))
+                    send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled reminder at <t:{reminder_time}:F>")
+
         # 2-6. Phase start notifications (all 5 phases)
         phase_template_map = {
             "League Selection": "uma_champions_meeting_registration_start",
@@ -323,29 +331,39 @@ async def schedule_champions_meeting_notifications(event):
             "Final Registration": "uma_champions_meeting_final_registration_start",
             "Finals": "uma_champions_meeting_finals_start"
         }
-        
+
         for phase in phases:
             template_key = phase_template_map.get(phase['name'])
-            if template_key and phase['start_time'] > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-                await conn.execute("""
-                    INSERT INTO pending_notifications 
-                    (category, profile, title, timing_type, notify_unix, event_time_unix, sent, 
-                     message_template, phase)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-                """, (event['category'], event['profile'], event['title'], 'phase_start',
-                      phase['start_time'], phase['start_time'], template_key, phase['name']))
-                send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled {phase['name']} at <t:{phase['start_time']}:F>")
-        
+            if template_key and phase['start_time'] > now:
+                async with conn.execute(
+                    "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=? AND phase=?",
+                    (event['category'], event['profile'], event['title'], 'phase_start', phase['start_time'], phase['name'])
+                ) as _cur:
+                    if not await _cur.fetchone():
+                        await conn.execute("""
+                            INSERT INTO pending_notifications
+                            (category, profile, title, timing_type, notify_unix, event_time_unix, sent,
+                             message_template, phase)
+                            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                        """, (event['category'], event['profile'], event['title'], 'phase_start',
+                              phase['start_time'], phase['start_time'], template_key, phase['name']))
+                        send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled {phase['name']} at <t:{phase['start_time']}:F>")
+
         # 7. Event end notification
         end_time = int(event['end_date'])
-        if end_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-            await conn.execute("""
-                INSERT INTO pending_notifications 
-                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            """, (event['category'], event['profile'], event['title'], 'end',
-                  end_time, end_time, 'uma_champions_meeting_end'))
-            send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled end notification at <t:{end_time}:F>")
+        if end_time > now:
+            async with conn.execute(
+                "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                (event['category'], event['profile'], event['title'], 'end', end_time)
+            ) as _cur:
+                if not await _cur.fetchone():
+                    await conn.execute("""
+                        INSERT INTO pending_notifications
+                        (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                    """, (event['category'], event['profile'], event['title'], 'end',
+                          end_time, end_time, 'uma_champions_meeting_end'))
+                    send_log(MAIN_SERVER_ID, f"[Champions Meeting] Scheduled end notification at <t:{end_time}:F>")
         
         await conn.commit()
     
@@ -357,9 +375,8 @@ async def schedule_legend_race_notifications(event):
     Schedule notifications for Legend Race event.
     Creates N+2 notifications: 1 reminder + N characters + 1 end
     """
-    # Import here to avoid circular dependency
-    from uma_module import parse_legend_race_characters
-    
+    from uma_handler import parse_legend_race_characters
+
     send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduling notifications for: {event['title']}")
     
     # Parse characters from description
@@ -376,39 +393,56 @@ async def schedule_legend_race_notifications(event):
     send_log(MAIN_SERVER_ID, f"[Legend Race] Parsed {len(characters)} characters")
     
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+
         # 1. Reminder: 1 day before event starts
         reminder_time = int(event['start_date']) - 86400
-        if reminder_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-            await conn.execute("""
-                INSERT INTO pending_notifications 
-                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            """, (event['category'], event['profile'], event['title'], 'reminder',
-                  reminder_time, int(event['start_date']), 'uma_legend_race_reminder'))
-            send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled reminder at <t:{reminder_time}:F>")
-        
+        if reminder_time > now:
+            async with conn.execute(
+                "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                (event['category'], event['profile'], event['title'], 'reminder', reminder_time)
+            ) as _cur:
+                if not await _cur.fetchone():
+                    await conn.execute("""
+                        INSERT INTO pending_notifications
+                        (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                    """, (event['category'], event['profile'], event['title'], 'reminder',
+                          reminder_time, int(event['start_date']), 'uma_legend_race_reminder'))
+                    send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled reminder at <t:{reminder_time}:F>")
+
         # 2-(N+1). Character start notifications
         for char in characters:
-            if char['start_time'] > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-                await conn.execute("""
-                    INSERT INTO pending_notifications 
-                    (category, profile, title, timing_type, notify_unix, event_time_unix, sent,
-                     message_template, character_name)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-                """, (event['category'], event['profile'], event['title'], 'character_start',
-                      char['start_time'], char['start_time'], 'uma_legend_race_character_start', char['name']))
-                send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled {char['name']} at <t:{char['start_time']}:F>")
-        
+            if char['start_time'] > now:
+                async with conn.execute(
+                    "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=? AND character_name=?",
+                    (event['category'], event['profile'], event['title'], 'character_start', char['start_time'], char['name'])
+                ) as _cur:
+                    if not await _cur.fetchone():
+                        await conn.execute("""
+                            INSERT INTO pending_notifications
+                            (category, profile, title, timing_type, notify_unix, event_time_unix, sent,
+                             message_template, character_name)
+                            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                        """, (event['category'], event['profile'], event['title'], 'character_start',
+                              char['start_time'], char['start_time'], 'uma_legend_race_character_start', char['name']))
+                        send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled {char['name']} at <t:{char['start_time']}:F>")
+
         # (N+2). Event end notification
         end_time = int(event['end_date'])
-        if end_time > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
-            await conn.execute("""
-                INSERT INTO pending_notifications 
-                (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-            """, (event['category'], event['profile'], event['title'], 'end',
-                  end_time, end_time, 'uma_legend_race_end'))
-            send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled end notification at <t:{end_time}:F>")
+        if end_time > now:
+            async with conn.execute(
+                "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                (event['category'], event['profile'], event['title'], 'end', end_time)
+            ) as _cur:
+                if not await _cur.fetchone():
+                    await conn.execute("""
+                        INSERT INTO pending_notifications
+                        (category, profile, title, timing_type, notify_unix, event_time_unix, sent, message_template)
+                        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                    """, (event['category'], event['profile'], event['title'], 'end',
+                          end_time, end_time, 'uma_legend_race_end'))
+                    send_log(MAIN_SERVER_ID, f"[Legend Race] Scheduled end notification at <t:{end_time}:F>")
         
         await conn.commit()
     
@@ -420,6 +454,7 @@ async def schedule_notifications_for_event(event):
     Schedules notifications for an event using profile-based timings.
     Now supports Champions Meeting and Legend Race special scheduling.
     """
+    from bot import bot
     send_log(MAIN_SERVER_ID, f"schedule_notifications_for_event called for event: `{event['title']}` ({event['category']}) [{event['profile']}]")
     
     # Special handling for Champions Meeting (detect by title pattern)
@@ -503,15 +538,101 @@ async def schedule_notifications_for_event(event):
     guild = bot.get_guild(MAIN_SERVER_ID)
     await update_pending_notifications_embed_for_profile(guild, event['profile'])
 
-async def delete_notifications_for_event(title, category, profile):
+async def schedule_notifications_db_only(event):
     """
-    Deletes all pending notifications for a specific event (profile-based).
+    Like schedule_notifications_for_event but with no Discord calls.
+    Safe to call from standalone scripts (uma_scraper.py) that have no
+    connected bot instance.  The pending-notifications embed is NOT updated
+    here; the bot will refresh it on its next notification_loop cycle.
     """
+    title_lower = event.get('title', '').lower()
+
+    if 'champions meeting' in title_lower or event.get('category') == 'Champions Meeting':
+        success = await schedule_champions_meeting_notifications(event)
+        if success:
+            return
+        send_log(MAIN_SERVER_ID, "[Champions Meeting] Using generic scheduling as fallback")
+
+    if 'legend race' in title_lower or event.get('category') == 'Legend Race':
+        success = await schedule_legend_race_notifications(event)
+        if success:
+            return
+        send_log(MAIN_SERVER_ID, "[Legend Race] Using generic scheduling as fallback")
+
+    timings = get_notification_timings(event['category'], event.get('profile'))
+    send_log(MAIN_SERVER_ID, f"[DB-only] Using timings for event: {timings}")
+
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute(
-            "DELETE FROM pending_notifications WHERE title=? AND category=? AND profile=?",
-            (title, category, profile)
-        )
+        HYV_PROFILES = {"HSR", "ZZZ"}
+        if event['profile'].upper() in HYV_PROFILES:
+            regions = ["NA", "EU", "ASIA"]
+            for region in regions:
+                for timing_type, timing_minutes in timings:
+                    if region == "NA":
+                        event_time_unix = safe_int(event.get('america_start'), event.get('start_date')) if timing_type == "start" else safe_int(event.get('america_end'), event.get('end_date'))
+                    elif region == "EU":
+                        event_time_unix = safe_int(event.get('europe_start'), event.get('start_date')) if timing_type == "start" else safe_int(event.get('europe_end'), event.get('end_date'))
+                    elif region == "ASIA":
+                        event_time_unix = safe_int(event.get('asia_start'), event.get('start_date')) if timing_type == "start" else safe_int(event.get('asia_end'), event.get('end_date'))
+                    else:
+                        event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
+                    notify_unix = event_time_unix - timing_minutes * 60
+                    if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+                        async with conn.execute(
+                            "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=? AND region=?",
+                            (event['category'], event['profile'], event['title'], timing_type, notify_unix, region)
+                        ) as check_cursor:
+                            exists = await check_cursor.fetchone()
+                        if not exists:
+                            await conn.execute(
+                                "INSERT INTO pending_notifications (category, profile, title, timing_type, notify_unix, event_time_unix, sent, region) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                                (event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix, region)
+                            )
+        else:
+            for timing_type, timing_minutes in timings:
+                event_time_unix = int(event['start_date']) if timing_type == "start" else int(event['end_date'])
+                notify_unix = event_time_unix - timing_minutes * 60
+                if notify_unix > int(datetime.datetime.now(datetime.timezone.utc).timestamp()):
+                    async with conn.execute(
+                        "SELECT 1 FROM pending_notifications WHERE category=? AND profile=? AND title=? AND timing_type=? AND notify_unix=?",
+                        (event['category'], event['profile'], event['title'], timing_type, notify_unix)
+                    ) as check_cursor:
+                        exists = await check_cursor.fetchone()
+                    if not exists:
+                        await conn.execute(
+                            "INSERT INTO pending_notifications (category, profile, title, timing_type, notify_unix, event_time_unix, sent) VALUES (?, ?, ?, ?, ?, ?, 0)",
+                            (event['category'], event['profile'], event['title'], timing_type, notify_unix, event_time_unix)
+                        )
+        await conn.commit()
+
+async def delete_notifications_for_event(title, category, profile, event_start=None, event_end=None):
+    """
+    Deletes pending notifications for a specific event.
+
+    If event_start and event_end are provided (unix timestamps), the delete is
+    scoped to notifications whose event_time_unix falls within a 7-day window
+    around those dates.  This prevents accidentally deleting sibling events
+    that share the same title+category (e.g. two simultaneous Paid Banners).
+
+    When event_start/event_end are omitted the old behaviour is preserved
+    (delete everything matching title+category+profile).
+    """
+    _MARGIN = 7 * 24 * 3600  # 7 days
+    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+        if event_start is not None and event_end is not None:
+            await conn.execute(
+                """DELETE FROM pending_notifications
+                   WHERE title=? AND category=? AND profile=?
+                     AND (event_time_unix IS NULL
+                          OR event_time_unix BETWEEN ? AND ?)""",
+                (title, category, profile,
+                 int(event_start) - _MARGIN, int(event_end) + _MARGIN)
+            )
+        else:
+            await conn.execute(
+                "DELETE FROM pending_notifications WHERE title=? AND category=? AND profile=?",
+                (title, category, profile)
+            )
         await conn.commit()
 
 async def cleanup_ghost_notifications():
@@ -536,12 +657,18 @@ async def cleanup_ghost_notifications():
     except Exception as e:
         print(f"[NotificationHandler] Error reading AK database: {e}")
     
-    # TODO: Add other profile databases here as they're implemented
-    # async with aiosqlite.connect(HSR_DB_PATH) as conn:
-    #     async with conn.execute("SELECT profile, title, category FROM events") as cursor:
-    #         async for row in cursor:
-    #             valid_events.add((row[0], row[1], row[2]))
-    
+    # Check UMA database
+    try:
+        from uma_module import UMA_DB_PATH as _UMA_DB_PATH
+        async with aiosqlite.connect(_UMA_DB_PATH) as conn:
+            async with conn.execute("SELECT profile, title, category FROM events") as cursor:
+                async for row in cursor:
+                    valid_events.add((row[0], row[1], row[2]))
+    except Exception as e:
+        print(f"[NotificationHandler] Error reading UMA database: {e}")
+
+    # TODO: Add other profile databases here as they're implemented (HSR, ZZZ, etc.)
+
     # Remove notifications that don't match any valid event
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         async with conn.execute("SELECT DISTINCT profile, title, category FROM pending_notifications") as cursor:
@@ -590,8 +717,27 @@ async def validate_event_notifications():
     except Exception as e:
         print(f"[NotificationHandler] Error reading AK database: {e}")
     
-    # TODO: Add other profile databases here as they're implemented
-    
+    # Check UMA database
+    try:
+        from uma_module import UMA_DB_PATH as _UMA_DB_PATH
+        async with aiosqlite.connect(_UMA_DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT profile, title, category, start_date, end_date, description FROM events"
+            ) as cursor:
+                async for row in cursor:
+                    all_events.append({
+                        'profile':     row[0],
+                        'title':       row[1],
+                        'category':    row[2],
+                        'start_date':  row[3],
+                        'end_date':    row[4],
+                        'description': row[5] or '',
+                    })
+    except Exception as e:
+        print(f"[NotificationHandler] Error reading UMA database: {e}")
+
+    # TODO: Add other profile databases here as they're implemented (HSR, ZZZ, etc.)
+
     # For each event, check if it has all expected notifications
     fixed_count = 0
     for event in all_events:
@@ -627,6 +773,7 @@ async def send_notification(event, timing_type):
     Sends a notification to the correct profile-specific channel, using global_config.py for channel lookup.
     For HYV games, uses combined regional roles from COMBINED_REGIONAL_ROLE_IDS.
     """
+    from bot import bot
     from global_config import NOTIFICATION_CHANNELS, MAIN_SERVER_ID, COMBINED_REGIONAL_ROLE_IDS
 
     profile = event['profile'].upper()
@@ -682,31 +829,33 @@ async def send_notification(event, timing_type):
 
         # Build message: Priority 1 = custom_message, Priority 2 = template, Priority 3 = default
         message = None
+        time_str = "starting" if timing_type == "start" else "ending"
+        kwargs = {
+            'role': role_mention,
+            'name': event['title'],
+            'category': event['category'],
+            'action': time_str,
+            'time': f"<t:{unix_time}:R>"
+        }
+        if event.get('phase'):
+            kwargs['phase'] = event['phase']
+        if event.get('character'):
+            kwargs['character'] = event['character_name']
         if event.get('custom_message'):
-            message = event['custom_message']
+            try:
+                message = event['custom_message'].format(**kwargs)
+            except (KeyError, IndexError):
+                message = event['custom_message']
         elif event.get('message_template') and event.get('message_template') in MESSAGE_TEMPLATES:
             template = MESSAGE_TEMPLATES[event['message_template']]
-            time_str = "starting" if timing_type == "start" else "ending"
-            kwargs = {
-                'role': role_mention,
-                'name': event['title'],
-                'category': event['category'],
-                'action': time_str,
-                'time': f"<t:{unix_time}:R>"
-            }
-            if event.get('phase'):
-                kwargs['phase'] = event['phase']
-            if event.get('character'):
-                kwargs['character'] = event['character_name']
             try:
                 message = template.format(**kwargs)
             except KeyError:
                 pass  # Fall through to default
-        
+
         if not message:
-            time_str = "starting" if timing_type == "start" else "ending"
             message = f"{role_mention}, the **{event['category']}** **{event['title']}** is {time_str} <t:{unix_time}:R>!"
-        
+
         try:
             await channel.send(message)
             send_log(event.get('server_id', 'N/A'), f"Notification sent to channel {channel_id} for event {event['title']} ({profile} {region})")
@@ -740,29 +889,31 @@ async def send_notification(event, timing_type):
 
         # Build message: Priority 1 = custom_message, Priority 2 = template, Priority 3 = default
         message = None
+        time_str = "starting" if timing_type == "start" else "ending"
+        kwargs = {
+            'role': role_mention,
+            'name': event['title'],
+            'category': event['category'],
+            'action': time_str,
+            'time': f"<t:{unix_time}:R>"
+        }
+        if event.get('phase'):
+            kwargs['phase'] = event['phase']
+        if event.get('character_name'):
+            kwargs['character'] = event['character_name']
         if event.get('custom_message'):
-            message = event['custom_message']
+            try:
+                message = event['custom_message'].format(**kwargs)
+            except (KeyError, IndexError):
+                message = event['custom_message']
         elif event.get('message_template') and event.get('message_template') in MESSAGE_TEMPLATES:
             template = MESSAGE_TEMPLATES[event['message_template']]
-            time_str = "starting" if timing_type == "start" else "ending"
-            kwargs = {
-                'role': role_mention,
-                'name': event['title'],
-                'category': event['category'],
-                'action': time_str,
-                'time': f"<t:{unix_time}:R>"
-            }
-            if event.get('phase'):
-                kwargs['phase'] = event['phase']
-            if event.get('character_name'):
-                kwargs['character'] = event['character_name']
             try:
                 message = template.format(**kwargs)
             except KeyError:
                 pass  # Fall through to default
-        
+
         if not message:
-            time_str = "starting" if timing_type == "start" else "ending"
             message = f"{role_mention}, the **{event['category']}** event **{event['title']}** is {time_str} <t:{unix_time}:R>!"
         
         try:
@@ -1021,146 +1172,288 @@ async def update_combined_roles(member):
                         await member.remove_roles(combined_role, reason="Auto combined role update")
                         print(f"[DEBUG] ❌ Removed {combined_role.name} from {member.display_name}")
                         
-# Listeners for reaction roles
-@bot.event
-async def on_raw_reaction_add(payload):
-    if payload.member is None or payload.member.bot:
-        return
-    
-    # Check if this is a tracked role reaction message
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
-            row = await cursor.fetchone()
+if __name__ != "__main__":
+    from bot import bot
+
+    # Listeners for reaction roles
+    @bot.event
+    async def on_raw_reaction_add(payload):
+        if payload.member is None or payload.member.bot:
+            return
+
+        # Check if this is a tracked role reaction message
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                return  # Not a role reaction message
+
+        guild = bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+
+        # Profile roles
+        for profile, emoji in PROFILE_EMOJIS.items():
+            if str(payload.emoji) == emoji:
+                role_id = ROLE_IDS.get(profile)
+                if role_id:
+                    role = guild.get_role(role_id)
+                    if role:
+                        await payload.member.add_roles(role, reason="Profile role reaction add")
+        # Region roles
+        for region, emoji in REGION_EMOJIS.items():
+            if str(payload.emoji) == emoji:
+                role_id = REGIONAL_ROLE_IDS.get(region.upper())
+                if role_id:
+                    role = guild.get_role(role_id)
+                    if role:
+                        await payload.member.add_roles(role, reason="Region role reaction add")
+        # After adding, update combined roles
+        await update_combined_roles(payload.member)
+
+    @bot.event
+    async def on_raw_reaction_remove(payload):
+        guild = bot.get_guild(payload.guild_id)
+        if not guild:
+            return
+
+        # Check if this is a tracked role reaction message
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
+                row = await cursor.fetchone()
+
         if not row:
             return  # Not a role reaction message
-    
-    guild = bot.get_guild(payload.guild_id)
-    if not guild:
-        return
 
-    # Profile roles
-    for profile, emoji in PROFILE_EMOJIS.items():
-        if str(payload.emoji) == emoji:
+        member = guild.get_member(payload.user_id)
+        if not member:
+            return
+
+        # Profile roles
+        for profile, emoji in PROFILE_EMOJIS.items():
+            if str(payload.emoji) == emoji:
+                role_id = ROLE_IDS.get(profile)
+                if role_id:
+                    role = guild.get_role(role_id)
+                    if role:
+                        await member.remove_roles(role, reason="Profile role reaction remove")
+
+        # Region roles
+        for region, emoji in REGION_EMOJIS.items():
+            if str(payload.emoji) == emoji:
+                role_id = REGIONAL_ROLE_IDS.get(region.upper())
+                if role_id:
+                    role = guild.get_role(role_id)
+                    if role:
+                        await member.remove_roles(role, reason="Region role reaction remove")
+
+        # After removing, update combined roles
+        await update_combined_roles(member)
+
+    @bot.command()
+    @commands.has_permissions(manage_roles=True)
+    async def create_role_reaction(ctx):
+        """
+        Sends a message for users to react and get profile/region roles.
+        Uses hardcoded role IDs and emojis from global_config.py.
+        """
+        guild = ctx.guild
+
+        # Profile roles
+        profile_msg = await ctx.send("React to this message to get notification roles for each game.")
+        for profile, emoji in PROFILE_EMOJIS.items():
             role_id = ROLE_IDS.get(profile)
             if role_id:
-                role = guild.get_role(role_id)
-                if role:
-                    await payload.member.add_roles(role, reason="Profile role reaction add")
-    # Region roles
-    for region, emoji in REGION_EMOJIS.items():
-        if str(payload.emoji) == emoji:
-            role_id = REGIONAL_ROLE_IDS.get(region.upper())
+                await profile_msg.add_reaction(emoji)
+
+        # Region roles
+        region_msg = await ctx.send("React to this message to get your region role. (This only matters for Star Rail, Zenless Zone Zero and Wuthering Waves)")
+        for region, emoji in REGION_EMOJIS.items():
+            role_id = REGIONAL_ROLE_IDS.get(region)
             if role_id:
-                role = guild.get_role(role_id)
-                if role:
-                    await payload.member.add_roles(role, reason="Region role reaction add")
-    # After adding, update combined roles
-    await update_combined_roles(payload.member)
+                await region_msg.add_reaction(emoji)
 
-@bot.event
-async def on_raw_reaction_remove(payload):
-    guild = bot.get_guild(payload.guild_id)
-    if not guild:
-        return
+        # Save message IDs to database
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("profile", str(profile_msg.id)))
+            await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("region", str(region_msg.id)))
+            await conn.commit()
 
-    # Check if this is a tracked role reaction message
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        async with conn.execute("SELECT type FROM role_reaction_messages WHERE message_id=?", (str(payload.message_id),)) as cursor:
-            row = await cursor.fetchone()
-    
-    if not row:
-        return  # Not a role reaction message
-        
-    member = guild.get_member(payload.user_id)
-    if not member:
-        return
+        await ctx.send("React to the above messages to assign yourself roles!")
 
-    # Profile roles
-    for profile, emoji in PROFILE_EMOJIS.items():
-        if str(payload.emoji) == emoji:
-            role_id = ROLE_IDS.get(profile)
-            if role_id:
-                role = guild.get_role(role_id)
-                if role:
-                    await member.remove_roles(role, reason="Profile role reaction remove")
-    
-    # Region roles
-    for region, emoji in REGION_EMOJIS.items():
-        if str(payload.emoji) == emoji:
-            role_id = REGIONAL_ROLE_IDS.get(region.upper())
-            if role_id:
-                role = guild.get_role(role_id)
-                if role:
-                    await member.remove_roles(role, reason="Region role reaction remove")
-    
-    # After removing, update combined roles
-    await update_combined_roles(member)
+    @bot.command()
+    @commands.has_permissions(administrator=True)
+    async def update_all_combined_roles(ctx):
+        """Checks all members and updates their combined roles."""
+        count = 0
+        for member in ctx.guild.members:
+            if not member.bot:
+                await update_combined_roles(member)
+                count += 1
+        await ctx.send(f"Updated combined roles for {count} members.")
 
-@bot.command()
-@commands.has_permissions(manage_roles=True)
-async def create_role_reaction(ctx):
+    @bot.command()
+    @commands.has_permissions(administrator=True)
+    async def clear_pending_notifications(ctx):
+        async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+            await conn.execute("DELETE FROM pending_notifications")
+            await conn.commit()
+        await ctx.send("Cleared all pending notifications.")
+        await update_all_pending_notifications_embeds(ctx.guild)
+
+    @bot.command()
+    @commands.has_permissions(administrator=True)
+    async def cleanup_notifications(ctx):
+        """Removes ghost notifications and validates event notifications."""
+        await ctx.send("Running notification maintenance...")
+        ghost_count = await cleanup_ghost_notifications()
+        fixed_count = await validate_event_notifications()
+        await ctx.send(
+            f"✅ **Notification Maintenance Complete**\n"
+            f"• Removed {ghost_count} ghost notification(s)\n"
+            f"• Fixed {fixed_count} event(s) with missing notifications"
+        )
+        await update_all_pending_notifications_embeds(ctx.guild)
+
+def send_notification_webhook(row):
     """
-    Sends a message for users to react and get profile/region roles.
-    Uses hardcoded role IDs and emojis from global_config.py.
+    Synchronous webhook sender for standalone cron use.
+    Posts a notification to the Discord webhook for the event's profile.
+    Returns True on success (HTTP 200/204), False otherwise.
+
+    row: dict with keys matching pending_notifications columns:
+        id, profile, title, category, timing_type, event_time_unix,
+        region, message_template, custom_message, phase, character_name
     """
-    guild = ctx.guild
-
-    # Profile roles
-    profile_msg = await ctx.send("React to this message to get notification roles for each game.")
-    for profile, emoji in PROFILE_EMOJIS.items():
-        role_id = ROLE_IDS.get(profile)
-        if role_id:
-            await profile_msg.add_reaction(emoji)
-    
-    # Region roles
-    region_msg = await ctx.send("React to this message to get your region role. (This only matters for Star Rail, Zenless Zone Zero and Wuthering Waves)")
-    for region, emoji in REGION_EMOJIS.items():
-        role_id = REGIONAL_ROLE_IDS.get(region)
-        if role_id:
-            await region_msg.add_reaction(emoji)
-    
-    # Save message IDs to database
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("profile", str(profile_msg.id)))
-        await conn.execute("REPLACE INTO role_reaction_messages (type, message_id) VALUES (?, ?)", ("region", str(region_msg.id)))
-        await conn.commit()
-    
-    await ctx.send("React to the above messages to assign yourself roles!")
-    
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def update_all_combined_roles(ctx):
-    """Checks all members and updates their combined roles."""
-    count = 0
-    for member in ctx.guild.members:
-        if not member.bot:
-            await update_combined_roles(member)
-            count += 1
-    await ctx.send(f"Updated combined roles for {count} members.")
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def clear_pending_notifications(ctx):
-    async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
-        await conn.execute("DELETE FROM pending_notifications")
-        await conn.commit()
-    await ctx.send("Cleared all pending notifications.")
-    await update_all_pending_notifications_embeds(ctx.guild)
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def cleanup_notifications(ctx):
-    """Removes ghost notifications and validates event notifications."""
-    await ctx.send("Running notification maintenance...")
-    ghost_count = await cleanup_ghost_notifications()
-    fixed_count = await validate_event_notifications()
-    await ctx.send(
-        f"✅ **Notification Maintenance Complete**\n"
-        f"• Removed {ghost_count} ghost notification(s)\n"
-        f"• Fixed {fixed_count} event(s) with missing notifications"
+    import urllib.request
+    import json as _json
+    from global_config import (
+        ROLE_IDS, COMBINED_REGIONAL_ROLE_IDS, NOTIFICATION_WEBHOOK_URLS
     )
-    await update_all_pending_notifications_embeds(ctx.guild)
+
+    profile = row["profile"].upper()
+
+    # Build role mention string (no discord.py — just raw ID string)
+    HYV_PROFILES = {"HSR", "ZZZ", "WUWA"}
+    if profile in HYV_PROFILES:
+        region = (row.get("region") or "").upper()
+        role_id = COMBINED_REGIONAL_ROLE_IDS.get((profile, region))
+    else:
+        role_id = ROLE_IDS.get(profile)
+    role_mention = f"<@&{role_id}>" if role_id else ""
+
+    # Map event_time_unix → start_date/end_date for message formatting
+    timing_type = row.get("timing_type", "start")
+    event_time_unix = row.get("event_time_unix")
+    if timing_type == "end":
+        unix_time = event_time_unix
+        time_str = "ending"
+    else:
+        unix_time = event_time_unix
+        time_str = "starting"
+
+    # Build message: custom_message > template > default
+    kwargs = {
+        "role":     role_mention,
+        "name":     row["title"],
+        "category": row["category"],
+        "action":   time_str,
+        "time":     f"<t:{unix_time}:R>" if unix_time else "",
+    }
+    if row.get("phase"):
+        kwargs["phase"] = row["phase"]
+    if row.get("character_name"):
+        kwargs["character"] = row["character_name"]
+
+    message = None
+    if row.get("custom_message"):
+        try:
+            message = row["custom_message"].format(**kwargs)
+        except (KeyError, IndexError):
+            message = row["custom_message"]  # send raw if the template is malformed
+    elif row.get("message_template") and row["message_template"] in MESSAGE_TEMPLATES:
+        template = MESSAGE_TEMPLATES[row["message_template"]]
+        try:
+            message = template.format(**kwargs)
+        except KeyError:
+            pass
+
+    if not message:
+        time_ref = f"<t:{unix_time}:R>" if unix_time else "soon"
+        message = f"{role_mention}, the **{row['category']}** event **{row['title']}** is {time_str} {time_ref}!"
+
+    # POST to webhook
+    url = os.getenv(f"WEBHOOK_{profile}", "") or NOTIFICATION_WEBHOOK_URLS.get(profile, "")
+    if not url:
+        print(f"[NOTIFIER] No webhook URL configured for profile {profile}, skipping")
+        return False
+
+    payload = _json.dumps({"content": message}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "KanamiBot/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status in (200, 204)
+    except Exception as e:
+        print(f"[NOTIFIER] Webhook POST failed for {profile}: {e}")
+        if hasattr(e, 'read'):
+            print(f"[NOTIFIER] Discord error body: {e.read().decode('utf-8', errors='replace')}")
+        return False
+
+
+def run():
+    """
+    Standalone entry point: query due notifications and send via Discord webhooks.
+    Marks sent=1 only after a successful webhook POST.
+    Safe to run as a cron job every minute.
+    """
+    # Load .env so WEBHOOK_* vars are available when running standalone (not via bot.py)
+    try:
+        from dotenv import load_dotenv as _load_dotenv
+        _load_dotenv()
+    except ImportError:
+        pass
+
+    import sqlite3
+    import datetime as _dt
+
+    now = int(_dt.datetime.now(_dt.timezone.utc).timestamp())
+    cols = [
+        "id", "profile", "title", "category", "timing_type",
+        "notify_unix", "event_time_unix", "region",
+        "message_template", "custom_message", "phase", "character_name",
+    ]
+    conn = sqlite3.connect(NOTIF_DB_PATH)
+    rows = conn.execute(
+        f"SELECT {','.join(cols)} FROM pending_notifications "
+        "WHERE sent=0 AND notify_unix <= ?",
+        (now,),
+    ).fetchall()
+
+    for raw in rows:
+        row = dict(zip(cols, raw))
+        if send_notification_webhook(row):
+            conn.execute(
+                "UPDATE pending_notifications SET sent=1 WHERE id=?",
+                (row["id"],),
+            )
+            print(f"[NOTIFIER] Sent: {row['profile']} — {row['title']} ({row['timing_type']})")
+        else:
+            print(f"[NOTIFIER] FAILED: {row['profile']} — {row['title']} ({row['timing_type']})")
+
+    conn.commit()
+    conn.close()
+
+
+if __name__ == "__main__":
+    run()
+
 
 async def debug_log(message, bot=None, important=False):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

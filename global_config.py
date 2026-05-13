@@ -1,6 +1,7 @@
 """
 Global configuration for Kanami.
 """
+import os
 import discord
 
 # Owner's Discord user ID
@@ -105,6 +106,17 @@ COMBINED_REGIONAL_ROLE_IDS = {
 COMMANDS_CHANNELS = {
     DEV_SERVER_ID: 1374401175381606581,
     MAIN_SERVER_ID: 1417209387877138613,
+}
+
+# Notification webhook URLs (profile → Discord webhook URL)
+# Set each via environment variable (see config/.env.example)
+NOTIFICATION_WEBHOOK_URLS = {
+    "UMA":  os.getenv("WEBHOOK_UMA", ""),
+    "AK":   os.getenv("WEBHOOK_AK", ""),
+    "STRI": os.getenv("WEBHOOK_STRI", ""),
+    "HSR":  os.getenv("WEBHOOK_HSR", ""),
+    "ZZZ":  os.getenv("WEBHOOK_ZZZ", ""),
+    "WUWA": os.getenv("WEBHOOK_WUWA", ""),
 }
 
 # List of supported game profiles (used throughout the bot)

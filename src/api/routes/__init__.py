@@ -399,10 +399,131 @@ class ShadowverseRoutes:
             })
 
 
+# =============================================================================
+# Notification Routes
+# =============================================================================
+
+class NotificationRoutes:
+    """
+    Route handlers for managing pending notifications.
+
+    GET    /api/notifications           List all unsent notifications (?profile=UMA)
+    PATCH  /api/notifications/{id}      Edit custom_message and/or notify_unix
+    DELETE /api/notifications/{id}      Delete a single notification row
+    """
+
+    async def handle_list(self, request: web.Request) -> web.Response:
+        """
+        List all unsent pending notifications.
+
+        GET /api/notifications
+        GET /api/notifications?profile=UMA
+
+        Returns:
+            {"success": true, "notifications": [...]}
+        """
+        from event_manager import get_all_pending_notifications
+
+        profile = request.query.get("profile")
+        try:
+            rows = await get_all_pending_notifications(profile=profile)
+            return web.json_response({"success": True, "notifications": rows})
+        except Exception as e:
+            logger.error(f"Failed to list notifications: {e}")
+            return web.json_response(
+                APIResponse(success=False, error=str(e)).to_dict(),
+                status=500,
+            )
+
+    async def handle_patch(self, request: web.Request) -> web.Response:
+        """
+        Edit a pending notification's custom_message and/or notify_unix.
+
+        PATCH /api/notifications/{id}
+        Body: {"custom_message": "...", "notify_unix": 1234567890}
+
+        Returns:
+            {"success": true, "message": "Notification updated"}
+        """
+        from event_manager import update_notification_message
+        import aiosqlite
+        from notification_handler import NOTIF_DB_PATH
+
+        notif_id_str = request.match_info.get("id", "")
+        try:
+            notif_id = int(notif_id_str)
+        except ValueError:
+            return web.json_response(
+                APIResponse(success=False, error="Invalid notification ID").to_dict(),
+                status=400,
+            )
+
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response(
+                APIResponse(success=False, error="Invalid JSON body").to_dict(),
+                status=400,
+            )
+
+        try:
+            if "custom_message" in data:
+                await update_notification_message(notif_id, data["custom_message"])
+            if "notify_unix" in data:
+                async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
+                    await conn.execute(
+                        "UPDATE pending_notifications SET notify_unix=? WHERE id=?",
+                        (int(data["notify_unix"]), notif_id),
+                    )
+                    await conn.commit()
+            return web.json_response(
+                APIResponse(success=True, message="Notification updated").to_dict()
+            )
+        except Exception as e:
+            logger.error(f"Failed to update notification {notif_id}: {e}")
+            return web.json_response(
+                APIResponse(success=False, error=str(e)).to_dict(),
+                status=500,
+            )
+
+    async def handle_delete(self, request: web.Request) -> web.Response:
+        """
+        Delete a pending notification row.
+
+        DELETE /api/notifications/{id}
+
+        Returns:
+            {"success": true, "message": "Notification deleted"}
+        """
+        from event_manager import remove_pending_notification
+
+        notif_id_str = request.match_info.get("id", "")
+        try:
+            notif_id = int(notif_id_str)
+        except ValueError:
+            return web.json_response(
+                APIResponse(success=False, error="Invalid notification ID").to_dict(),
+                status=400,
+            )
+
+        try:
+            await remove_pending_notification(notif_id)
+            return web.json_response(
+                APIResponse(success=True, message=f"Notification {notif_id} deleted").to_dict()
+            )
+        except Exception as e:
+            logger.error(f"Failed to delete notification {notif_id}: {e}")
+            return web.json_response(
+                APIResponse(success=False, error=str(e)).to_dict(),
+                status=500,
+            )
+
+
 def setup_routes(
     app: web.Application,
     auth=None,
     shadowverse_routes: Optional[ShadowverseRoutes] = None,
+    notification_routes: Optional[NotificationRoutes] = None,
 ):
     """
     Set up all API routes.
@@ -457,10 +578,17 @@ def setup_routes(
             stub_routes.handle_list_matches
         )
 
+    # Notification routes (always registered)
+    notif = notification_routes or NotificationRoutes()
+    app.router.add_get('/api/notifications', notif.handle_list)
+    app.router.add_patch('/api/notifications/{id}', notif.handle_patch)
+    app.router.add_delete('/api/notifications/{id}', notif.handle_delete)
+
 
 __all__ = [
     'handle_health_check',
     'create_validate_key_handler',
     'ShadowverseRoutes',
+    'NotificationRoutes',
     'setup_routes',
 ]
