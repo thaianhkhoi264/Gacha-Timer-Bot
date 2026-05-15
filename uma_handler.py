@@ -2001,48 +2001,42 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                 except Exception as e:
                     print(f"[GameTora] Could not find/toggle upcoming characters checkbox: {e}")
                 
-                # All character card links — semantic selector, stable across site rebuilds.
-                char_boxes = await page.query_selector_all('a[href*="/umamusume/characters/"]')
+                # Extract all character data in one JS call — avoids 4-5 IPC round-trips per element.
+                raw_chars = await page.evaluate("""() => {
+                    const links = Array.from(document.querySelectorAll('a[href*="/umamusume/characters/"]'));
+                    const results = [];
+                    for (const a of links) {
+                        const href = a.getAttribute('href');
+                        if (!href || href.includes('/profiles')) continue;
+                        const idMatch = href.match(/\\/characters\\/(\\d+)/);
+                        if (!idMatch) continue;
 
-                characters_data = []
-                for box in char_boxes:
-                    try:
-                        href = await box.get_attribute('href')
-                        if not href or '/profiles' in href:
-                            continue
+                        // Name: first span without version class and without inline style
+                        const nameSpan = a.querySelector('span:not(.characters_list_char_version__CVHa7):not([style])');
+                        if (!nameSpan) continue;
+                        // Normalise multi-line display: "Matikane-\\nFukukitaru" or "Fuji\\nKiseki"
+                        let name = nameSpan.innerText.replace(/-\\n/g, '').replace(/\\n/g, ' ').trim();
+                        if (!name) continue;
 
-                        # Character ID from URL
-                        match = re.search(r'/characters/(\d+)', href)
-                        if not match:
-                            continue
-                        character_id = match.group(1)
+                        const versionSpan = a.querySelector('span.characters_list_char_version__CVHa7');
+                        if (versionSpan) {
+                            const version = versionSpan.innerText.trim();
+                            if (version) name = name + ' (' + version + ')';
+                        }
 
-                        # Name from the dedicated name element
-                        name_elem = await box.query_selector('.sc-af488da5-0.iWKoPF')
-                        if not name_elem:
-                            continue
-                        raw = await name_elem.inner_text()
-                        # "Matikane-\nfukukitaru" → hyphen is a display line-break, not real punctuation
-                        name = raw.replace('-\n', '').replace('\n', ' ').strip()
-                        if not name:
-                            continue
+                        results.push({ id: idMatch[1], href, name });
+                    }
+                    return results;
+                }""")
 
-                        # Variant label — only present for alternate versions (New Year, Festival, …)
-                        version_elem = await box.query_selector('.characters_list_char_version__CVHa7')
-                        if version_elem:
-                            version = (await version_elem.inner_text()).strip()
-                            if version:
-                                name = f"{name} ({version})"
-
-                        characters_data.append({
-                            'character_id': character_id,
-                            'name': name,
-                            'link': href if href.startswith('/') else f"/{href}",
-                        })
-
-                    except Exception as e:
-                        print(f"[GameTora] Error extracting character: {e}")
-                        continue
+                characters_data = [
+                    {
+                        'character_id': c['id'],
+                        'name': c['name'],
+                        'link': c['href'] if c['href'].startswith('/') else f"/{c['href']}",
+                    }
+                    for c in raw_chars
+                ]
                 
                 await browser.close()
                 
