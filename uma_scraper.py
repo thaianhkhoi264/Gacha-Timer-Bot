@@ -31,14 +31,14 @@ logger = logging.getLogger("uma_scraper")
 LAST_RUN_FILE = os.path.join("data", "scraper_last_run.txt")
 
 
-async def main():
-    logger.info("=== Uma Musume scraper starting ===")
+async def main(force_full_scan: bool = False):
+    logger.info(f"=== Uma Musume scraper starting (force={force_full_scan}) ===")
     try:
         from uma_handler import update_gametora_database, scrape_and_save_events
 
         # Step 1: Refresh GameTora DB so enrichment has fresh character/banner data
         logger.info("--- Step 1: Updating GameTora database ---")
-        await update_gametora_database()
+        await update_gametora_database(force_full_scan=force_full_scan)
         logger.info("--- Step 1 complete ---")
 
         # Step 2: Scrape timeline + enrich with GameTora data + write to events DB
@@ -61,4 +61,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+    force = "--force" in sys.argv
+    asyncio.run(main(force_full_scan=force))
