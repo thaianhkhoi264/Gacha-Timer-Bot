@@ -1757,171 +1757,103 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                 elif force_full_scan:
                     print(f"[GameTora] Force full scan requested.")
                 
-                # Find all banner containers using the actual CSS class
-                banner_containers = await page.query_selector_all('.sc-37bc0b3c-0')
-                print(f"[GameTora] Processing {len(banner_containers)} banner containers...")
-                
+                # Extract all banner data in one JS call — no hover needed
+                raw_banners = await page.evaluate("""() => {
+                    const containers = Array.from(document.querySelectorAll('.sc-37bc0b3c-0'));
+                    return containers.map(c => {
+                        const img = c.querySelector('img[src*="img_bnr_gacha_"]');
+                        const imgSrc = img ? img.src : null;
+                        const idMatch = imgSrc ? imgSrc.match(/img_bnr_gacha_(\\d+)\\.png/) : null;
+                        const text = c.innerText || '';
+                        const btype = text.includes('Support Card') ? 'Support'
+                                    : text.includes('Character')    ? 'Character'
+                                    : 'Unknown';
+                        const items = Array.from(c.querySelectorAll('[class*="gacha_link_alt"]'))
+                            .map(s => s.innerText.trim())
+                            .filter(Boolean);
+                        return { bannerId: idMatch ? idMatch[1] : null, btype, items };
+                    }).filter(b => b.bannerId);
+                }""")
+
+                await browser.close()
+
+                print(f"[GameTora] Extracted {len(raw_banners)} banners via JS. Looking up IDs from DB...")
+
                 banners_added = 0
                 characters_added = 0
                 supports_added = 0
-                
+
                 async with aiosqlite.connect(GAMETORA_DB_PATH) as conn:
-                    for container in banner_containers:
+                    for b in raw_banners:
                         try:
-                            # Get banner image to extract ID
-                            img_tag = await container.query_selector('img[src*="img_bnr_gacha_"]')
-                            if not img_tag:
-                                continue
-                            
-                            img_src = await img_tag.get_attribute('src')
-                            if not img_src:
-                                continue
-                            
-                            # Extract banner ID from image URL (e.g., img_bnr_gacha_30380.png -> 30380)
-                            banner_id_match = re.search(r'img_bnr_gacha_(\d+)\.png', img_src)
-                            if not banner_id_match:
-                                continue
-                            
-                            banner_id = banner_id_match.group(1)
-                            
-                            # Skip if already in database and not force scanning
+                            banner_id = b['bannerId']
+
                             if banner_id in existing_banner_ids and not force_full_scan:
                                 continue
-                            
-                            # Get the character/support list to determine banner type
-                            banner_type = "Unknown"
-                            description = ""
-                            
-                            # Get all character/support names and IDs from the list (ul.sc-37bc0b3c-3)
-                            items_list = await container.query_selector('ul.sc-37bc0b3c-3')
-                            item_names = []
-                            item_data = []  # List of (name, id, link) tuples
-                            
-                            if items_list:
-                                # Get all list items
-                                list_items = await items_list.query_selector_all('li')
-                                
-                                for li in list_items:
-                                    # Get the clickable span that triggers tooltip
-                                    clickable_span = await li.query_selector('.gacha_link_alt__mZW_P')
-                                    if not clickable_span:
-                                        continue
-                                    
-                                    # Get name from span
-                                    name_text = (await clickable_span.inner_text()).strip()
-                                    if not name_text:
-                                        continue
-                                    
-                                    # Hover to reveal tooltip with link
-                                    await clickable_span.hover()
-                                    await asyncio.sleep(0.5)  # Wait for tooltip to appear
-                                    
-                                    # Find tooltip and extract link
-                                    item_id = None
-                                    item_link = ""
-                                    
-                                    tooltip = await page.query_selector('[role="tooltip"]')
-                                    if tooltip:
-                                        # Find link in tooltip (characters or supports)
-                                        link_elem = await tooltip.query_selector('a[href*="character"], a[href*="support"]')
-                                        if link_elem:
-                                            href = await link_elem.get_attribute('href')
-                                            if href:
-                                                item_link = href
-                                                # Extract ID from /characters/XXXXX or /supports/XXXXX
-                                                id_match = re.search(r'/(?:characters|supports)/(\d+)', href)
-                                                if id_match:
-                                                    item_id = id_match.group(1)
-                                    
-                                    # Move mouse away to close tooltip
-                                    await page.mouse.move(0, 0)
-                                    await asyncio.sleep(0.2)
-                                    
-                                    item_names.append(name_text)
-                                    item_data.append((name_text, item_id, item_link))
-                                
-                                # Determine if it's Character or Support based on container text
-                                container_text = await container.inner_text()
-                                if "Support Card" in container_text or "サポートカード" in container_text:
-                                    banner_type = "Support"
-                                elif "Character" in container_text or "キャラクター" in container_text:
-                                    banner_type = "Character"
-                                else:
-                                    # Fallback: check for rate-up markers (usually only on character banners)
-                                    if any("New" in name or "Rerun" in name for name in item_names):
-                                        banner_type = "Character"
-                                    else:
-                                        banner_type = "Unknown"
-                                
-                                # Clean names for description (remove " New" or " Rerun" from end)
-                                clean_names = []
-                                for name in item_names:  # ALL items
-                                    # Remove " New" or " Rerun" from end, along with any trailing rate info
-                                    clean = re.sub(r'\s+(New|Rerun)(?:,?\s*[\d.]+%)?\s*$', '', name).strip()
-                                    if clean:
-                                        clean_names.append(clean)
-                                
-                                description = ", ".join(clean_names)
-                            
-                            # Insert banner into database
+
+                            banner_type = b['btype']
+
+                            clean_items = []
+                            for raw_name in b['items']:
+                                clean = re.sub(r'\s+(New|Rerun)(?:,?\s*[\d.]+%)?\s*$', '', raw_name).strip()
+                                if clean:
+                                    clean_items.append(clean)
+
+                            description = ", ".join(clean_items)
+
                             await conn.execute('''
                                 INSERT OR REPLACE INTO banners (banner_id, banner_type, description, server)
                                 VALUES (?, ?, ?, 'JA')
                             ''', (banner_id, banner_type, description))
                             banners_added += 1
-                            # Truncate only for display, not for storage
+
                             display_desc = description if len(description) <= 80 else description[:77] + "..."
                             print(f"[GameTora] Added banner {banner_id} ({banner_type}): {display_desc}")
-                            
-                            # Store character/support names with actual IDs from links
-                            for item_name, item_id, item_link in item_data:
-                                # Clean up name - remove " New" or " Rerun" from end with optional rate info
-                                clean_name = re.sub(r'\s+(New|Rerun)(?:,?\s*[\d.]+%)?\s*$', '', item_name).strip()
-                                
-                                if not clean_name:
-                                    continue
-                                
-                                # Use extracted ID if available, otherwise fall back to hash
-                                if not item_id:
-                                    item_id = str(abs(hash(clean_name)) % 1000000)
-                                    uma_handler_logger.warning(f"[GameTora] No ID found for {clean_name}, using hash: {item_id}")
-                                
+
+                            # Clear old items for this banner so stale hash-based IDs are replaced
+                            await conn.execute("DELETE FROM banner_items WHERE banner_id = ?", (banner_id,))
+
+                            for clean_name in clean_items:
                                 if banner_type == "Character":
-                                    await conn.execute('''
-                                        INSERT OR IGNORE INTO characters (character_id, name, link)
-                                        VALUES (?, ?, ?)
-                                    ''', (item_id, clean_name, item_link))
-                                    characters_added += 1
-                                    
-                                    await conn.execute('''
-                                        INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
-                                        VALUES (?, ?, 'Character')
-                                    ''', (banner_id, item_id))
-                                else:
-                                    await conn.execute('''
-                                        INSERT OR IGNORE INTO support_cards (card_id, name, link)
-                                        VALUES (?, ?, ?)
-                                    ''', (item_id, clean_name, item_link))
-                                    supports_added += 1
-                                    
-                                    await conn.execute('''
-                                        INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
-                                        VALUES (?, ?, 'Support')
-                                    ''', (banner_id, item_id))
-                            
+                                    async with conn.execute(
+                                        "SELECT character_id FROM characters WHERE name = ?", (clean_name,)
+                                    ) as cur:
+                                        row = await cur.fetchone()
+                                    item_id = row[0] if row else None
+                                    if item_id:
+                                        await conn.execute('''
+                                            INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
+                                            VALUES (?, ?, 'Character')
+                                        ''', (banner_id, item_id))
+                                        characters_added += 1
+                                    else:
+                                        uma_handler_logger.warning(f"[GameTora] Character not found in DB: {clean_name!r}")
+
+                                elif banner_type == "Support":
+                                    async with conn.execute(
+                                        "SELECT card_id FROM support_cards WHERE name = ?", (clean_name,)
+                                    ) as cur:
+                                        row = await cur.fetchone()
+                                    item_id = row[0] if row else None
+                                    if item_id:
+                                        await conn.execute('''
+                                            INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
+                                            VALUES (?, ?, 'Support')
+                                        ''', (banner_id, item_id))
+                                        supports_added += 1
+                                    else:
+                                        uma_handler_logger.warning(f"[GameTora] Support card not found in DB: {clean_name!r}")
+
                         except Exception as e:
-                            uma_handler_logger.warning(f"[GameTora] Error processing banner container: {e}")
+                            uma_handler_logger.warning(f"[GameTora] Error processing banner {b.get('bannerId')}: {e}")
                             continue
-                    
-                    # Update last scan timestamp
+
                     await conn.execute('''
                         INSERT OR REPLACE INTO metadata (key, value)
                         VALUES ('last_jp_scan', ?)
                     ''', (datetime.now(timezone.utc).isoformat(),))
-                    
+
                     await conn.commit()
-                
-                await browser.close()
                 
                 print(f"[GameTora] JP scrape complete: {banners_added} banners, {characters_added} characters, {supports_added} support cards")
                 uma_handler_logger.info(f"[GameTora] JP scrape complete: {banners_added} banners, {characters_added} chars, {supports_added} supports")
@@ -2063,11 +1995,131 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
     traceback.print_exc()
     return None
 
+async def scrape_gametora_all_supports(max_retries: int = 3):
+    """
+    Scrape ALL support cards from GameTora's support card list page.
+    Reconstructs full name (e.g. "Sakura Chiyono O (SSR Stamina)") from
+    base name (img alt), stat icon filename, and ID-prefix rarity.
+    Must run before scrape_gametora_jp_banners so banner items can look up card IDs.
+    """
+    _STAT_MAP = {
+        "utx_ico_obtain_00": "Speed",
+        "utx_ico_obtain_01": "Stamina",
+        "utx_ico_obtain_02": "Power",
+        "utx_ico_obtain_03": "Guts",
+        "utx_ico_obtain_04": "Wit",
+        "utx_ico_obtain_05": "Pal",
+        "utx_ico_obtain_06": "Group",
+    }
+
+    print("[GameTora] Starting ALL supports scrape...")
+    uma_handler_logger.info("[GameTora] Starting ALL supports scrape...")
+
+    await init_gametora_db()
+
+    url = "https://gametora.com/umamusume/supports"
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                page.set_default_timeout(90000)
+
+                print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
+                await page.goto(url, timeout=90000, wait_until="domcontentloaded")
+                await asyncio.sleep(4)  # Wait for React to render the card grid
+
+                raw = await page.evaluate("""() => {
+                    const links = Array.from(document.querySelectorAll('a[href*="/umamusume/supports/"]'));
+                    return links.map(a => {
+                        const href = a.getAttribute('href') || '';
+                        const img = a.querySelector('img[src*="support_card_s_"]');
+                        let alt = img ? img.getAttribute('alt') : '';
+                        if (!alt) {
+                            const nameDiv = a.querySelector('[class*="newest_text"]');
+                            if (nameDiv) alt = nameDiv.innerText.trim();
+                        }
+                        const iconImg = a.querySelector('img[src*="utx_ico_obtain"]');
+                        const iconSrc = iconImg ? iconImg.getAttribute('src') : '';
+                        return { href, alt, iconSrc };
+                    });
+                }""")
+
+                await browser.close()
+
+            # Parse and deduplicate by card_id (keep first occurrence — full data entry)
+            seen_ids = set()
+            cards_data = []
+            for r in raw:
+                href = r['href']
+                id_match = re.search(r'/supports/(\d+)', href)
+                if not id_match:
+                    continue
+                card_id = id_match.group(1)
+                if card_id in seen_ids:
+                    continue
+                seen_ids.add(card_id)
+
+                base_name = r['alt'].strip()
+                if not base_name:
+                    continue
+
+                rarity = ("SSR" if card_id.startswith("3") else
+                          "SR"  if card_id.startswith("2") else
+                          "R"   if card_id.startswith("1") else "?")
+
+                stat = "?"
+                for key, val in _STAT_MAP.items():
+                    if key in r['iconSrc']:
+                        stat = val
+                        break
+
+                if stat == "?":
+                    # Duplicate newest entry with no icon — skip
+                    continue
+
+                full_name = f"{base_name} ({rarity} {stat})"
+                link = href if href.startswith('/') else f"/{href}"
+                cards_data.append({'card_id': card_id, 'name': full_name, 'link': link})
+
+            print(f"[GameTora] Extracted {len(cards_data)} support cards")
+            uma_handler_logger.info(f"[GameTora] Extracted {len(cards_data)} support cards")
+
+            if cards_data:
+                async with aiosqlite.connect(GAMETORA_DB_PATH) as db:
+                    for card in cards_data:
+                        await db.execute('''
+                            INSERT OR REPLACE INTO support_cards (card_id, name, link)
+                            VALUES (?, ?, ?)
+                        ''', (card['card_id'], card['name'], card['link']))
+                    await db.commit()
+                    print(f"[GameTora] Saved {len(cards_data)} support cards to database")
+                    uma_handler_logger.info(f"[GameTora] Saved {len(cards_data)} support cards to database")
+
+            return len(cards_data)
+
+        except Exception as e:
+            last_error = e
+            print(f"[GameTora] Error during supports scrape (attempt {attempt + 1}/{max_retries}): {e}")
+            uma_handler_logger.error(f"[GameTora] Error during supports scrape: {e}")
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 10
+                print(f"[GameTora] Retrying in {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+
+    uma_handler_logger.error(f"[GameTora] Failed to scrape supports after {max_retries} attempts: {last_error}")
+    import traceback
+    traceback.print_exc()
+    return None
+
+
 async def scrape_gametora_global_images(force_full_scan: bool = False, max_retries: int = 3):
     """
     Step 2: Scrape Global server banner images from GameTora.
     Downloads banner images and links them to banner IDs.
-    
+
     If force_full_scan is False, will first check for new banners and skip if none found.
     """
     print("[GameTora] Starting Global banner image check...")
@@ -2331,13 +2383,16 @@ async def update_gametora_database(force_full_scan: bool = False):
     
     # Step 1: Scrape ALL characters from character list (includes low-rarity chars)
     chars_result = await scrape_gametora_all_characters()
-    
-    # Step 2: Scrape JP banners (IDs, types, characters, support cards)
+
+    # Step 2: Scrape ALL support cards (must run before JP banners for ID lookup)
+    supports_result = await scrape_gametora_all_supports()
+
+    # Step 3: Scrape JP banners (IDs, types, characters, support cards)
     jp_result = await scrape_gametora_jp_banners(force_full_scan)
-    
-    # Step 3: Scrape Global banner images
+
+    # Step 4: Scrape Global banner images
     global_result = await scrape_gametora_global_images(force_full_scan)
-    
+
     # Summary
     jp_skipped = jp_result.get("skipped", False) if jp_result else True
     global_skipped = global_result.get("skipped", False) if global_result else True
@@ -2351,6 +2406,7 @@ async def update_gametora_database(force_full_scan: bool = False):
     
     return {
         "characters": chars_result,
+        "supports": supports_result,
         "jp": jp_result,
         "global": global_result
     }
