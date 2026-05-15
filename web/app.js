@@ -63,6 +63,7 @@ function showApp() {
   document.getElementById('app').style.display = 'flex';
   buildTabs();
   document.getElementById('btn-run-scraper').style.display = state.profile === 'UMA' ? '' : 'none';
+  document.getElementById('btn-force-rescan').style.display = state.profile === 'UMA' ? '' : 'none';
   document.getElementById('btn-add-maintenance').style.display = state.profile === 'UMA' ? '' : 'none';
   loadEvents();
 }
@@ -89,6 +90,7 @@ function switchProfile(profile) {
     b.classList.toggle('active', b.dataset.profile === profile)
   );
   document.getElementById('btn-run-scraper').style.display = profile === 'UMA' ? '' : 'none';
+  document.getElementById('btn-force-rescan').style.display = profile === 'UMA' ? '' : 'none';
   document.getElementById('btn-add-maintenance').style.display = profile === 'UMA' ? '' : 'none';
   loadEvents();
 }
@@ -326,6 +328,17 @@ async function runScraper() {
     const data = await api('POST', '/api/scraper/uma/run');
     if (!data.success) throw new Error(data.error);
     toast('Scraper started — dashboard will update shortly.');
+  } catch (e) {
+    toast(`Error: ${e.message}`, 'error');
+  }
+}
+
+async function forceRescan() {
+  if (!confirm('Force a full banner rescan? This reprocesses all banners and updates support card links. Takes 2–5 minutes.')) return;
+  try {
+    const data = await api('POST', '/api/scraper/uma/force-rescan');
+    if (!data.success) throw new Error(data.error);
+    toast('Force rescan started — dashboard will update when finished.');
   } catch (e) {
     toast(`Error: ${e.message}`, 'error');
   }

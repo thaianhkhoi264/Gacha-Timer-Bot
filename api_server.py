@@ -1410,34 +1410,56 @@ async def handle_parse_maintenance(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
+async def _run_scraper_subprocess(force: bool = False):
+    import sys, os
+    scraper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uma_scraper.py")
+    args = [sys.executable, scraper_path]
+    if force:
+        args.append("--force")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        label = "[Scraper force]" if force else "[Scraper]"
+        if proc.returncode != 0:
+            api_logger.error(f"{label} exited {proc.returncode}: {stderr.decode('utf-8', errors='replace')}")
+        else:
+            api_logger.info(f"{label} finished successfully")
+    except Exception as e:
+        api_logger.error(f"[Scraper] failed to run: {e}")
+
+
 async def handle_run_scraper(request):
     """POST /api/scraper/uma/run — kick off uma_scraper.py in the background."""
     is_valid, error_msg, _ = validate_api_key(request)
     if not is_valid:
         return web.json_response({"success": False, "error": error_msg}, status=401)
 
-    import sys, os
+    import os
     scraper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uma_scraper.py")
     if not os.path.exists(scraper_path):
         return web.json_response({"success": False, "error": "uma_scraper.py not found"}, status=500)
 
-    async def _run():
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, scraper_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await proc.communicate()
-            if proc.returncode != 0:
-                api_logger.error(f"[Scraper] exited {proc.returncode}: {stderr.decode('utf-8', errors='replace')}")
-            else:
-                api_logger.info("[Scraper] finished successfully")
-        except Exception as e:
-            api_logger.error(f"[Scraper] failed to run: {e}")
-
-    asyncio.ensure_future(_run())
+    asyncio.ensure_future(_run_scraper_subprocess(force=False))
     return web.json_response({"success": True, "message": "Scraper started"})
+
+
+async def handle_force_rescan(request):
+    """POST /api/scraper/uma/force-rescan — force full GameTora banner rescan."""
+    is_valid, error_msg, _ = validate_api_key(request)
+    if not is_valid:
+        return web.json_response({"success": False, "error": error_msg}, status=401)
+
+    import os
+    scraper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uma_scraper.py")
+    if not os.path.exists(scraper_path):
+        return web.json_response({"success": False, "error": "uma_scraper.py not found"}, status=500)
+
+    asyncio.ensure_future(_run_scraper_subprocess(force=True))
+    return web.json_response({"success": True, "message": "Force rescan started — all banners will be reprocessed"})
 
 
 async def handle_voice_event(request):
@@ -1570,6 +1592,7 @@ def create_app():
     
     app.router.add_post('/api/dashboard/{profile}/refresh', handle_refresh_dashboard)
     app.router.add_post('/api/scraper/uma/run', handle_run_scraper)
+    app.router.add_post('/api/scraper/uma/force-rescan', handle_force_rescan)
     app.router.add_post('/api/uma/parse-maintenance', handle_parse_maintenance)
     app.router.add_post('/api/restart', handle_restart)
     app.router.add_post('/api/empire/voice_event', handle_voice_event)
