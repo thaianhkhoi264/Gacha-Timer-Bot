@@ -1978,29 +1978,9 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                 except Exception:
                     await asyncio.sleep(5)  # Fallback if selector not found
 
-                # Enable "Show Upcoming Characters" checkbox to get JP-exclusive characters
-                try:
-                    # Single JS call to find which checkbox to click (avoids per-checkbox roundtrips)
-                    checkbox_info = await page.evaluate("""() => {
-                        const cbs = Array.from(document.querySelectorAll('input[type="checkbox"]'));
-                        return cbs.map((cb, i) => ({
-                            index: i,
-                            text: cb.parentElement ? cb.parentElement.innerText.toLowerCase() : '',
-                            checked: cb.checked
-                        }));
-                    }""")
-                    print(f"[GameTora] Found {len(checkbox_info)} checkboxes")
-                    for info in checkbox_info:
-                        if 'upcoming' in info['text'] or 'show' in info['text']:
-                            if not info['checked']:
-                                print("[GameTora] Enabling 'Show Upcoming Characters' checkbox")
-                                all_checkboxes = await page.query_selector_all('input[type="checkbox"]')
-                                await all_checkboxes[info['index']].click()
-                                await asyncio.sleep(2)
-                            break
-                except Exception as e:
-                    print(f"[GameTora] Could not find/toggle upcoming characters checkbox: {e}")
-                
+                # All characters (Global + JP-only hidden) are present in the DOM on initial load.
+                # The "Show Upcoming" checkbox only toggles CSS visibility — no need to click it.
+
                 # Extract all character data in one JS call — avoids 4-5 IPC round-trips per element.
                 raw_chars = await page.evaluate("""() => {
                     const links = Array.from(document.querySelectorAll('a[href*="/umamusume/characters/"]'));
