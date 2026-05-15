@@ -1972,10 +1972,9 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                 print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
                 await page.goto(url, timeout=90000, wait_until="domcontentloaded")
 
-                # Wait for character boxes to be in DOM.
-                # Most boxes are hidden (duKLID class), so use state="attached" not "visible".
+                # Wait for character card links to appear in DOM.
                 try:
-                    await page.wait_for_selector('.sc-77f9d665-1', state="attached", timeout=30000)
+                    await page.wait_for_selector('a[href*="/umamusume/characters/"]', state="attached", timeout=30000)
                 except Exception:
                     await asyncio.sleep(5)  # Fallback if selector not found
 
@@ -2002,9 +2001,8 @@ async def scrape_gametora_all_characters(max_retries: int = 3):
                 except Exception as e:
                     print(f"[GameTora] Could not find/toggle upcoming characters checkbox: {e}")
                 
-                # All characters are in the DOM immediately (most are hidden but attached).
-                # Use base class to get both visible (gpkuqF) and hidden (duKLID) boxes.
-                char_boxes = await page.query_selector_all('.sc-77f9d665-1')
+                # All character card links — semantic selector, stable across site rebuilds.
+                char_boxes = await page.query_selector_all('a[href*="/umamusume/characters/"]')
 
                 characters_data = []
                 for box in char_boxes:
