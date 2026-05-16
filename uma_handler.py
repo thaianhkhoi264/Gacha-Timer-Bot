@@ -1820,6 +1820,15 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                                     ) as cur:
                                         row = await cur.fetchone()
                                     item_id = row[0] if row else None
+                                    if not item_id:
+                                        # Retry without "(Original)" suffix — DB stores base name only
+                                        stripped = re.sub(r'\s*\(Original\)\s*$', '', clean_name).strip()
+                                        if stripped != clean_name:
+                                            async with conn.execute(
+                                                "SELECT character_id FROM characters WHERE name = ?", (stripped,)
+                                            ) as cur:
+                                                row = await cur.fetchone()
+                                            item_id = row[0] if row else None
                                     if item_id:
                                         await conn.execute('''
                                             INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
@@ -1835,6 +1844,16 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
                                     ) as cur:
                                         row = await cur.fetchone()
                                     item_id = row[0] if row else None
+                                    if not item_id:
+                                        # Retry with "Friend" → "Pal" alias (banner page uses "Friend"
+                                        # for utx_ico_obtain_05 cards, but we store "Pal")
+                                        alias_name = clean_name.replace(' Friend)', ' Pal)')
+                                        if alias_name != clean_name:
+                                            async with conn.execute(
+                                                "SELECT card_id FROM support_cards WHERE name = ?", (alias_name,)
+                                            ) as cur:
+                                                row = await cur.fetchone()
+                                            item_id = row[0] if row else None
                                     if item_id:
                                         await conn.execute('''
                                             INSERT OR IGNORE INTO banner_items (banner_id, item_id, item_type)
