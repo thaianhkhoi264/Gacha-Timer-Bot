@@ -485,8 +485,8 @@ def extract_banner_id_from_image_url(img_url):
 
     uma_handler_logger.debug(f"[Banner ID Extract] Processing: {img_url}")
 
-    # Pattern: 202X_XXXXX.png where X is any digit (2020-2029) and XXXXX is the banner ID
-    match = re.search(r'202\d_(\d+)\.png', img_url)
+    # Pattern: 202X_XXXXX.png or .webp
+    match = re.search(r'202\d_(\d+)\.(png|webp)', img_url)
     if match:
         banner_id = match.group(1)
         uma_handler_logger.info(f"[Banner ID Extract] ✓ Extracted banner_id={banner_id}")
