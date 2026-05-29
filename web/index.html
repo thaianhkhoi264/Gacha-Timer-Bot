@@ -308,14 +308,12 @@
 <div id="edit-msg-modal" style="display:none" class="modal-overlay" onclick="if(event.target===this)closeEditMsgModal()">
   <div class="modal-card">
     <h3>Edit Notification Message</h3>
-    <p class="modal-hint">Leave blank to restore the default. Supported placeholders:</p>
+    <p class="modal-hint">Leave blank to restore the default. The role ping is added automatically. Supported placeholders:</p>
     <table class="placeholder-table">
-      <tr><td><code>{role}</code></td><td>Role ping for this game</td></tr>
       <tr><td><code>{name}</code></td><td>Event title</td></tr>
-      <tr><td><code>{time}</code></td><td>Relative Discord timestamp (e.g. "in 2 hours")</td></tr>
+      <tr><td><code>{time}</code></td><td>Event time in your local timezone</td></tr>
       <tr><td><code>{category}</code></td><td>Event category</td></tr>
       <tr><td><code>{character}</code></td><td>Character name (Legend Race only)</td></tr>
-      <tr><td><code>{phase}</code></td><td>Phase name (Champions Meeting only)</td></tr>
     </table>
     <textarea id="editMsgText" class="msg-textarea" placeholder="Leave blank to restore default…" oninput="updateMsgPreview()"></textarea>
     <div class="modal-preview-label">Preview:</div>

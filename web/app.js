@@ -411,18 +411,25 @@ const NOTIF_TEMPLATES = {
 function renderNotifMessage(n, ev) {
   const action = ['start', 'character_start', 'phase_start', 'reminder'].includes(n.timing_type)
     ? 'starting' : 'ending';
+  const timeVal = action === 'starting' ? ev?.start : ev?.end;
   const kwargs = {
     role:      `@${state.profile}`,
     name:      ev ? esc(ev.title)    : '?',
     category:  ev ? esc(ev.category) : '?',
     action,
+    time:      timeVal ? fmtDate(timeVal) : '{time}',
     character: n.character_name ? esc(n.character_name) : '',
     phase:     n.phase          ? esc(n.phase)          : '',
   };
   const src = n.custom_message
     ? n.custom_message
     : (NOTIF_TEMPLATES[n.message_template] || NOTIF_TEMPLATES['default']);
-  return esc(src).replace(/\{(\w+)\}/g, (_, k) => kwargs[k] ?? `{${k}}`);
+  const rendered = esc(src).replace(/\{(\w+)\}/g, (_, k) => kwargs[k] ?? `{${k}}`);
+  // Auto-prepend the role ping for custom messages (unless they already start with {role})
+  if (n.custom_message && !n.custom_message.trimStart().startsWith('{role}')) {
+    return esc(`@${state.profile}`) + ', ' + rendered;
+  }
+  return rendered;
 }
 
 async function showNotifs(eventId) {
