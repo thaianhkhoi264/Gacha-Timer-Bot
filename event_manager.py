@@ -122,6 +122,7 @@ async def get_pending_notifications_for_event(profile, event_id):
                FROM pending_notifications
                WHERE title=? AND profile=?
                  AND (event_time_unix IS NULL OR event_time_unix BETWEEN ? AND ?)
+                 AND sent != 1
                ORDER BY notify_unix ASC""",
             (event['title'], profile, start, end)
         ) as cursor:
