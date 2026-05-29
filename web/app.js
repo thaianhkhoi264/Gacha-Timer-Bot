@@ -7,6 +7,7 @@ const PROFILES = ['UMA', 'AK'];
 
 const state = {
   apiKey: '',
+  role: 'admin',
   profile: 'UMA',
   events: [],
   notifications: [],
@@ -15,12 +16,17 @@ const state = {
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   const key = localStorage.getItem('apiKey');
-  if (key) {
+  if (!key) { document.getElementById('setup').style.display = 'flex'; return; }
+  try {
+    const res = await fetch(`${API_URL}/api/validate_key`, { headers: { 'X-API-Key': key } });
+    const data = await res.json();
+    if (!data.valid) { document.getElementById('setup').style.display = 'flex'; return; }
     state.apiKey = key;
+    state.role = data.role || 'admin';
     showApp();
-  } else {
+  } catch {
     document.getElementById('setup').style.display = 'flex';
   }
 });
@@ -34,9 +40,10 @@ async function saveConfig() {
 
   if (!key) { errEl.textContent = 'API key is required.'; return; }
 
+  let data;
   try {
     const res = await fetch(`${API_URL}/api/validate_key`, { headers: { 'X-API-Key': key } });
-    const data = await res.json();
+    data = await res.json();
     if (!data.valid) { errEl.textContent = 'API key rejected: ' + (data.error || 'invalid'); return; }
   } catch (e) {
     errEl.textContent = `Cannot reach API: ${e.message}`;
@@ -45,6 +52,7 @@ async function saveConfig() {
 
   localStorage.setItem('apiKey', key);
   state.apiKey = key;
+  state.role = data.role || 'admin';
   document.getElementById('setup').style.display = 'none';
   showApp();
 }
@@ -62,10 +70,23 @@ function logout() {
 function showApp() {
   document.getElementById('app').style.display = 'flex';
   buildTabs();
-  document.getElementById('btn-run-scraper').style.display = state.profile === 'UMA' ? '' : 'none';
-  document.getElementById('btn-force-rescan').style.display = state.profile === 'UMA' ? '' : 'none';
-  document.getElementById('btn-add-maintenance').style.display = state.profile === 'UMA' ? '' : 'none';
+  applyRoleVisibility();
   loadEvents();
+}
+
+function applyRoleVisibility() {
+  const isAdmin = state.role === 'admin';
+  const isUMA   = state.profile === 'UMA';
+  // Admin-only toolbar buttons
+  ['btn-add-event', 'btn-refresh-dash', 'btn-regen-all', 'btn-restart'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = isAdmin ? '' : 'none';
+  });
+  // UMA-only AND admin-only toolbar buttons
+  ['btn-run-scraper', 'btn-force-rescan', 'btn-add-maintenance'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (isAdmin && isUMA) ? '' : 'none';
+  });
 }
 
 function buildTabs() {
@@ -89,9 +110,7 @@ function switchProfile(profile) {
   document.querySelectorAll('#profileTabs button').forEach(b =>
     b.classList.toggle('active', b.dataset.profile === profile)
   );
-  document.getElementById('btn-run-scraper').style.display = profile === 'UMA' ? '' : 'none';
-  document.getElementById('btn-force-rescan').style.display = profile === 'UMA' ? '' : 'none';
-  document.getElementById('btn-add-maintenance').style.display = profile === 'UMA' ? '' : 'none';
+  applyRoleVisibility();
   loadEvents();
 }
 
@@ -175,6 +194,7 @@ function renderEvents() {
     return;
   }
   
+  const isAdmin = state.role === 'admin';
   el.innerHTML = state.events.map(ev => {
     const imgSrc = ev.image
       ? (ev.image.startsWith('http') ? ev.image : `${API_URL}${ev.image}`)
@@ -199,8 +219,8 @@ function renderEvents() {
             ${imgHtml}
           </div>
           <div class="event-actions">
-            <button class="btn btn-primary" onclick="showEditForm('${esc(ev.id)}')">Edit</button>
-            <button class="btn btn-danger"  onclick="removeEvent('${esc(ev.id)}')">Remove</button>
+            ${isAdmin ? `<button class="btn btn-primary" onclick="showEditForm('${esc(ev.id)}')">Edit</button>` : ''}
+            ${isAdmin ? `<button class="btn btn-danger"  onclick="removeEvent('${esc(ev.id)}')">Remove</button>` : ''}
             <button class="btn btn-teal"    onclick="showNotifs('${esc(ev.id)}')">Notifs</button>
           </div>
         </div>
@@ -482,10 +502,11 @@ function renderNotifications(eventId, notifs) {
   state.notifications = notifs;
   const el = document.getElementById(`notifs-${eventId}`);
   const ev = state.events.find(e => String(e.id) === String(eventId));
+  const isAdmin = state.role === 'admin';
   if (!notifs.length) {
     el.innerHTML = `<div class="empty">No pending notifications for this event.</div>
       <div class="notif-footer">
-        <button class="btn btn-teal btn-sm" onclick="refreshNotifications()">↻ Regenerate All</button>
+        ${isAdmin ? `<button class="btn btn-teal btn-sm" onclick="refreshNotifications()">↻ Regenerate All</button>` : ''}
         <button class="btn btn-grey btn-sm" onclick="closeNotifs()">Close</button>
       </div>`;
     return;
@@ -505,8 +526,8 @@ function renderNotifications(eventId, notifs) {
             <td>
               <div class="actions">
                 <button class="btn btn-primary btn-sm" onclick="editNotifMsg(${n.id})">Edit Msg</button>
-                <button class="btn btn-amber btn-sm" onclick="fireNotification(${n.id})">&#9654; Test Fire</button>
-                <button class="btn btn-danger btn-sm" onclick="removeNotification(${n.id})">Remove</button>
+                ${isAdmin ? `<button class="btn btn-amber btn-sm" onclick="fireNotification(${n.id})">&#9654; Test Fire</button>` : ''}
+                ${isAdmin ? `<button class="btn btn-danger btn-sm" onclick="removeNotification(${n.id})">Remove</button>` : ''}
               </div>
             </td>
           </tr>
@@ -514,7 +535,7 @@ function renderNotifications(eventId, notifs) {
       </tbody>
     </table>
     <div class="notif-footer">
-      <button class="btn btn-teal btn-sm" onclick="refreshNotifications()">↻ Regenerate All</button>
+      ${isAdmin ? `<button class="btn btn-teal btn-sm" onclick="refreshNotifications()">↻ Regenerate All</button>` : ''}
       <button class="btn btn-grey btn-sm" onclick="closeNotifs()">Close</button>
     </div>
   `;

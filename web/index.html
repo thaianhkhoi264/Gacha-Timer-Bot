@@ -258,13 +258,13 @@
 
   <main>
     <div class="toolbar">
-      <button class="btn btn-primary" onclick="showAddForm()">+ Add Event</button>
-      <button class="btn btn-amber"   onclick="refreshDashboard()">↻ Refresh Dashboard</button>
-      <button class="btn btn-teal"    onclick="refreshAllNotifications()">↻ Regenerate All Notifications</button>
-      <button class="btn btn-purple"  onclick="runScraper()" id="btn-run-scraper" style="display:none">▶ Run Scraper</button>
-      <button class="btn btn-danger"  onclick="forceRescan()" id="btn-force-rescan" style="display:none">⟳ Force Banner Rescan</button>
-      <button class="btn btn-orange"  onclick="openMaintenanceModal()" id="btn-add-maintenance" style="display:none">🔧 Add Maintenance</button>
-      <button class="btn btn-danger"  onclick="restartBot()" style="margin-left:auto">⟳ Restart Bot</button>
+      <button class="btn btn-primary" id="btn-add-event"    onclick="showAddForm()">+ Add Event</button>
+      <button class="btn btn-amber"   id="btn-refresh-dash" onclick="refreshDashboard()">↻ Refresh Dashboard</button>
+      <button class="btn btn-teal"    id="btn-regen-all"    onclick="refreshAllNotifications()">↻ Regenerate All Notifications</button>
+      <button class="btn btn-purple"  id="btn-run-scraper"  onclick="runScraper()" style="display:none">▶ Run Scraper</button>
+      <button class="btn btn-danger"  id="btn-force-rescan" onclick="forceRescan()" style="display:none">⟳ Force Banner Rescan</button>
+      <button class="btn btn-orange"  id="btn-add-maintenance" onclick="openMaintenanceModal()" style="display:none">🔧 Add Maintenance</button>
+      <button class="btn btn-danger"  id="btn-restart"      onclick="restartBot()" style="margin-left:auto">⟳ Restart Bot</button>
     </div>
 
     <!-- Add / Edit form -->

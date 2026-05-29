@@ -1343,9 +1343,9 @@ async def handle_refresh_dashboard(request):
 
 async def handle_restart(request):
     """POST /api/restart — git pull + systemctl restart kanami-bot (owner-only via API key)."""
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     import subprocess, asyncio
     try:
@@ -1406,9 +1406,9 @@ def _parse_maintenance_text(text):
 
 async def handle_parse_maintenance(request):
     """POST /api/uma/parse-maintenance — parse tweet text or URL and return maintenance event fields."""
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
     try:
         data = await request.json()
         raw = data.get("input", "").strip()
@@ -1464,9 +1464,9 @@ async def _run_scraper_subprocess(force: bool = False):
 
 async def handle_run_scraper(request):
     """POST /api/scraper/uma/run — kick off uma_scraper.py in the background."""
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     import os
     scraper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uma_scraper.py")
@@ -1479,9 +1479,9 @@ async def handle_run_scraper(request):
 
 async def handle_force_rescan(request):
     """POST /api/scraper/uma/force-rescan — force full GameTora banner rescan."""
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     import os
     scraper_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uma_scraper.py")
@@ -1517,9 +1517,9 @@ async def handle_voice_event(request):
         { "success": false, "error": "..." }
     """
     # Auth
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     # Parse body
     try:
