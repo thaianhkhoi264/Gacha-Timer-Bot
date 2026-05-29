@@ -846,6 +846,8 @@ async def send_notification(event, timing_type):
                 message = event['custom_message'].format(**kwargs)
             except (KeyError, IndexError):
                 message = event['custom_message']
+            if not event['custom_message'].lstrip().startswith('{role}'):
+                message = f"{role_mention}, {message}"
         elif event.get('message_template') and event.get('message_template') in MESSAGE_TEMPLATES:
             template = MESSAGE_TEMPLATES[event['message_template']]
             try:
@@ -906,6 +908,8 @@ async def send_notification(event, timing_type):
                 message = event['custom_message'].format(**kwargs)
             except (KeyError, IndexError):
                 message = event['custom_message']
+            if not event['custom_message'].lstrip().startswith('{role}'):
+                message = f"{role_mention}, {message}"
         elif event.get('message_template') and event.get('message_template') in MESSAGE_TEMPLATES:
             template = MESSAGE_TEMPLATES[event['message_template']]
             try:
@@ -1371,6 +1375,8 @@ def send_notification_webhook(row):
             message = row["custom_message"].format(**kwargs)
         except (KeyError, IndexError):
             message = row["custom_message"]  # send raw if the template is malformed
+        if not row["custom_message"].lstrip().startswith('{role}'):
+            message = f"{role_mention}, {message}"
     elif row.get("message_template") and row["message_template"] in MESSAGE_TEMPLATES:
         template = MESSAGE_TEMPLATES[row["message_template"]]
         try:
