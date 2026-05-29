@@ -51,6 +51,35 @@ USER_DESCRIPTION_TO_ID = {
     "SteveGHShadow": "220457675475910656"
 }
 
+# Hardcoded role assignments per user description.
+# "admin"        – full access to all web-panel endpoints
+# "notif_editor" – read events + edit notification messages only
+# "member"       – Shadowverse logging endpoints only (default)
+USER_PERMISSIONS = {
+    "Narisurii":     "admin",
+    "Alfabem":       "admin",
+    "Naito":         "member",
+    "SteveGHShadow": "member",
+    "auxlley":       "notif_editor",
+}
+
+def get_key_role(api_key_name):
+    """Returns the role string for an API key."""
+    description = VALID_API_KEYS.get(api_key_name, "")
+    return USER_PERMISSIONS.get(description, "member")
+
+def require_admin(request):
+    """
+    Validates the request key AND checks that it has the 'admin' role.
+    Returns (True, None) on success, or (False, error_response) on failure.
+    """
+    is_valid, error_msg, api_key_name = validate_api_key(request)
+    if not is_valid:
+        return False, web.json_response({"success": False, "error": error_msg}, status=401)
+    if get_key_role(api_key_name) != "admin":
+        return False, web.json_response({"success": False, "error": "Insufficient permissions"}, status=403)
+    return True, None
+
 def load_api_keys():
     """
     Loads API keys from api_keys.json file.
@@ -849,7 +878,8 @@ async def handle_validate_key(request):
         return web.json_response({
             "valid": True,
             "description": VALID_API_KEYS.get(api_key_name, "Unknown"),
-            "mapped_user_id": mapped_user_id if mapped_user_id else None
+            "mapped_user_id": mapped_user_id if mapped_user_id else None,
+            "role": get_key_role(api_key_name),
         })
     else:
         return web.json_response({
@@ -1081,9 +1111,9 @@ async def handle_get_event(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 async def handle_add_event(request):
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     profile = request.match_info["profile"].upper()
     if profile not in event_manager.PROFILE_CONFIG:
@@ -1121,9 +1151,9 @@ async def handle_add_event(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 async def handle_update_event(request):
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     profile = request.match_info["profile"].upper()
     event_id = request.match_info["event_id"]
@@ -1148,9 +1178,9 @@ async def handle_update_event(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 async def handle_remove_event(request):
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     profile = request.match_info["profile"].upper()
     event_id = request.match_info["event_id"]
@@ -1187,9 +1217,9 @@ async def handle_list_notifications(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 async def handle_remove_notification(request):
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     notif_id = request.match_info["notif_id"]
     try:
@@ -1220,9 +1250,9 @@ async def handle_update_notification(request):
 
 async def handle_fire_notification(request):
     """POST /api/notifications/{notif_id}/fire — send immediately and mark sent=1."""
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     notif_id = int(request.match_info["notif_id"])
     cols = [
@@ -1253,9 +1283,9 @@ async def handle_fire_notification(request):
 
 
 async def handle_refresh_notifications(request):
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     profile = request.match_info["profile"].upper()
     event_id = request.match_info["event_id"]
@@ -1271,9 +1301,9 @@ async def handle_refresh_notifications(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 async def handle_refresh_all_notifications(request):
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     profile = request.match_info["profile"].upper()
     if profile not in event_manager.PROFILE_CONFIG:
@@ -1296,9 +1326,9 @@ async def handle_refresh_all_notifications(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 async def handle_refresh_dashboard(request):
-    is_valid, error_msg, _ = validate_api_key(request)
-    if not is_valid:
-        return web.json_response({"success": False, "error": error_msg}, status=401)
+    is_admin, err = require_admin(request)
+    if not is_admin:
+        return err
 
     profile = request.match_info["profile"].upper()
     if profile not in event_manager.PROFILE_CONFIG:
