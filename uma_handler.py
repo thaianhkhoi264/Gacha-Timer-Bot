@@ -2,6 +2,7 @@ import asyncio
 import os
 import aiohttp
 import json
+import gzip
 import re
 import hashlib
 import aiosqlite
@@ -18,6 +19,7 @@ except ImportError:
     PIL_AVAILABLE = False
 
 BASE_URL = "https://uma.moe/"
+UMA_API_TIMELINE_URL = "https://uma.moe/resources/current/banner_timeline.json.gz"
 
 # Duration correction for Champions Meeting events.
 # uma.moe timeline dates are sometimes inaccurate — override end date
@@ -468,6 +470,57 @@ async def download_timeline():
         import traceback
         uma_handler_logger.error(traceback.format_exc())
         return []
+
+
+async def fetch_api_events():
+    """
+    Fetch the uma.moe banner timeline via their official API (single HTTP GET).
+    Returns the raw list of event dicts from the JSON response, or [] on failure.
+
+    Replaces download_timeline() — no Playwright, no browser launch, no DOM parsing.
+    Requires UMA_API_KEY environment variable.
+    """
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    api_key = os.getenv("UMA_API_KEY", "")
+    if not api_key:
+        uma_handler_logger.error("[API] UMA_API_KEY is not set — cannot fetch timeline")
+        print("[UMA HANDLER] ERROR: UMA_API_KEY env var not set")
+        return []
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                UMA_API_TIMELINE_URL,
+                headers={"X-API-Key": api_key},
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status != 200:
+                    uma_handler_logger.error(f"[API] Timeline request failed: HTTP {resp.status}")
+                    print(f"[UMA HANDLER] ERROR: API returned HTTP {resp.status}")
+                    return []
+                raw = await resp.read()
+
+        try:
+            data = json.loads(gzip.decompress(raw))
+        except Exception:
+            data = json.loads(raw)
+
+        events = data.get("events", [])
+        uma_handler_logger.info(f"[API] Fetched {len(events)} events from uma.moe timeline API")
+        print(f"[UMA HANDLER] Fetched {len(events)} events from API")
+        return events
+
+    except Exception as e:
+        uma_handler_logger.error(f"[API] Failed to fetch timeline: {e}")
+        import traceback
+        uma_handler_logger.error(traceback.format_exc())
+        return []
+
 
 def extract_banner_id_from_image_url(img_url):
     """
@@ -1012,7 +1065,191 @@ async def process_events(raw_events):
     
     print(f"[UMA HANDLER] Processed: {len(processed)} events | Skipped (no date): {skipped_no_date} | Combined/Skipped: {len(skip_indices)}")
     uma_handler_logger.info(f"Processing complete - {len(processed)} events ready for database")
-    
+
+    return processed
+
+
+async def process_api_events(api_events):
+    """
+    Convert uma.moe API event dicts directly to DB-ready event dicts.
+
+    Replaces process_events() for the API-based flow.  Key differences:
+      - Types come from the structured 'type' field, not DOM text scanning
+      - Dates are ISO 8601 UTC strings, no regex parsing needed
+      - Character/support names come from related_characters / related_support_cards arrays
+      - No GameTora enrichment (API already has accurate names; links skipped per design)
+      - Same combine_images_vertically / combine_images_horizontally helpers reused
+    """
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    processed = []
+    skip_ids = set()
+
+    def _iso(s):
+        return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp())
+
+    # Pre-index support banners by release date for O(1) char+support pairing
+    support_by_date = {}
+    for ev in api_events:
+        if ev.get("type") == "support_card_banner":
+            support_by_date.setdefault(ev["global_release_date"], []).append(ev)
+
+    for ev in api_events:
+        ev_id  = ev["id"]
+        ev_type = ev.get("type")
+
+        if ev_id in skip_ids:
+            continue
+
+        # Campaigns are informational only — skip (mirrors old MISSION_CAMPAIGN skip)
+        if ev_type == "campaign":
+            continue
+
+        start_ts = _iso(ev["global_release_date"])
+        end_ts   = _iso(ev["estimated_end_date"])
+
+        # Drop events that have already ended
+        if end_ts < now_ts:
+            continue
+
+        # ── Character Banner ─────────────────────────────────────────────────
+        if ev_type == "character_banner":
+            char_names = " & ".join(ev.get("related_characters") or []) or ev.get("title", "Character Banner")
+
+            # Pair with the first unpaired support banner on the same release date
+            support_ev = None
+            for s in support_by_date.get(ev["global_release_date"], []):
+                if s["id"] not in skip_ids:
+                    support_ev = s
+                    skip_ids.add(s["id"])
+                    break
+
+            support_names = " & ".join(support_ev.get("related_support_cards") or []) if support_ev else ""
+
+            char_img_url    = f"{BASE_URL}{ev['image_path']}"    if ev.get("image_path")                         else None
+            support_img_url = f"{BASE_URL}{support_ev['image_path']}" if support_ev and support_ev.get("image_path") else None
+
+            final_img = char_img_url or ""
+            if char_img_url and support_img_url:
+                combined = await combine_images_vertically(char_img_url, support_img_url)
+                if combined:
+                    final_img = combined
+                    await combine_images_horizontally([char_img_url, support_img_url])
+
+            desc = f"**Characters:** {char_names}"
+            if support_names:
+                desc += f"\n**Support Cards:** {support_names}"
+
+            processed.append({
+                "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
+                "title":       f"{char_names} Banner",
+                "start":       start_ts,
+                "end":         end_ts,
+                "image":       final_img,
+                "category":    "Banner",
+                "description": desc,
+            })
+
+        # ── Support Banner (standalone — no char banner on the same date) ────
+        elif ev_type == "support_card_banner":
+            support_names = " & ".join(ev.get("related_support_cards") or []) or ev.get("title", "Support Cards")
+            img_url = f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else ""
+            processed.append({
+                "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
+                "title":       f"{support_names} Support Banner",
+                "start":       start_ts,
+                "end":         end_ts,
+                "image":       img_url,
+                "category":    "Banner",
+                "description": f"**Support Cards:** {support_names}",
+            })
+
+        # ── Paid Banner ──────────────────────────────────────────────────────
+        elif ev_type == "paid_banner":
+            # Find the companion paid banner on the same release date
+            paired_ev = None
+            for other in api_events:
+                if other["id"] in skip_ids or other["id"] == ev_id:
+                    continue
+                if other.get("type") == "paid_banner" and other["global_release_date"] == ev["global_release_date"]:
+                    paired_ev = other
+                    skip_ids.add(other["id"])
+                    break
+
+            img_url        = f"{BASE_URL}{ev['image_path']}"         if ev.get("image_path")                          else None
+            paired_img_url = f"{BASE_URL}{paired_ev['image_path']}"  if paired_ev and paired_ev.get("image_path") else None
+
+            final_img = img_url or ""
+            if img_url and paired_img_url:
+                combined = await combine_images_vertically(img_url, paired_img_url)
+                if combined:
+                    final_img = combined
+                    await combine_images_horizontally([img_url, paired_img_url])
+
+            start_dt = datetime.fromisoformat(ev["global_release_date"].replace("Z", "+00:00"))
+            processed.append({
+                "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
+                "title":       f"Paid Banner ({start_dt.strftime('%b %d')})",
+                "start":       start_ts,
+                "end":         end_ts,
+                "image":       final_img,
+                "category":    "Offer",
+                "description": "",
+            })
+
+        # ── Story Event ──────────────────────────────────────────────────────
+        elif ev_type == "story_event":
+            processed.append({
+                "id":          None,
+                "title":       ev.get("title", "Story Event"),
+                "start":       start_ts,
+                "end":         end_ts,
+                "image":       f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "",
+                "category":    "Event",
+                "description": ev.get("description", ""),
+            })
+
+        # ── Champions Meeting ────────────────────────────────────────────────
+        elif ev_type == "champions_meeting":
+            desc = ev.get("description", "").replace("<br>", "\n")
+            corrected_end = start_ts + (CM_CORRECTED_DURATION_DAYS * 24 * 60 * 60) - 60
+            processed.append({
+                "id":          None,
+                "title":       ev.get("title", "Champions Meeting"),
+                "start":       start_ts,
+                "end":         corrected_end,
+                "image":       "",  # CM has no banner image in the API
+                "category":    "Champions Meeting",
+                "description": desc,
+            })
+
+        # ── Legend Race ──────────────────────────────────────────────────────
+        elif ev_type == "legend_race":
+            # related_characters holds character-stand image paths for legend races
+            stand_urls = [
+                f"{BASE_URL}{p}"
+                for p in (ev.get("related_characters") or [])
+                if isinstance(p, str) and p.startswith("assets/")
+            ]
+            combined_img = None
+            if len(stand_urls) > 1:
+                combined_img = await combine_images_horizontally(stand_urls)
+            elif stand_urls:
+                combined_img = stand_urls[0]
+            if not combined_img:
+                combined_img = f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else ""
+
+            processed.append({
+                "id":          None,
+                "title":       ev.get("title", "Legend Race"),
+                "start":       start_ts,
+                "end":         end_ts,
+                "image":       combined_img,
+                "category":    "Legend Race",
+                "description": ev.get("description", ""),
+            })
+
+    uma_handler_logger.info(f"[API] process_api_events: {len(processed)} events ready (from {len(api_events)} total API events)")
+    print(f"[UMA HANDLER] process_api_events: {len(processed)} events ready")
     return processed
 
 
@@ -1416,22 +1653,30 @@ async def add_uma_event(event_data, user_id="0"):
 
 async def scrape_and_save_events():
     """
-    Downloads the uma.moe timeline and writes events to the database.
-    Pure scrape + DB write — no Discord calls.
+    Fetches the uma.moe timeline via API and writes events to the database.
+    Pure fetch + DB write — no Discord calls.
     Dashboard refresh (uma_update_timers) is the caller's responsibility.
     """
-    uma_handler_logger.info("Starting Uma Musume event update...")
+    uma_handler_logger.info("Starting Uma Musume event update (API-based)...")
     print("[UMA HANDLER] Starting Uma Musume event update...")
 
-    print("[UMA HANDLER] Downloading timeline from uma.moe...")
-    events = await download_timeline()
+    print("[UMA HANDLER] Fetching timeline from uma.moe API...")
+    api_events = await fetch_api_events()
 
-    if not events:
-        uma_handler_logger.warning("No events downloaded.")
-        print("[UMA HANDLER] WARNING: No events downloaded!")
+    if not api_events:
+        uma_handler_logger.warning("No events fetched from API.")
+        print("[UMA HANDLER] WARNING: No events fetched from API!")
         return
 
-    print(f"[UMA HANDLER] Downloaded {len(events)} events, adding to database...")
+    print(f"[UMA HANDLER] Fetched {len(api_events)} raw API events, processing...")
+    events = await process_api_events(api_events)
+
+    if not events:
+        uma_handler_logger.warning("No events after processing.")
+        print("[UMA HANDLER] WARNING: No events after processing!")
+        return
+
+    print(f"[UMA HANDLER] Adding {len(events)} events to database...")
 
     added_count = 0
     for event_data in events:
