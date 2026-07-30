@@ -1076,8 +1076,8 @@ async def process_api_events(api_events):
     Replaces process_events() for the API-based flow.  Key differences:
       - Types come from the structured 'type' field, not DOM text scanning
       - Dates are ISO 8601 UTC strings, no regex parsing needed
-      - Character/support names come from related_characters / related_support_cards arrays
-      - No GameTora enrichment (API already has accurate names; links skipped per design)
+      - Character/support names start from API arrays, then enriched via GameTora DB
+      - gacha_id used directly for GameTora lookup (no URL parsing needed)
       - Same combine_images_vertically / combine_images_horizontally helpers reused
     """
     now_ts = int(datetime.now(timezone.utc).timestamp())
@@ -1113,7 +1113,8 @@ async def process_api_events(api_events):
 
         # ── Character Banner ─────────────────────────────────────────────────
         if ev_type == "character_banner":
-            char_names = " & ".join(ev.get("related_characters") or []) or ev.get("title", "Character Banner")
+            # API names as fallback if GameTora has no data
+            api_char_names = " & ".join(ev.get("related_characters") or []) or ev.get("title", "Character Banner")
 
             # Pair with the first unpaired support banner on the same release date
             support_ev = None
@@ -1123,9 +1124,28 @@ async def process_api_events(api_events):
                     skip_ids.add(s["id"])
                     break
 
-            support_names = " & ".join(support_ev.get("related_support_cards") or []) if support_ev else ""
+            api_support_names = " & ".join(support_ev.get("related_support_cards") or []) if support_ev else ""
 
-            char_img_url    = f"{BASE_URL}{ev['image_path']}"    if ev.get("image_path")                         else None
+            # GameTora enrichment — query by gacha_id directly (no URL parsing needed)
+            char_gt = await get_gametora_banner_data(str(ev["gacha_id"])) if ev.get("gacha_id") else {}
+            supp_gt = await get_gametora_banner_data(str(support_ev["gacha_id"])) if support_ev and support_ev.get("gacha_id") else {}
+
+            if char_gt.get("characters"):
+                enriched_chars = ", ".join(f"[{n}](https://gametora.com{l})" for n, l in char_gt["characters"])
+            else:
+                enriched_chars = api_char_names
+
+            if supp_gt.get("supports"):
+                enriched_supports = ", ".join(f"[{n}](https://gametora.com{l})" for n, l in supp_gt["supports"])
+            else:
+                enriched_supports = api_support_names
+
+            # Title uses plain names; * suffix = GameTora had no data for this banner
+            was_enriched = "](" in enriched_chars
+            plain_chars  = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_chars)
+            title = f"{plain_chars}{'*' if not was_enriched else ''} Banner"
+
+            char_img_url    = f"{BASE_URL}{ev['image_path']}"         if ev.get("image_path")                         else None
             support_img_url = f"{BASE_URL}{support_ev['image_path']}" if support_ev and support_ev.get("image_path") else None
 
             final_img = char_img_url or ""
@@ -1135,13 +1155,13 @@ async def process_api_events(api_events):
                     final_img = combined
                     await combine_images_horizontally([char_img_url, support_img_url])
 
-            desc = f"**Characters:** {char_names}"
-            if support_names:
-                desc += f"\n**Support Cards:** {support_names}"
+            desc = f"**Characters:** {enriched_chars}"
+            if enriched_supports:
+                desc += f"\n**Support Cards:** {enriched_supports}"
 
             processed.append({
                 "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
-                "title":       f"{char_names} Banner",
+                "title":       title,
                 "start":       start_ts,
                 "end":         end_ts,
                 "image":       final_img,
@@ -1151,16 +1171,27 @@ async def process_api_events(api_events):
 
         # ── Support Banner (standalone — no char banner on the same date) ────
         elif ev_type == "support_card_banner":
-            support_names = " & ".join(ev.get("related_support_cards") or []) or ev.get("title", "Support Cards")
+            api_support_names = " & ".join(ev.get("related_support_cards") or []) or ev.get("title", "Support Cards")
+
+            supp_gt = await get_gametora_banner_data(str(ev["gacha_id"])) if ev.get("gacha_id") else {}
+            if supp_gt.get("supports"):
+                enriched_supports = ", ".join(f"[{n}](https://gametora.com{l})" for n, l in supp_gt["supports"])
+            else:
+                enriched_supports = api_support_names
+
+            was_enriched   = "](" in enriched_supports
+            plain_supports = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_supports)
+            title = f"{plain_supports}{'*' if not was_enriched else ''} Support Banner"
+
             img_url = f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else ""
             processed.append({
                 "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
-                "title":       f"{support_names} Support Banner",
+                "title":       title,
                 "start":       start_ts,
                 "end":         end_ts,
                 "image":       img_url,
                 "category":    "Banner",
-                "description": f"**Support Cards:** {support_names}",
+                "description": f"**Support Cards:** {enriched_supports}",
             })
 
         # ── Paid Banner ──────────────────────────────────────────────────────
