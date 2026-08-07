@@ -1255,28 +1255,32 @@ async def process_api_events(api_events):
 
         # ── Legend Race ──────────────────────────────────────────────────────
         elif ev_type == "legend_race":
-            # related_characters holds character-stand image paths for legend races
-            stand_urls = [
-                f"{BASE_URL}{p}"
-                for p in (ev.get("related_characters") or [])
-                if isinstance(p, str) and p.startswith("assets/")
-            ]
-            combined_img = None
-            if len(stand_urls) > 1:
-                combined_img = await combine_images_horizontally(stand_urls)
-            elif stand_urls:
-                combined_img = stand_urls[0]
-            if not combined_img:
-                combined_img = f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else ""
+            # Use the 'image' field (Akamai CDN URL) — image_path is a local asset path
+            # that doesn't exist on uma.moe and returns 404.
+            lr_img = ev.get("image") or (f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "")
+
+            # Build character links via pickup_card_ids → GameTora DB (character_id column)
+            pickup_ids = [str(cid) for cid in (ev.get("pickup_card_ids") or [])]
+            char_links_str = await get_legend_race_characters(pickup_ids)
+            if not char_links_str:
+                # Fallback: plain names from related_characters
+                char_links_str = ", ".join(ev.get("related_characters") or [])
+
+            race_details = ev.get("description", "")
+            lr_desc = ""
+            if char_links_str:
+                lr_desc = f"**Characters:** {char_links_str}"
+            if race_details:
+                lr_desc += ("\n" if lr_desc else "") + race_details
 
             processed.append({
                 "id":          None,
                 "title":       ev.get("title", "Legend Race"),
                 "start":       start_ts,
                 "end":         end_ts,
-                "image":       combined_img,
+                "image":       lr_img,
                 "category":    "Legend Race",
-                "description": ev.get("description", ""),
+                "description": lr_desc,
             })
 
     uma_handler_logger.info(f"[API] process_api_events: {len(processed)} events ready (from {len(api_events)} total API events)")
