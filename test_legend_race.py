@@ -22,10 +22,10 @@ from io import BytesIO
 API_KEY       = "REDACTED_API_KEY"
 API_URL       = "https://uma.moe/resources/current/banner_timeline.json.gz"
 BASE_URL      = "https://uma.moe/"
-STAND_URL_TPL = "https://uma.moe/assets/images/legend/boss/chara_stand_{id}.png"
+STAND_URL_TPL = "https://uma.moe/assets/images/character_stand/chara_stand_{id}.webp"
 GAMETORA_DB   = os.path.join("data", "JP_Data", "uma_jp_data.db")
 
-WEBHOOK_URL = "REPLACE_WITH_NEW_WEBHOOK"
+WEBHOOK_URL = "https://discord.com/api/webhooks/0/REDACTED_WEBHOOK_TOKEN"
 
 EMBED_COLOR_LEGEND = 0xFFD700   # gold
 
@@ -236,13 +236,33 @@ async def main():
             if race_details:
                 fixed_desc += f"\n{race_details}"
 
-            # Use 'image' field (Akamai CDN URL) — stand images at uma.moe 404
-            lr_img_url = ev.get("image") or fallback_img_url
-            print(f"  Akamai event image: {lr_img_url}")
+            # Image: combine character stand webps; fall back to Akamai URL
+            stand_urls_fixed = [STAND_URL_TPL.format(id=cid) for cid in pickup_ids]
+            print(f"  Stand URLs: {stand_urls_fixed}")
 
-            # No combined bytes needed — use the direct URL
             combined_bytes = None
-            combined_filename = "legend.png"
+            combined_filename = "combined_legend.png"
+            lr_img_url = None
+
+            if len(stand_urls_fixed) > 1:
+                print(f"  Combining {len(stand_urls_fixed)} stand images...")
+                combined_bytes = await combine_images_horizontally_bytes(session, stand_urls_fixed)
+                if combined_bytes:
+                    print(f"  Combined OK ({len(combined_bytes)} bytes)")
+                    lr_img_url = f"attachment://{combined_filename}"
+                else:
+                    print("  Combine FAILED - falling back to Akamai URL")
+            elif stand_urls_fixed:
+                data = await fetch_image_bytes(session, stand_urls_fixed[0])
+                if data:
+                    combined_bytes = data
+                    combined_filename = "stand.png"
+                    lr_img_url = f"attachment://{combined_filename}"
+
+            if not lr_img_url:
+                lr_img_url = ev.get("image") or fallback_img_url
+                combined_bytes = None
+                print(f"  Using Akamai fallback: {lr_img_url}")
 
             print(f"  [FIXED] description: {fixed_desc!r}")
             print()
@@ -255,9 +275,9 @@ async def main():
                     {"name": "Start", "value": f"<t:{start_ts}:F>", "inline": True},
                     {"name": "End",   "value": f"<t:{end_ts}:F>",   "inline": True},
                 ],
-                "footer": {"text": f"pickup_card_ids={pickup_ids} | image from ev['image'] (Akamai CDN)"},
+                "footer": {"text": f"pickup_card_ids={pickup_ids} | stand: character_stand/chara_stand_{{id}}.webp"},
             }
-            if lr_img_url and lr_img_url.startswith("http"):
+            if lr_img_url:
                 fixed_embed["image"] = {"url": lr_img_url}
 
             # Send both embeds

@@ -1255,10 +1255,6 @@ async def process_api_events(api_events):
 
         # ── Legend Race ──────────────────────────────────────────────────────
         elif ev_type == "legend_race":
-            # Use the 'image' field (Akamai CDN URL) — image_path is a local asset path
-            # that doesn't exist on uma.moe and returns 404.
-            lr_img = ev.get("image") or (f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "")
-
             # Build character links via pickup_card_ids → GameTora DB (character_id column)
             pickup_ids = [str(cid) for cid in (ev.get("pickup_card_ids") or [])]
             char_links_str = await get_legend_race_characters(pickup_ids)
@@ -1272,6 +1268,17 @@ async def process_api_events(api_events):
                 lr_desc = f"**Characters:** {char_links_str}"
             if race_details:
                 lr_desc += ("\n" if lr_desc else "") + race_details
+
+            # Image: combine character stand webps; fall back to Akamai URL
+            _STAND = "https://uma.moe/assets/images/character_stand/chara_stand_{id}.webp"
+            stand_urls = [_STAND.format(id=cid) for cid in pickup_ids]
+            lr_img = None
+            if len(stand_urls) > 1:
+                lr_img = await combine_images_horizontally(stand_urls)
+            elif stand_urls:
+                lr_img = stand_urls[0]
+            if not lr_img:
+                lr_img = ev.get("image") or (f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "")
 
             processed.append({
                 "id":          None,
