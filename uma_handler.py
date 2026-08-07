@@ -1243,12 +1243,20 @@ async def process_api_events(api_events):
         elif ev_type == "champions_meeting":
             desc = ev.get("description", "").replace("<br>", "\n")
             corrected_end = start_ts + (CM_CORRECTED_DURATION_DAYS * 24 * 60 * 60) - 60
+            raw_title = ev.get("title", "Champions Meeting")
+            # Prefix to match the format used by the old scraper ("Champions Meeting: Libra Cup")
+            # so the dedup logic in add_uma_event() finds the existing DB entry correctly.
+            if not raw_title.startswith("Champions Meeting"):
+                cm_title = f"Champions Meeting: {raw_title}"
+            else:
+                cm_title = raw_title
+            cm_img = ev.get("image") or (f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "")
             processed.append({
                 "id":          None,
-                "title":       ev.get("title", "Champions Meeting"),
+                "title":       cm_title,
                 "start":       start_ts,
                 "end":         corrected_end,
-                "image":       "",  # CM has no banner image in the API
+                "image":       cm_img,
                 "category":    "Champions Meeting",
                 "description": desc,
             })
