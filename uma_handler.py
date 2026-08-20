@@ -1242,7 +1242,9 @@ async def process_api_events(api_events):
         # ── Champions Meeting ────────────────────────────────────────────────
         elif ev_type == "champions_meeting":
             desc = ev.get("description", "").replace("<br>", "\n")
-            corrected_end = start_ts + (CM_CORRECTED_DURATION_DAYS * 24 * 60 * 60) - 60
+            # API dates are consistently 1 day late for Champions Meeting
+            cm_start = start_ts - 86400
+            corrected_end = cm_start + (CM_CORRECTED_DURATION_DAYS * 24 * 60 * 60) - 60
             raw_title = ev.get("title", "Champions Meeting")
             # Prefix to match the format used by the old scraper ("Champions Meeting: Libra Cup")
             # so the dedup logic in add_uma_event() finds the existing DB entry correctly.
@@ -1254,7 +1256,7 @@ async def process_api_events(api_events):
             processed.append({
                 "id":          None,
                 "title":       cm_title,
-                "start":       start_ts,
+                "start":       cm_start,
                 "end":         corrected_end,
                 "image":       cm_img,
                 "category":    "Champions Meeting",
