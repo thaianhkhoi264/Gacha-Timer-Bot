@@ -1242,8 +1242,6 @@ async def process_api_events(api_events):
         # ── Champions Meeting ────────────────────────────────────────────────
         elif ev_type == "champions_meeting":
             desc = ev.get("description", "").replace("<br>", "\n")
-            # API dates are consistently 1 day late for Champions Meeting
-            cm_start = start_ts - 86400
             corrected_end = cm_start + (CM_CORRECTED_DURATION_DAYS * 24 * 60 * 60) - 60
             raw_title = ev.get("title", "Champions Meeting")
             # Prefix to match the format used by the old scraper ("Champions Meeting: Libra Cup")
