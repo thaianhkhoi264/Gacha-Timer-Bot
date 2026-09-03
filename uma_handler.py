@@ -1083,6 +1083,7 @@ async def process_api_events(api_events):
     now_ts = int(datetime.now(timezone.utc).timestamp())
     processed = []
     skip_ids = set()
+    paid_seq_by_date = {}  # release date -> count of Offer events emitted so far
 
     def _iso(s):
         return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp())
@@ -1092,6 +1093,15 @@ async def process_api_events(api_events):
     for ev in api_events:
         if ev.get("type") == "support_card_banner":
             support_by_date.setdefault(ev["global_release_date"], []).append(ev)
+
+    # Pre-index paid banners by release date.  A "paid banner" set is one
+    # character half + one support half, and several independent sets can share
+    # a single release date (anniversary etc.), so pairing must be scoped to the
+    # date group rather than scanning the whole feed.
+    paid_by_date = {}
+    for ev in api_events:
+        if ev.get("type") == "paid_banner":
+            paid_by_date.setdefault(ev["global_release_date"], []).append(ev)
 
     for ev in api_events:
         try:
@@ -1197,18 +1207,30 @@ async def process_api_events(api_events):
 
             # ── Paid Banner ──────────────────────────────────────────────────────
             elif ev_type == "paid_banner":
-                # Find the companion paid banner on the same release date
+                # Pair this half with the complementary half of the same set:
+                # match a character paid banner with a support one (and vice
+                # versa) from the same release date, preferring the nearest
+                # gacha_id so consecutive sets don't cross-wire.  Consume both
+                # halves; a genuine odd-one-out becomes a standalone Offer.
+                candidates = [p for p in paid_by_date.get(ev["global_release_date"], [])
+                              if p["id"] != ev_id and p["id"] not in skip_ids]
+                want = "support" if ev.get("card_type") == "character" else "character"
+                pool = [p for p in candidates if p.get("card_type") == want] or candidates
                 paired_ev = None
-                for other in api_events:
-                    if other["id"] in skip_ids or other["id"] == ev_id:
-                        continue
-                    if other.get("type") == "paid_banner" and other["global_release_date"] == ev["global_release_date"]:
-                        paired_ev = other
-                        skip_ids.add(other["id"])
-                        break
+                if pool:
+                    _gid = ev.get("gacha_id") or 0
+                    paired_ev = min(pool, key=lambda p: abs((p.get("gacha_id") or 0) - _gid))
+                    skip_ids.add(paired_ev["id"])
+                skip_ids.add(ev_id)
 
-                img_url        = f"{BASE_URL}{ev['image_path']}"         if ev.get("image_path")                          else None
-                paired_img_url = f"{BASE_URL}{paired_ev['image_path']}"  if paired_ev and paired_ev.get("image_path") else None
+                # Character image on top, support image on the bottom
+                if paired_ev and ev.get("card_type") == "support":
+                    top_ev, bot_ev = paired_ev, ev
+                else:
+                    top_ev, bot_ev = ev, paired_ev
+
+                img_url        = f"{BASE_URL}{top_ev['image_path']}" if top_ev and top_ev.get("image_path") else None
+                paired_img_url = f"{BASE_URL}{bot_ev['image_path']}" if bot_ev and bot_ev.get("image_path") else None
 
                 final_img = img_url or ""
                 if img_url and paired_img_url:
@@ -1218,9 +1240,20 @@ async def process_api_events(api_events):
                         await combine_images_horizontally([img_url, paired_img_url])
 
                 start_dt = datetime.fromisoformat(ev["global_release_date"].replace("Z", "+00:00"))
+                date_label = start_dt.strftime("%b %d")
+
+                # Number the title only when more than one set drops on this date,
+                # e.g. "Paid Banner 1 (Oct 01)" / "Paid Banner 2 (Oct 01)".
+                _n_halves = len(paid_by_date.get(ev["global_release_date"], []))
+                _n_sets = (_n_halves + 1) // 2
+                _seq = paid_seq_by_date.get(ev["global_release_date"], 0) + 1
+                paid_seq_by_date[ev["global_release_date"]] = _seq
+                pb_title = (f"Paid Banner {_seq} ({date_label})" if _n_sets > 1
+                            else f"Paid Banner ({date_label})")
+
                 processed.append({
                     "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
-                    "title":       f"Paid Banner ({start_dt.strftime('%b %d')})",
+                    "title":       pb_title,
                     "start":       start_ts,
                     "end":         end_ts,
                     "image":       final_img,
