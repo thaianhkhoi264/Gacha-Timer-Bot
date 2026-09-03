@@ -1094,209 +1094,247 @@ async def process_api_events(api_events):
             support_by_date.setdefault(ev["global_release_date"], []).append(ev)
 
     for ev in api_events:
-        ev_id  = ev["id"]
-        ev_type = ev.get("type")
+        try:
+            ev_id  = ev["id"]
+            ev_type = ev.get("type")
 
-        if ev_id in skip_ids:
+            if ev_id in skip_ids:
+                continue
+
+            # Campaigns are informational only — skip (mirrors old MISSION_CAMPAIGN skip)
+            if ev_type == "campaign":
+                continue
+
+            start_ts = _iso(ev["global_release_date"])
+            end_ts   = _iso(ev["estimated_end_date"])
+
+            # Drop events that have already ended
+            if end_ts < now_ts:
+                continue
+
+            # ── Character Banner ─────────────────────────────────────────────────
+            if ev_type == "character_banner":
+                # API names as fallback if GameTora has no data
+                api_char_names = " & ".join(ev.get("related_characters") or []) or ev.get("title", "Character Banner")
+
+                # Pair with the first unpaired support banner on the same release date
+                support_ev = None
+                for s in support_by_date.get(ev["global_release_date"], []):
+                    if s["id"] not in skip_ids:
+                        support_ev = s
+                        skip_ids.add(s["id"])
+                        break
+
+                api_support_names = " & ".join(support_ev.get("related_support_cards") or []) if support_ev else ""
+
+                # GameTora enrichment — query by gacha_id directly (no URL parsing needed)
+                char_gt = await get_gametora_banner_data(str(ev["gacha_id"])) if ev.get("gacha_id") else {}
+                supp_gt = await get_gametora_banner_data(str(support_ev["gacha_id"])) if support_ev and support_ev.get("gacha_id") else {}
+
+                if char_gt.get("characters"):
+                    enriched_chars = ", ".join(f"[{n}](https://gametora.com{l})" for n, l in char_gt["characters"])
+                else:
+                    enriched_chars = api_char_names
+
+                if supp_gt.get("supports"):
+                    enriched_supports = ", ".join(f"[{n}](https://gametora.com{l})" for n, l in supp_gt["supports"])
+                else:
+                    enriched_supports = api_support_names
+
+                # Title uses plain names; * suffix = GameTora had no data for this banner
+                was_enriched = "](" in enriched_chars
+                plain_chars  = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_chars)
+                title = f"{plain_chars}{'*' if not was_enriched else ''} Banner"
+
+                char_img_url    = f"{BASE_URL}{ev['image_path']}"         if ev.get("image_path")                         else None
+                support_img_url = f"{BASE_URL}{support_ev['image_path']}" if support_ev and support_ev.get("image_path") else None
+
+                final_img = char_img_url or ""
+                if char_img_url and support_img_url:
+                    combined = await combine_images_vertically(char_img_url, support_img_url)
+                    if combined:
+                        final_img = combined
+                        await combine_images_horizontally([char_img_url, support_img_url])
+
+                desc = f"**Characters:** {enriched_chars}"
+                if enriched_supports:
+                    desc += f"\n**Support Cards:** {enriched_supports}"
+
+                processed.append({
+                    "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
+                    "title":       title,
+                    "start":       start_ts,
+                    "end":         end_ts,
+                    "image":       final_img,
+                    "category":    "Banner",
+                    "description": desc,
+                })
+
+            # ── Support Banner (standalone — no char banner on the same date) ────
+            elif ev_type == "support_card_banner":
+                api_support_names = " & ".join(ev.get("related_support_cards") or []) or ev.get("title", "Support Cards")
+
+                supp_gt = await get_gametora_banner_data(str(ev["gacha_id"])) if ev.get("gacha_id") else {}
+                if supp_gt.get("supports"):
+                    enriched_supports = ", ".join(f"[{n}](https://gametora.com{l})" for n, l in supp_gt["supports"])
+                else:
+                    enriched_supports = api_support_names
+
+                was_enriched   = "](" in enriched_supports
+                plain_supports = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_supports)
+                title = f"{plain_supports}{'*' if not was_enriched else ''} Support Banner"
+
+                img_url = f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else ""
+                processed.append({
+                    "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
+                    "title":       title,
+                    "start":       start_ts,
+                    "end":         end_ts,
+                    "image":       img_url,
+                    "category":    "Banner",
+                    "description": f"**Support Cards:** {enriched_supports}",
+                })
+
+            # ── Paid Banner ──────────────────────────────────────────────────────
+            elif ev_type == "paid_banner":
+                # Find the companion paid banner on the same release date
+                paired_ev = None
+                for other in api_events:
+                    if other["id"] in skip_ids or other["id"] == ev_id:
+                        continue
+                    if other.get("type") == "paid_banner" and other["global_release_date"] == ev["global_release_date"]:
+                        paired_ev = other
+                        skip_ids.add(other["id"])
+                        break
+
+                img_url        = f"{BASE_URL}{ev['image_path']}"         if ev.get("image_path")                          else None
+                paired_img_url = f"{BASE_URL}{paired_ev['image_path']}"  if paired_ev and paired_ev.get("image_path") else None
+
+                final_img = img_url or ""
+                if img_url and paired_img_url:
+                    combined = await combine_images_vertically(img_url, paired_img_url)
+                    if combined:
+                        final_img = combined
+                        await combine_images_horizontally([img_url, paired_img_url])
+
+                start_dt = datetime.fromisoformat(ev["global_release_date"].replace("Z", "+00:00"))
+                processed.append({
+                    "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
+                    "title":       f"Paid Banner ({start_dt.strftime('%b %d')})",
+                    "start":       start_ts,
+                    "end":         end_ts,
+                    "image":       final_img,
+                    "category":    "Offer",
+                    "description": "",
+                })
+
+            # ── Story Event ──────────────────────────────────────────────────────
+            elif ev_type == "story_event":
+                processed.append({
+                    "id":          None,
+                    "title":       ev.get("title", "Story Event"),
+                    "start":       start_ts,
+                    "end":         end_ts,
+                    "image":       f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "",
+                    "category":    "Event",
+                    "description": ev.get("description", ""),
+                })
+
+            # ── Champions Meeting ────────────────────────────────────────────────
+            elif ev_type == "champions_meeting":
+                desc = ev.get("description", "").replace("<br>", "\n")
+                corrected_end = start_ts + (CM_CORRECTED_DURATION_DAYS * 24 * 60 * 60) - 60
+                raw_title = ev.get("title", "Champions Meeting")
+                # Prefix to match the format used by the old scraper ("Champions Meeting: Libra Cup")
+                # so the dedup logic in add_uma_event() finds the existing DB entry correctly.
+                if not raw_title.startswith("Champions Meeting"):
+                    cm_title = f"Champions Meeting: {raw_title}"
+                else:
+                    cm_title = raw_title
+                cm_img = ev.get("image") or (f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "")
+                processed.append({
+                    "id":          None,
+                    "title":       cm_title,
+                    "start":       start_ts,
+                    "end":         corrected_end,
+                    "image":       cm_img,
+                    "category":    "Champions Meeting",
+                    "description": desc,
+                })
+
+            # ── Legend Race ──────────────────────────────────────────────────────
+            elif ev_type == "legend_race":
+                # Build character links via pickup_card_ids → GameTora DB (character_id column)
+                pickup_ids = [str(cid) for cid in (ev.get("pickup_card_ids") or [])]
+                char_links_str = await get_legend_race_characters(pickup_ids)
+                if not char_links_str:
+                    # Fallback: plain names from related_characters
+                    char_links_str = ", ".join(ev.get("related_characters") or [])
+
+                race_details = ev.get("description", "")
+                lr_desc = ""
+                if char_links_str:
+                    lr_desc = f"**Characters:** {char_links_str}"
+                if race_details:
+                    lr_desc += ("\n" if lr_desc else "") + race_details
+
+                # Image: combine character stand webps; fall back to Akamai URL
+                _STAND = "https://uma.moe/assets/images/character_stand/chara_stand_{id}.webp"
+                stand_urls = [_STAND.format(id=cid) for cid in pickup_ids]
+                lr_img = None
+                if len(stand_urls) > 1:
+                    lr_img = await combine_images_horizontally(stand_urls)
+                elif stand_urls:
+                    lr_img = stand_urls[0]
+                if not lr_img:
+                    lr_img = ev.get("image") or (f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "")
+
+                processed.append({
+                    "id":          None,
+                    "title":       ev.get("title", "Legend Race"),
+                    "start":       start_ts,
+                    "end":         end_ts,
+                    "image":       lr_img,
+                    "category":    "Legend Race",
+                    "description": lr_desc,
+                })
+
+            # ── League of Heroes ─────────────────────────────────────────────────
+            # Flat ~6-day racing event.  No phases, no character rotation, no gacha
+            # data — treated like a Story Event (category "Event").  Description is
+            # fixed boilerplate on the API side, so it is dropped.
+            elif ev_type == "league_of_heroes":
+                processed.append({
+                    "id":          None,
+                    "title":       ev.get("title", "League of Heroes"),
+                    "start":       start_ts,
+                    "end":         end_ts,
+                    "image":       f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else ev.get("image", ""),
+                    "category":    "Event",
+                    "description": "",
+                })
+
+            # ── Scenario Release ─────────────────────────────────────────────────
+            # A new training scenario being added to the game.  Permanent unlock, so
+            # the API window is only nominal (release date → +1 day).  Surfaced as a
+            # one-day "Event" marker so it shows on the dashboard when it drops.
+            elif ev_type == "scenario_release":
+                processed.append({
+                    "id":          None,
+                    "title":       ev.get("title", "New Training Scenario"),
+                    "start":       start_ts,
+                    "end":         end_ts,
+                    "image":       f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else ev.get("image", ""),
+                    "category":    "Event",
+                    "description": "",
+                })
+
+        except Exception as e:
+            uma_handler_logger.error(
+                f"[API] Skipped malformed event {ev.get('id', '?')} "
+                f"(type={ev.get('type')}): {e}"
+            )
             continue
-
-        # Campaigns are informational only — skip (mirrors old MISSION_CAMPAIGN skip)
-        if ev_type == "campaign":
-            continue
-
-        start_ts = _iso(ev["global_release_date"])
-        end_ts   = _iso(ev["estimated_end_date"])
-
-        # Drop events that have already ended
-        if end_ts < now_ts:
-            continue
-
-        # ── Character Banner ─────────────────────────────────────────────────
-        if ev_type == "character_banner":
-            # API names as fallback if GameTora has no data
-            api_char_names = " & ".join(ev.get("related_characters") or []) or ev.get("title", "Character Banner")
-
-            # Pair with the first unpaired support banner on the same release date
-            support_ev = None
-            for s in support_by_date.get(ev["global_release_date"], []):
-                if s["id"] not in skip_ids:
-                    support_ev = s
-                    skip_ids.add(s["id"])
-                    break
-
-            api_support_names = " & ".join(support_ev.get("related_support_cards") or []) if support_ev else ""
-
-            # GameTora enrichment — query by gacha_id directly (no URL parsing needed)
-            char_gt = await get_gametora_banner_data(str(ev["gacha_id"])) if ev.get("gacha_id") else {}
-            supp_gt = await get_gametora_banner_data(str(support_ev["gacha_id"])) if support_ev and support_ev.get("gacha_id") else {}
-
-            if char_gt.get("characters"):
-                enriched_chars = ", ".join(f"[{n}](https://gametora.com{l})" for n, l in char_gt["characters"])
-            else:
-                enriched_chars = api_char_names
-
-            if supp_gt.get("supports"):
-                enriched_supports = ", ".join(f"[{n}](https://gametora.com{l})" for n, l in supp_gt["supports"])
-            else:
-                enriched_supports = api_support_names
-
-            # Title uses plain names; * suffix = GameTora had no data for this banner
-            was_enriched = "](" in enriched_chars
-            plain_chars  = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_chars)
-            title = f"{plain_chars}{'*' if not was_enriched else ''} Banner"
-
-            char_img_url    = f"{BASE_URL}{ev['image_path']}"         if ev.get("image_path")                         else None
-            support_img_url = f"{BASE_URL}{support_ev['image_path']}" if support_ev and support_ev.get("image_path") else None
-
-            final_img = char_img_url or ""
-            if char_img_url and support_img_url:
-                combined = await combine_images_vertically(char_img_url, support_img_url)
-                if combined:
-                    final_img = combined
-                    await combine_images_horizontally([char_img_url, support_img_url])
-
-            desc = f"**Characters:** {enriched_chars}"
-            if enriched_supports:
-                desc += f"\n**Support Cards:** {enriched_supports}"
-
-            processed.append({
-                "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
-                "title":       title,
-                "start":       start_ts,
-                "end":         end_ts,
-                "image":       final_img,
-                "category":    "Banner",
-                "description": desc,
-            })
-
-        # ── Support Banner (standalone — no char banner on the same date) ────
-        elif ev_type == "support_card_banner":
-            api_support_names = " & ".join(ev.get("related_support_cards") or []) or ev.get("title", "Support Cards")
-
-            supp_gt = await get_gametora_banner_data(str(ev["gacha_id"])) if ev.get("gacha_id") else {}
-            if supp_gt.get("supports"):
-                enriched_supports = ", ".join(f"[{n}](https://gametora.com{l})" for n, l in supp_gt["supports"])
-            else:
-                enriched_supports = api_support_names
-
-            was_enriched   = "](" in enriched_supports
-            plain_supports = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', enriched_supports)
-            title = f"{plain_supports}{'*' if not was_enriched else ''} Support Banner"
-
-            img_url = f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else ""
-            processed.append({
-                "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
-                "title":       title,
-                "start":       start_ts,
-                "end":         end_ts,
-                "image":       img_url,
-                "category":    "Banner",
-                "description": f"**Support Cards:** {enriched_supports}",
-            })
-
-        # ── Paid Banner ──────────────────────────────────────────────────────
-        elif ev_type == "paid_banner":
-            # Find the companion paid banner on the same release date
-            paired_ev = None
-            for other in api_events:
-                if other["id"] in skip_ids or other["id"] == ev_id:
-                    continue
-                if other.get("type") == "paid_banner" and other["global_release_date"] == ev["global_release_date"]:
-                    paired_ev = other
-                    skip_ids.add(other["id"])
-                    break
-
-            img_url        = f"{BASE_URL}{ev['image_path']}"         if ev.get("image_path")                          else None
-            paired_img_url = f"{BASE_URL}{paired_ev['image_path']}"  if paired_ev and paired_ev.get("image_path") else None
-
-            final_img = img_url or ""
-            if img_url and paired_img_url:
-                combined = await combine_images_vertically(img_url, paired_img_url)
-                if combined:
-                    final_img = combined
-                    await combine_images_horizontally([img_url, paired_img_url])
-
-            start_dt = datetime.fromisoformat(ev["global_release_date"].replace("Z", "+00:00"))
-            processed.append({
-                "id":          str(ev["gacha_id"]) if ev.get("gacha_id") else None,
-                "title":       f"Paid Banner ({start_dt.strftime('%b %d')})",
-                "start":       start_ts,
-                "end":         end_ts,
-                "image":       final_img,
-                "category":    "Offer",
-                "description": "",
-            })
-
-        # ── Story Event ──────────────────────────────────────────────────────
-        elif ev_type == "story_event":
-            processed.append({
-                "id":          None,
-                "title":       ev.get("title", "Story Event"),
-                "start":       start_ts,
-                "end":         end_ts,
-                "image":       f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "",
-                "category":    "Event",
-                "description": ev.get("description", ""),
-            })
-
-        # ── Champions Meeting ────────────────────────────────────────────────
-        elif ev_type == "champions_meeting":
-            desc = ev.get("description", "").replace("<br>", "\n")
-            corrected_end = cm_start + (CM_CORRECTED_DURATION_DAYS * 24 * 60 * 60) - 60
-            raw_title = ev.get("title", "Champions Meeting")
-            # Prefix to match the format used by the old scraper ("Champions Meeting: Libra Cup")
-            # so the dedup logic in add_uma_event() finds the existing DB entry correctly.
-            if not raw_title.startswith("Champions Meeting"):
-                cm_title = f"Champions Meeting: {raw_title}"
-            else:
-                cm_title = raw_title
-            cm_img = ev.get("image") or (f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "")
-            processed.append({
-                "id":          None,
-                "title":       cm_title,
-                "start":       cm_start,
-                "end":         corrected_end,
-                "image":       cm_img,
-                "category":    "Champions Meeting",
-                "description": desc,
-            })
-
-        # ── Legend Race ──────────────────────────────────────────────────────
-        elif ev_type == "legend_race":
-            # Build character links via pickup_card_ids → GameTora DB (character_id column)
-            pickup_ids = [str(cid) for cid in (ev.get("pickup_card_ids") or [])]
-            char_links_str = await get_legend_race_characters(pickup_ids)
-            if not char_links_str:
-                # Fallback: plain names from related_characters
-                char_links_str = ", ".join(ev.get("related_characters") or [])
-
-            race_details = ev.get("description", "")
-            lr_desc = ""
-            if char_links_str:
-                lr_desc = f"**Characters:** {char_links_str}"
-            if race_details:
-                lr_desc += ("\n" if lr_desc else "") + race_details
-
-            # Image: combine character stand webps; fall back to Akamai URL
-            _STAND = "https://uma.moe/assets/images/character_stand/chara_stand_{id}.webp"
-            stand_urls = [_STAND.format(id=cid) for cid in pickup_ids]
-            lr_img = None
-            if len(stand_urls) > 1:
-                lr_img = await combine_images_horizontally(stand_urls)
-            elif stand_urls:
-                lr_img = stand_urls[0]
-            if not lr_img:
-                lr_img = ev.get("image") or (f"{BASE_URL}{ev['image_path']}" if ev.get("image_path") else "")
-
-            processed.append({
-                "id":          None,
-                "title":       ev.get("title", "Legend Race"),
-                "start":       start_ts,
-                "end":         end_ts,
-                "image":       lr_img,
-                "category":    "Legend Race",
-                "description": lr_desc,
-            })
 
     uma_handler_logger.info(f"[API] process_api_events: {len(processed)} events ready (from {len(api_events)} total API events)")
     print(f"[UMA HANDLER] process_api_events: {len(processed)} events ready")
