@@ -88,6 +88,13 @@ def init_db():
         sent INTEGER DEFAULT 0,
         region TEXT
     )''')
+    # Migrate older DBs: pending_notifications existed before "region" was
+    # added, and CREATE TABLE IF NOT EXISTS is a no-op on those, so add the
+    # column here if it's still missing.
+    c.execute("PRAGMA table_info(pending_notifications)")
+    existing_cols = {row[1] for row in c.fetchall()}
+    if "region" not in existing_cols:
+        c.execute("ALTER TABLE pending_notifications ADD COLUMN region TEXT")
     # UNIQUE index to prevent duplicates (including region for HYV)
     c.execute('''
         CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pending_notif
