@@ -1,6 +1,7 @@
 discord.log
 .env
 api_keys.json
+local_config.py
 dump_db.py
 uma_timeline.html
 downloaded_assets/
@@ -22,4 +23,5 @@ docs/
 .*/
 uma_timeline_initial.png
 pifiles/
-test*/
+tests/
+test_output/
