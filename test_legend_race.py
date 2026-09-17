@@ -19,13 +19,16 @@ import aiohttp
 from io import BytesIO
 
 # ── Config ──────────────────────────────────────────────────────────────────
-API_KEY       = "REDACTED_API_KEY"
+# API_KEY and WEBHOOK_URL are secrets — set them via environment variables,
+# never hardcode them here. (The previous hardcoded webhook/key were dead:
+# the webhook's channel is deleted and the key is stale.)
+API_KEY       = os.getenv("UMA_TEST_API_KEY", "")
 API_URL       = "https://uma.moe/resources/current/banner_timeline.json.gz"
 BASE_URL      = "https://uma.moe/"
 STAND_URL_TPL = "https://uma.moe/assets/images/character_stand/chara_stand_{id}.webp"
 GAMETORA_DB   = os.path.join("data", "JP_Data", "uma_jp_data.db")
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/0/REDACTED_WEBHOOK_TOKEN"
+WEBHOOK_URL = os.getenv("UMA_TEST_WEBHOOK_URL", "")
 
 EMBED_COLOR_LEGEND = 0xFFD700   # gold
 

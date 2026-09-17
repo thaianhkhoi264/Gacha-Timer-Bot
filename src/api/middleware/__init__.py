@@ -13,6 +13,8 @@ import logging
 from typing import Dict, Optional, Tuple, Callable
 from aiohttp import web
 
+from local_config import USER_DESCRIPTION_TO_ID as _USER_DESCRIPTION_TO_ID
+
 logger = logging.getLogger("api.middleware")
 
 
@@ -29,13 +31,8 @@ class APIKeyAuth:
 
     DEFAULT_KEYS_FILE = "api_keys.json"
 
-    # Map user descriptions to Discord user IDs
-    USER_DESCRIPTION_TO_ID = {
-        "Narisurii": "0",
-        "Alfabem": "0",
-        "Naito": "0",
-        "SteveGHShadow": "0",
-    }
+    # Map user descriptions to Discord user IDs (values live in local_config.py)
+    USER_DESCRIPTION_TO_ID = _USER_DESCRIPTION_TO_ID
 
     def __init__(self, keys_file: str = None):
         """

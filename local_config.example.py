@@ -105,3 +105,12 @@ COMMANDS_CHANNELS = {
     DEV_SERVER_ID: 0,
     MAIN_SERVER_ID: 0,
 }
+
+# Map user descriptions (from api_keys.json) to Discord user IDs
+# When an API key is used, we look up its description and map it to a Discord ID
+USER_DESCRIPTION_TO_ID = {
+    "Narisurii": "0",
+    "Alfabem": "0",
+    "Naito": "0",
+    "SteveGHShadow": "0",
+}

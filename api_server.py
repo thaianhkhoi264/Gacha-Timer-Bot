@@ -18,6 +18,7 @@ from shadowverse_handler import (
     CRAFTS
 )
 from global_config import DEV_SERVER_ID, OWNER_USER_ID
+from local_config import USER_DESCRIPTION_TO_ID
 import event_manager
 import logging
 
@@ -42,14 +43,8 @@ active_api_notifications = {}
 # Load API keys from environment or config file
 API_KEYS_FILE = "api_keys.json"
 
-# Map user descriptions (from api_keys.json) to Discord user IDs
-# When an API key is used, we look up its description and map it to a Discord ID
-USER_DESCRIPTION_TO_ID = {
-    "Narisurii": "0",  # Owner
-    "Alfabem": "0",
-    "Naito": "0",
-    "SteveGHShadow": "0"
-}
+# USER_DESCRIPTION_TO_ID (maps api_keys.json descriptions to Discord user IDs)
+# lives in local_config.py, imported above.
 
 # Hardcoded role assignments per user description.
 # "admin"        – full access to all web-panel endpoints
