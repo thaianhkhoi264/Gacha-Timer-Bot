@@ -3,6 +3,7 @@ import asyncio
 from discord.ext import commands
 from discord import ui, ButtonStyle, Embed, Interaction
 from bot import bot
+from global_config import OWNER_USER_ID
 import json
 import discord
 import io
@@ -1515,7 +1516,7 @@ async def shadowverse_on_message(message):
             server_id = str(message.guild.id)
 
             # --- Refresh command ---
-            if message.author.id == 0 and content == "refresh":
+            if message.author.id == OWNER_USER_ID and content == "refresh":
                 await message.delete()
                 current_season = await get_current_season(message.guild.id)
                 instruction = (
@@ -1548,7 +1549,7 @@ async def shadowverse_on_message(message):
 
             # --- Backread command ---
             if content == "backread":
-                owner_id = 0
+                owner_id = OWNER_USER_ID
                 if message.author.id != owner_id and not message.author.guild_permissions.administrator:
                     await message.reply("Only the bot owner or server admins can use this command.", mention_author=False, delete_after=5)
                     return True

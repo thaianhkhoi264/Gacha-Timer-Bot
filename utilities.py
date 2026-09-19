@@ -1,5 +1,6 @@
 from modules import *
 from bot import bot, bot_version
+from global_config import OWNER_USER_ID
 
 import aiohttp
 from discord.ext import commands
@@ -20,7 +21,7 @@ async def version(ctx):
 @bot.command(name="mmj") # "MMJ" command / AKA kill switch
 async def mmj(ctx):
     """ Forces Kanami to shut down if you are worthy enough. """
-    OWNER_ID = 0
+    OWNER_ID = OWNER_USER_ID
     if ctx.author.id != OWNER_ID:
         await ctx.send("You don't get to use this command!")
         return
@@ -166,7 +167,7 @@ async def purge(ctx, amount: int = 50):
 @bot.command()
 async def restart(ctx):
     """Restarts the bot process via systemd (owner only, Raspberry Pi)."""
-    OWNER_ID = 0
+    OWNER_ID = OWNER_USER_ID
     if ctx.author.id != OWNER_ID:
         await ctx.send("You don't get to use this command!")
         return
@@ -204,9 +205,9 @@ def convert_to_unix_tz(date: str, time: str, timezone_str: str = "UTC"):
 async def export_pending_notifications_core(ctx):
     """
     Exports the pending notifications table as a DM to the user.
-    Only the owner (ID: 0) can use this command.
+    Only the owner can use this command.
     """
-    OWNER_ID = 0
+    OWNER_ID = OWNER_USER_ID
     if ctx.author.id != OWNER_ID:
         await ctx.send("You are not authorized to use this command.")
         return
@@ -302,7 +303,7 @@ async def getlog(ctx):
     Owner-only: Sends the discord.log file to the owner's DMs.
     Usage: Kanami getlog
     """
-    OWNER_ID = 0
+    OWNER_ID = OWNER_USER_ID
     if ctx.author.id != OWNER_ID:
         await ctx.send("Only the bot owner can use this command.")
         return

@@ -10,8 +10,8 @@ from discord.ext import commands
 from typing import Optional, Callable, Awaitable
 import functools
 
-# Bot owner ID
-OWNER_ID = 0
+# Bot owner ID (lives in local_config.py)
+from global_config import OWNER_USER_ID as OWNER_ID
 
 # Valid game profiles
 VALID_PROFILES = ["HSR", "ZZZ", "AK", "STRI", "WUWA", "UMA", "ALL"]

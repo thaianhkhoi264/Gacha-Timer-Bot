@@ -147,7 +147,7 @@ _last_log_time = 0
 
 # refresh pending notification logs path + Owner ID
 DEBUG_LOG_PATH = "debug_refresh_pending.log"
-IMPORTANT_DM_USER_ID = 0
+IMPORTANT_DM_USER_ID = OWNER_USER_ID
 
 # Global anti-notification spam failsafe variables
 recent_notification_times = deque(maxlen=10)  # Track last 10 notifications

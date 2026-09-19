@@ -273,7 +273,7 @@ async def set_channel_slash(interaction: discord.Interaction):
 # Daily report task to send a summary of today's notifications
 async def send_daily_report():
     await bot.wait_until_ready()
-    OWNER_ID = 0
+    OWNER_ID = OWNER_USER_ID
     tz = pytz.timezone("Asia/Bangkok")  # GMT+7
     while not bot.is_closed():
         now = datetime.now(tz)
