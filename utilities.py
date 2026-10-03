@@ -2,8 +2,11 @@ from modules import *
 from bot import bot, bot_version
 from global_config import OWNER_USER_ID
 
+import asyncio
 import aiohttp
 from discord.ext import commands
+
+from wol import send_magic_packet
 
 import logging
 from datetime import datetime, timezone
@@ -296,6 +299,33 @@ async def export_pending_notifications(ctx):
 async def epn(ctx):
     """Shortened command for exporting the pending notifications table as a DM to the user (owner only)."""
     await export_pending_notifications_core(ctx)
+
+@bot.command(name="wake", aliases=["wakepc"])
+async def wake(ctx):
+    """
+    Owner-only: Powers on the PC via Wake-on-LAN (run from the Raspberry Pi).
+    Usage: Kanami wake
+    """
+    if ctx.author.id != OWNER_USER_ID:
+        await ctx.send("You don't get to use this command!")
+        return
+
+    # Read lazily so a missing entry in local_config.py doesn't break bot startup
+    import local_config
+    mac = getattr(local_config, "PC_MAC_ADDRESS", None)
+    broadcast_ip = getattr(local_config, "PC_WOL_BROADCAST_IP", None)
+    if not mac or not broadcast_ip:
+        await ctx.send("Wake-on-LAN isn't configured: set PC_MAC_ADDRESS and "
+                       "PC_WOL_BROADCAST_IP in local_config.py.")
+        return
+
+    try:
+        # WoL is conventionally UDP port 9 (7 on some NICs); send to both
+        for port in (9, 7):
+            await asyncio.to_thread(send_magic_packet, mac, broadcast_ip, port)
+        await ctx.send("Magic packet sent. The PC should power on in a few seconds.")
+    except Exception as e:
+        await ctx.send(f"Failed to send magic packet: {e}")
 
 @bot.command()
 async def getlog(ctx):
