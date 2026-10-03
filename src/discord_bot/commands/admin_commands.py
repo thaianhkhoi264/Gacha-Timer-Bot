@@ -2,17 +2,31 @@
 Admin commands for the Gacha Timer Bot.
 
 This module contains owner-only administrative commands such as
-shutdown, restart, getlog, and export functions.
+shutdown, restart, wake (Wake-on-LAN), getlog, and export functions.
 """
 
 import discord
 from discord.ext import commands
 from typing import Optional
+import asyncio
+import re
+import socket
 import subprocess
 import aiosqlite
 from collections import defaultdict
 
 from .base import owner_only, is_owner, OWNER_ID
+
+
+def _send_magic_packet(mac: str, broadcast_ip: str, port: int = 9) -> None:
+    """Broadcast a Wake-on-LAN magic packet (6x 0xFF + 16x the MAC) over UDP."""
+    hex_mac = re.sub(r"[^0-9A-Fa-f]", "", mac)
+    if len(hex_mac) != 12:
+        raise ValueError(f"Invalid MAC address: {mac!r}")
+    packet = b"\xff" * 6 + bytes.fromhex(hex_mac) * 16
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.sendto(packet, (broadcast_ip, port))
 
 
 def setup_admin_commands(bot: commands.Bot):
@@ -59,6 +73,33 @@ def setup_admin_commands(bot: commands.Bot):
             subprocess.Popen(["sudo", "systemctl", "restart", "kanami-bot"])
         except Exception as e:
             await ctx.send(f"Failed to restart: {e}")
+
+    @bot.command(name="wake", aliases=["wakepc"])
+    async def wake(ctx: commands.Context):
+        """
+        Owner-only: Powers on the PC via Wake-on-LAN (run from the Raspberry Pi).
+        Usage: Kanami wake
+        """
+        if ctx.author.id != OWNER_ID:
+            await ctx.send("You don't get to use this command!")
+            return
+
+        # Read lazily so a missing entry in local_config.py doesn't break bot startup
+        import local_config
+        mac = getattr(local_config, "PC_MAC_ADDRESS", None)
+        broadcast_ip = getattr(local_config, "PC_WOL_BROADCAST_IP", None)
+        if not mac or not broadcast_ip:
+            await ctx.send("Wake-on-LAN isn't configured: set PC_MAC_ADDRESS and "
+                           "PC_WOL_BROADCAST_IP in local_config.py.")
+            return
+
+        try:
+            # WoL is conventionally UDP port 9 (7 on some NICs); send to both
+            for port in (9, 7):
+                await asyncio.to_thread(_send_magic_packet, mac, broadcast_ip, port)
+            await ctx.send("Magic packet sent. The PC should power on in a few seconds.")
+        except Exception as e:
+            await ctx.send(f"Failed to send magic packet: {e}")
 
     @bot.command(name="getlog")
     async def getlog(ctx: commands.Context):
@@ -217,6 +258,7 @@ def setup_admin_commands(bot: commands.Bot):
         'mmj': mmj,
         'shutdown': shutdown,
         'restart': restart,
+        'wake': wake,
         'getlog': getlog,
         'export_pending_notifications': export_pending_notifications,
         'epn': epn,

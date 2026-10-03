@@ -114,3 +114,9 @@ USER_DESCRIPTION_TO_ID = {
     "Naito": "0",
     "SteveGHShadow": "0",
 }
+
+# Wake-on-LAN target (the PC the bot powers on via `Kanami wake`)
+# MAC of the PC's Ethernet adapter (`ipconfig /all`), colon- or dash-separated.
+PC_MAC_ADDRESS = "AA:BB:CC:DD:EE:FF"
+# Broadcast address of the LAN the bot runs on (e.g. 192.168.1.255 for a /24).
+PC_WOL_BROADCAST_IP = "192.168.1.255"
