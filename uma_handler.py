@@ -1500,16 +1500,19 @@ async def combine_images_horizontally(img_urls):
 
 # ==================== UMA-SPECIFIC PARSING ====================
 
+CM_LEAGUE_SELECTION_DAYS = 3
+
+
 def parse_champions_meeting_phases(event_description, event_start, event_end):
-    """Calculate Champions Meeting phase times based on event end time."""
-    phases = []
-    phase_definitions = [
-        ("Finals", 1),
-        ("Final Registration", 1),
-        ("Round 2", 2),
-        ("Round 1", 2),
-        ("League Selection", None)
-    ]
+    """Calculate Champions Meeting phase times.
+
+    League Selection (3d) -> Round 1 (2d) -> Round 2 (2d) -> Final Registration
+    are anchored forward from the event start; Finals stays anchored 1 day before
+    the event end.  The event span includes a trailing day, so anchoring everything
+    backward from the end made Round 1 / Round 2 / Final Registration 1 day late.
+    Falls back to the old end-anchored layout when the span is too short for the
+    forward layout (e.g. manually added 7-day events).
+    """
     duration_map = {}
     if event_description:
         lines = event_description.split('\n')
@@ -1522,6 +1525,38 @@ def parse_champions_meeting_phases(event_description, event_start, event_end):
                 m = re.search(r'\((\d+)\s+days?\)', line)
                 if m:
                     duration_map["Round 2"] = int(m.group(1))
+
+    round1_start = event_start + CM_LEAGUE_SELECTION_DAYS * 86400
+    round2_start = round1_start + duration_map.get("Round 1", 2) * 86400
+    final_reg_start = round2_start + duration_map.get("Round 2", 2) * 86400
+    finals_start = event_end - 86400
+
+    if final_reg_start < finals_start:
+        starts = [
+            ("League Selection", event_start),
+            ("Round 1", round1_start),
+            ("Round 2", round2_start),
+            ("Final Registration", final_reg_start),
+            ("Finals", finals_start),
+        ]
+        phases = []
+        for i, (name, start) in enumerate(starts):
+            next_start = starts[i + 1][1] if i + 1 < len(starts) else event_end
+            phases.append({
+                "name": name,
+                "start_time": start,
+                "duration_days": (next_start - start) // 86400,
+            })
+        return phases
+
+    phases = []
+    phase_definitions = [
+        ("Finals", 1),
+        ("Final Registration", 1),
+        ("Round 2", 2),
+        ("Round 1", 2),
+        ("League Selection", None)
+    ]
     current_end = event_end
     for phase_name, default_duration in phase_definitions:
         if phase_name == "League Selection":
