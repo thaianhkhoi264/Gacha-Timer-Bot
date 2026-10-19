@@ -11,6 +11,7 @@ from global_config import MAIN_SERVER_ID, ONGOING_EVENTS_CHANNELS, UPCOMING_EVEN
 from arknights_module import AK_DB_PATH, add_ak_event, delete_event_message as ak_delete_event_message, arknights_update_timers, AK_TIMEZONE
 from uma_module import UMA_DB_PATH, add_uma_event, delete_event_message as uma_delete_event_message, uma_update_timers
 from notification_handler import NOTIF_DB_PATH, delete_notifications_for_event, schedule_notifications_for_event
+from emoji_shortcodes import expand_emoji_shortcodes
 
 # Bot instance placeholder (injected via set_bot)
 _bot = None
@@ -151,7 +152,8 @@ async def get_all_pending_notifications(profile=None):
                 return [dict(row) async for row in cursor]
 
 async def update_notification_message(notif_id, custom_message):
-    """Set custom_message on a pending notification row."""
+    """Set custom_message on a pending notification row (emoji shortcodes expanded)."""
+    custom_message = expand_emoji_shortcodes(custom_message)
     async with aiosqlite.connect(NOTIF_DB_PATH) as conn:
         await conn.execute(
             "UPDATE pending_notifications SET custom_message=? WHERE id=?",
