@@ -1069,6 +1069,9 @@ async def process_events(raw_events):
     return processed
 
 
+_last_process_skipped = 0  # events process_api_events() dropped on error in its latest run
+
+
 async def process_api_events(api_events):
     """
     Convert uma.moe API event dicts directly to DB-ready event dicts.
@@ -1084,6 +1087,7 @@ async def process_api_events(api_events):
     processed = []
     skip_ids = set()
     paid_seq_by_date = {}  # release date -> count of Offer events emitted so far
+    skipped_count = 0
 
     def _iso(s):
         return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp())
@@ -1367,8 +1371,11 @@ async def process_api_events(api_events):
                 f"[API] Skipped malformed event {ev.get('id', '?')} "
                 f"(type={ev.get('type')}): {e}"
             )
+            skipped_count += 1
             continue
 
+    global _last_process_skipped
+    _last_process_skipped = skipped_count
     uma_handler_logger.info(f"[API] process_api_events: {len(processed)} events ready (from {len(api_events)} total API events)")
     print(f"[UMA HANDLER] process_api_events: {len(processed)} events ready")
     return processed
@@ -1622,11 +1629,14 @@ def parse_legend_race_characters(event_description, event_start, event_end):
 
 # ==================== UMA EVENT DATABASE WRITER ====================
 
-async def add_uma_event(event_data, user_id="0"):
+async def add_uma_event(event_data, user_id="0", scrape_ctx=None):
     """Adds or updates an Uma Musume event in the database (only if changed).
 
     This is a pure-DB function with no Discord dependency, safe to call from
     standalone scripts (uma_scraper.py) as well as from the bot.
+
+    scrape_ctx (optional, scraper only): {"feed_keys": {(title, start)}, "claimed": {ids}}
+    used to keep date-shift matching one-to-one.  Returns the event id used.
     """
     uma_handler_logger.info(f"[Add Event] Processing event: {event_data.get('title', 'Unknown')}")
 
@@ -1701,12 +1711,30 @@ async def add_uma_event(event_data, user_id="0"):
                     ) as _cur:
                         _candidates = [(row[0], row[1]) async for row in _cur if row[0]]
 
+                    # Repeating titles ("League of Heroes", "Champions Meeting: CLASSIC")
+                    # have several feed events within 2 months of each other.  A row may
+                    # only be treated as a date-shifted copy of THIS event if no other feed
+                    # event owns it (its start isn't another feed event's start) and no
+                    # earlier event in this scrape already claimed it; among the rest take
+                    # the closest start.  Otherwise neighbouring events overwrite each other.
+                    _ctx = scrape_ctx or {}
+                    _feed_keys = _ctx.get("feed_keys", set())
+                    _claimed = _ctx.get("claimed", set())
+                    _eligible = []
                     for _cand_id, _cand_start in _candidates:
-                        if _cand_start and abs(int(_cand_start) - _new_start) <= _TWO_MONTHS:
-                            existing_ids = [_cand_id]
-                            print(f"[UMA HANDLER] Date-shift match for '{event_data['title']}': "
-                                  f"reusing {_cand_id} (was start {_cand_start}, now {_new_start})")
-                            break
+                        try:
+                            _cs = int(_cand_start)
+                        except (TypeError, ValueError):
+                            continue
+                        if _cand_id in _claimed or (event_data["title"], _cs) in _feed_keys:
+                            continue
+                        if abs(_cs - _new_start) <= _TWO_MONTHS:
+                            _eligible.append((abs(_cs - _new_start), _cand_id, _cs))
+                    if _eligible:
+                        _, _cand_id, _cs = min(_eligible)
+                        existing_ids = [_cand_id]
+                        print(f"[UMA HANDLER] Date-shift match for '{event_data['title']}': "
+                              f"reusing {_cand_id} (was start {_cs}, now {_new_start})")
 
                 elif _category == "Offer":
                     # Paid Banners: title encodes start date ("Paid Banner (Mar 16)"), so
@@ -1771,9 +1799,15 @@ async def add_uma_event(event_data, user_id="0"):
                 await conn.commit()
                 uma_handler_logger.info(f"[Add Event] Updated existing event: {event_data['title']} (ID: {event_id})")
                 print(f"[UMA HANDLER] Updated event: {event_data['title']} (ID: {event_id})")
-                # Delete by OLD title so orphaned notifications don't linger if the title changed
+                # Delete by OLD title so orphaned notifications don't linger if the title changed.
+                # Scope to the event's old dates so same-titled siblings keep theirs.
                 from notification_handler import delete_notifications_for_event
-                await delete_notifications_for_event(old_title, event_data['category'], "UMA")
+                try:
+                    _old_window = (int(old_start), int(old_end))
+                except (TypeError, ValueError):
+                    _old_window = (None, None)
+                await delete_notifications_for_event(old_title, event_data['category'], "UMA",
+                                                     event_start=_old_window[0], event_end=_old_window[1])
             else:
                 uma_handler_logger.info(f"[Add Event] Event unchanged: {event_data['title']} (ID: {event_id})")
                 print(f"[UMA HANDLER] Event unchanged: {event_data['title']} (ID: {event_id})")
@@ -1806,6 +1840,80 @@ async def add_uma_event(event_data, user_id="0"):
         uma_handler_logger.error(f"Failed to schedule notifications for {event_data['title']}: {e}")
         print(f"[UMA HANDLER] ERROR scheduling notifications: {e}")
 
+    if scrape_ctx is not None:
+        scrape_ctx.setdefault("claimed", set()).add(event_id)
+    return event_id
+
+
+PRUNE_STALE_EVENTS = True
+_PRUNABLE_CATEGORIES = ("Banner", "Offer", "Event", "Legend Race", "Champions Meeting")
+_PAID_BANNER_TITLE_RE = re.compile(r"^Paid Banner( \d+)? \([A-Z][a-z]{2} \d{2}\)$")
+
+
+def _is_feed_managed(row_id, category, title, feed_titles):
+    """True if an events row looks like it was created by the scraper (not added by hand)."""
+    row_id = str(row_id or "")
+    if category not in _PRUNABLE_CATEGORIES:
+        return False
+    if row_id.isdigit():  # keyed by uma.moe gacha_id
+        return True
+    if category == "Offer":
+        return bool(_PAID_BANNER_TITLE_RE.match(title or ""))
+    if category == "Banner":
+        return row_id.startswith("CB") and (title or "").endswith("Banner")
+    return (category, title) in feed_titles  # Event / Legend Race / Champions Meeting
+
+
+async def prune_stale_feed_events(events, produced_ids, now_ts=None):
+    """Delete upcoming/ongoing scraper-created rows that the latest feed no longer produces.
+
+    uma.moe drops or renumbers events (and old scraper versions left rows behind); nothing
+    else ever removes those until they expire, so the bot would announce events the
+    timeline no longer lists.  Hand-added rows (and Maintenance) are never touched.
+    Returns the list of (id, category, title) that were removed.
+    """
+    if not PRUNE_STALE_EVENTS:
+        return []
+    if _last_process_skipped:
+        uma_handler_logger.warning(f"[Prune] Skipped: {_last_process_skipped} feed event(s) failed to process")
+        return []
+    if len(events) < 100:
+        uma_handler_logger.warning(f"[Prune] Skipped: only {len(events)} events in feed (expected hundreds)")
+        return []
+
+    now_ts = int(now_ts if now_ts is not None else datetime.now(timezone.utc).timestamp())
+    feed_titles = {(e["category"], e["title"]) for e in events}
+
+    async with aiosqlite.connect(UMA_DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT id, category, title, start_date, end_date FROM events "
+            "WHERE profile='UMA' AND CAST(end_date AS INTEGER) >= ?", (now_ts,)
+        ) as cur:
+            live_rows = [row async for row in cur]
+
+        stale = [r for r in live_rows
+                 if r[0] not in produced_ids and _is_feed_managed(r[0], r[1], r[2], feed_titles)]
+        if not stale:
+            return []
+        if len(stale) > 0.6 * len(live_rows):
+            uma_handler_logger.error(
+                f"[Prune] Skipped: would remove {len(stale)} of {len(live_rows)} live rows — feed looks wrong")
+            return []
+
+        from notification_handler import delete_notifications_for_event
+        for row_id, category, title, start, end in stale:
+            await conn.execute("DELETE FROM events WHERE id=?", (row_id,))
+            try:
+                await delete_notifications_for_event(title, category, "UMA",
+                                                     event_start=int(start), event_end=int(end))
+            except Exception as e:
+                uma_handler_logger.error(f"[Prune] Failed to clear notifications for {row_id}: {e}")
+            uma_handler_logger.info(f"[Prune] Removed {row_id} ({category}): {title}")
+            print(f"[UMA HANDLER] Pruned stale event {row_id} ({category}): {title}")
+        await conn.commit()
+
+    return [(r[0], r[1], r[2]) for r in stale]
+
 
 async def scrape_and_save_events():
     """
@@ -1834,10 +1942,15 @@ async def scrape_and_save_events():
 
     print(f"[UMA HANDLER] Adding {len(events)} events to database...")
 
+    scrape_ctx = {
+        "feed_keys": {(e["title"], int(e["start"])) for e in events if not e.get("id")},
+        "claimed": set(),
+    }
+    produced_ids = set()
     added_count = 0
     for event_data in events:
         try:
-            await add_uma_event(event_data)
+            produced_ids.add(await add_uma_event(event_data, scrape_ctx=scrape_ctx))
             added_count += 1
         except Exception as e:
             uma_handler_logger.error(f"Failed to process event '{event_data.get('title', 'Unknown')}': {e}")
@@ -1846,6 +1959,13 @@ async def scrape_and_save_events():
 
     uma_handler_logger.info(f"Processed {added_count}/{len(events)} events.")
     print(f"[UMA HANDLER] Processed {added_count}/{len(events)} events.")
+
+    if added_count == len(events):
+        pruned = await prune_stale_feed_events(events, produced_ids)
+        if pruned:
+            print(f"[UMA HANDLER] Pruned {len(pruned)} stale event(s) no longer in the feed.")
+    else:
+        uma_handler_logger.warning("[Prune] Skipped: some events failed to save this run")
     print(f"[UMA HANDLER] Event update complete!")
 
 # ==================== GAMETORA DATABASE SCRAPING ====================
