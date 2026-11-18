@@ -6,6 +6,7 @@ import gzip
 import re
 import hashlib
 import aiosqlite
+import character_cards
 from urllib.parse import urljoin, urlparse
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -2420,120 +2421,49 @@ async def scrape_gametora_jp_banners(force_full_scan: bool = False, max_retries:
     traceback.print_exc()
     return None
 
-async def scrape_gametora_all_characters(max_retries: int = 3):
+async def scrape_gametora_all_characters():
     """
-    Scrape ALL characters from GameTora's character list page.
-    This includes low-rarity characters that never appeared in banners.
+    Sync the ``characters`` table from the ``character-cards`` JSON data file.
+
+    Includes every card the file lists (JP-only ones too, which the banner scraper
+    needs).  Returns the number of rows saved, or None if the data file could not be
+    fetched - in which case the table (and the saved local copy) are left untouched.
     """
-    print("[GameTora] Starting ALL characters scrape...")
-    uma_handler_logger.info("[GameTora] Starting ALL characters scrape...")
-    
+    print("[Cards] Starting ALL characters sync (character-cards JSON)...")
+    uma_handler_logger.info("[Cards] Starting ALL characters sync (character-cards JSON)...")
+
     await init_gametora_db()
-    
-    url = "https://gametora.com/umamusume/characters"
-    last_error = None
-    
-    for attempt in range(max_retries):
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                
-                page.set_default_timeout(90000)
-                
-                print(f"[GameTora] Navigating to {url} (attempt {attempt + 1}/{max_retries})")
-                await page.goto(url, timeout=90000, wait_until="domcontentloaded")
 
-                # Wait for character card links to appear in DOM.
-                try:
-                    await page.wait_for_selector('a[href*="/umamusume/characters/"]', state="attached", timeout=30000)
-                except Exception:
-                    await asyncio.sleep(5)  # Fallback if selector not found
+    result = await character_cards.fetch_character_cards()
+    if result is None:
+        uma_handler_logger.error(
+            "[Cards] Character sync failed: character-cards unavailable; database unchanged")
+        return None
 
-                # All characters (Global + JP-only hidden) are present in the DOM on initial load.
-                # The "Show Upcoming" checkbox only toggles CSS visibility — no need to click it.
+    rows, unmapped_versions, skipped = character_cards.cards_to_rows(result.cards)
+    if unmapped_versions:
+        uma_handler_logger.warning(
+            f"[Cards] Unmapped character versions (title-cased): {sorted(unmapped_versions)} "
+            f"- add them to character_cards.VERSION_DISPLAY_NAMES")
+    if not rows:
+        uma_handler_logger.error("[Cards] character-cards held no usable cards; database unchanged")
+        return None
 
-                # Extract all character data in one JS call — avoids 4-5 IPC round-trips per element.
-                raw_chars = await page.evaluate("""() => {
-                    const links = Array.from(document.querySelectorAll('a[href*="/umamusume/characters/"]'));
-                    const results = [];
-                    for (const a of links) {
-                        const href = a.getAttribute('href');
-                        if (!href || href.includes('/profiles')) continue;
-                        const idMatch = href.match(/\\/characters\\/(\\d+)/);
-                        if (!idMatch) continue;
+    async with aiosqlite.connect(GAMETORA_DB_PATH) as db:
+        await db.executemany(
+            "INSERT OR REPLACE INTO characters (character_id, name, link) VALUES (?, ?, ?)",
+            [(r["character_id"], r["name"], r["link"]) for r in rows],
+        )
+        await db.commit()
 
-                        // Name: first span without version class and without inline style
-                        const nameSpan = a.querySelector('span:not(.characters_list_char_version__CVHa7):not([style])');
-                        if (!nameSpan) continue;
-                        // Normalise multi-line display: "Matikane-\\nFukukitaru" or "Fuji\\nKiseki"
-                        let name = nameSpan.innerText.replace(/-\\n/g, '').replace(/\\n/g, ' ').trim();
-                        if (!name) continue;
-
-                        const versionSpan = a.querySelector('span.characters_list_char_version__CVHa7');
-                        if (versionSpan) {
-                            const version = versionSpan.innerText.trim();
-                            if (version) name = name + ' (' + version + ')';
-                        }
-
-                        results.push({ id: idMatch[1], href, name });
-                    }
-                    return results;
-                }""")
-
-                characters_data = [
-                    {
-                        'character_id': c['id'],
-                        'name': c['name'],
-                        'link': c['href'] if c['href'].startswith('/') else f"/{c['href']}",
-                    }
-                    for c in raw_chars
-                ]
-                
-                await browser.close()
-                
-                print(f"[GameTora] Extracted {len(characters_data)} characters")
-                uma_handler_logger.info(f"[GameTora] Extracted {len(characters_data)} characters")
-                
-                # Save to database
-                if characters_data:
-                    async with aiosqlite.connect(GAMETORA_DB_PATH) as db:
-                        # First, log some sample characters to verify format
-                        sample_chars = characters_data[:5]
-                        print(f"[GameTora] Sample character names being saved:")
-                        for char in sample_chars:
-                            print(f"  ID {char['character_id']}: {char['name']}")
-                        
-                        # Insert or replace characters (this will overwrite old bad data)
-                        updated_count = 0
-                        for char in characters_data:
-                            await db.execute('''
-                                INSERT OR REPLACE INTO characters (character_id, name, link)
-                                VALUES (?, ?, ?)
-                            ''', (char['character_id'], char['name'], char['link']))
-                            updated_count += 1
-                        
-                        await db.commit()
-                        print(f"[GameTora] Saved/updated {updated_count} characters to database")
-                        uma_handler_logger.info(f"[GameTora] Saved/updated {updated_count} characters to database")
-                
-                return len(characters_data)
-                
-        except Exception as e:
-            last_error = e
-            print(f"[GameTora] Error during character scrape (attempt {attempt + 1}/{max_retries}): {e}")
-            uma_handler_logger.error(f"[GameTora] Error during character scrape: {e}")
-            
-            if attempt < max_retries - 1:
-                wait_time = (attempt + 1) * 10
-                print(f"[GameTora] Retrying in {wait_time} seconds...")
-                await asyncio.sleep(wait_time)
-    
-    # All retries failed
-    uma_handler_logger.error(f"[GameTora] Failed to scrape characters after {max_retries} attempts: {last_error}")
-    import traceback
-    traceback.print_exc()
-    return None
+    summary = (
+        f"[Cards] Saved/updated {len(rows)} characters from character-cards "
+        f"(hash {result.hash}, found via {result.discovered_via}, "
+        f"{'downloaded' if result.downloaded else 'unchanged'}, {skipped} skipped)"
+    )
+    print(summary)
+    uma_handler_logger.info(summary)
+    return len(rows)
 
 async def scrape_gametora_all_supports(max_retries: int = 3):
     """
